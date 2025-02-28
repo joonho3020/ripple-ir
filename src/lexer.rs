@@ -115,8 +115,8 @@ pub enum Token {
     #[token("validif")]
     ValidIf,
 
-    #[token("mem")]
-    Mem,
+// #[token("mem")]
+// Mem,
 
     #[token("smem")]
     SMem,

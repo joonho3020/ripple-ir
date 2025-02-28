@@ -9,7 +9,8 @@ mod test {
     #[test]
     fn gcd() {
         let source =
-r#"circuit GCD :
+r#"FIRRTL version 3.3.0
+circuit GCD :
   module GCD : @[src/main/scala/gcd/GCD.scala 15:7]
     input clock : Clock @[src/main/scala/gcd/GCD.scala 15:7]
     input reset : UInt<1> @[src/main/scala/gcd/GCD.scala 15:7]
@@ -34,7 +35,47 @@ r#"circuit GCD :
     connect io.outputValid, _io_outputValid_T @[src/main/scala/gcd/GCD.scala 36:18]
 "#;
 
-        println!("Starting test");
+        let mut lex = FIRRTLLexer::new(source);
+        while let Some(ts) = lex.next() {
+            println!("- {:?}", ts);
+            match ts.token {
+                Token::Error => {
+                    panic!("Got a error token");
+                }
+                _ => { }
+            }
+        }
+    }
+
+    #[test]
+    fn one_read_one_write_sram() {
+        let source =
+r#"FIRRTL version 3.3.0
+circuit OneReadOneWritePortSRAM :
+  module OneReadOneWritePortSRAM : @[src/main/scala/gcd/SRAM.scala 10:7]
+    input clock : Clock @[src/main/scala/gcd/SRAM.scala 10:7]
+    input reset : UInt<1> @[src/main/scala/gcd/SRAM.scala 10:7]
+    output io : { flip ren : UInt<1>, flip raddr : UInt<3>, rdata : UInt<2>[4], flip wen : UInt<1>, flip waddr : UInt<3>, flip wdata : UInt<2>[4], flip wmask : UInt<1>[4]} @[src/main/scala/gcd/SRAM.scala 11:14]
+
+    smem mem : UInt<2>[4] [8] @[src/main/scala/gcd/SRAM.scala 22:24]
+    when io.wen : @[src/main/scala/gcd/SRAM.scala 23:17]
+      write mport MPORT = mem[io.waddr], clock @[src/main/scala/gcd/SRAM.scala 24:14]
+      when io.wmask[0] : @[src/main/scala/gcd/SRAM.scala 24:14]
+        connect MPORT[0], io.wdata[0] @[src/main/scala/gcd/SRAM.scala 24:14]
+      when io.wmask[1] : @[src/main/scala/gcd/SRAM.scala 24:14]
+        connect MPORT[1], io.wdata[1] @[src/main/scala/gcd/SRAM.scala 24:14]
+      when io.wmask[2] : @[src/main/scala/gcd/SRAM.scala 24:14]
+        connect MPORT[2], io.wdata[2] @[src/main/scala/gcd/SRAM.scala 24:14]
+      when io.wmask[3] : @[src/main/scala/gcd/SRAM.scala 24:14]
+        connect MPORT[3], io.wdata[3] @[src/main/scala/gcd/SRAM.scala 24:14]
+    wire _WIRE : UInt<3> @[src/main/scala/gcd/SRAM.scala 26:23]
+    invalidate _WIRE @[src/main/scala/gcd/SRAM.scala 26:23]
+    when io.ren : @[src/main/scala/gcd/SRAM.scala 26:23]
+      connect _WIRE, io.raddr @[src/main/scala/gcd/SRAM.scala 26:23]
+      read mport MPORT_1 = mem[_WIRE], clock @[src/main/scala/gcd/SRAM.scala 26:23]
+    connect io.rdata, MPORT_1 @[src/main/scala/gcd/SRAM.scala 26:12]
+    "#;
+
         let mut lex = FIRRTLLexer::new(source);
         while let Some(ts) = lex.next() {
             println!("- {:?}", ts);
