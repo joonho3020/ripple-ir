@@ -30,9 +30,6 @@ pub enum Token {
     #[regex(r#""([^"\\]|\\.)*""#)]
     String,
 
-// #[regex(r"[{}\(\)\[\],.:;]")]
-// Symbol,
-
     #[token("/")]
     Slash,
 
@@ -253,6 +250,9 @@ pub enum Token {
     #[regex(r"[.,:=@%<>()\[\]{}]")]
     Symbol,
 
+    #[token(".")]
+    Period,
+
     #[error]
     Error,
 }
@@ -264,6 +264,7 @@ enum LexerMode {
     Indent,
     IntId,
     Info,
+    DotId,
     Anno,
     Normal,
 }
@@ -380,6 +381,19 @@ impl<'a> FIRRTLLexer<'a> {
         }
     }
 
+    fn dotid_mode(&mut self) -> Option<TokenString> {
+        let ts = self.tokens.pop_front().unwrap();
+        match ts.token {
+            Token::IntegerDec => {
+                Some(TokenString::new(Token::ID, ts.name.clone().unwrap()))
+            }
+            _ => {
+                self.mode = LexerMode::Normal;
+                Some(ts)
+            }
+        }
+    }
+
     fn normal_mode(&mut self) -> Option<TokenString> {
         let ts = self.tokens.pop_front().unwrap();
         match ts.token {
@@ -436,6 +450,10 @@ impl<'a> FIRRTLLexer<'a> {
                 self.parenthesis_num += 1;
                 Some(ts)
             }
+            Token::Period => {
+                self.mode = LexerMode::DotId;
+                Some(ts)
+            }
             _ => {
                 Some(ts)
             }
@@ -471,6 +489,17 @@ impl<'a> FIRRTLLexer<'a> {
                     }
                 }
                 LexerMode::IntId => {
+                }
+                LexerMode::DotId => {
+                    match self.dotid_mode() {
+                        Some(ts) => {
+                            return Some(ts)
+                        }
+                        _ => {
+                            self.try_push();
+                            continue;
+                        }
+                    }
                 }
                 LexerMode::Info => {
                     match self.info_mode() {
