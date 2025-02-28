@@ -429,6 +429,13 @@ impl<'a> FIRRTLLexer<'a> {
                 self.parenthesis_num -= 1;
                 Some(ts)
             }
+            Token::E1Op |
+                Token::E2Op |
+                Token::E1I1Op |
+                Token::E1I2Op => {
+                self.parenthesis_num += 1;
+                Some(ts)
+            }
             _ => {
                 Some(ts)
             }
