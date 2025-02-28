@@ -37,7 +37,7 @@ r#"circuit GCD :
         println!("Starting test");
         let mut lex = FIRRTLLexer::new(source);
         while let Some(ts) = lex.next() {
-            println!("{:?}", ts);
+            println!("- {:?}", ts);
             match ts.token {
                 Token::Error => {
                     panic!("Got a error token");

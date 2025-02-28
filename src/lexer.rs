@@ -7,6 +7,7 @@ pub enum Token {
     Indent,
     Dedent,
     Info,
+    ID,
 
     #[token(" ")]
     Space,
@@ -21,7 +22,7 @@ pub enum Token {
     RadixInt,
 
     #[regex("-?[0-9]+", priority = 3)]
-    Integer,
+    IntegerDec,
 
     #[regex("[_A-Za-z][_A-Za-z0-9]*", priority = 1)]
     Identifier,
@@ -29,20 +30,204 @@ pub enum Token {
     #[regex(r#""([^"\\]|\\.)*""#)]
     String,
 
-    #[regex(r"[{}\(\)\[\],.:;]")]
-    Symbol,
+// #[regex(r"[{}\(\)\[\],.:;]")]
+// Symbol,
 
     #[token("/")]
     Slash,
 
     #[token("[")]
-    LeftSquareBracket,
+    LeftSquare,
 
     #[token("]")]
-    RightSquareBracket,
+    RightSquare,
+
+    #[token("<")]
+    LeftAngle,
+
+    #[token(">")]
+    RightAngle,
+
+    #[token("{")]
+    LeftBracket,
+
+    #[token("}")]
+    RightBracket,
+
+    #[token("(")]
+    LeftParenthesis,
+
+    #[token(")")]
+    RightParenthesis,
 
     #[token("@")]
     AtSymbol,
+
+    #[token("<<")]
+    DoubleLeft,
+
+    #[token(">>")]
+    DoubleRight,
+
+
+    #[token("Clock")]
+    Clock,
+
+    #[token("Reset")]
+    Reset,
+
+    #[token("AsyncReset")]
+    AsyncReset,
+
+    #[token("UInt")]
+    UInt,
+
+    #[token("SInt")]
+    SInt,
+
+    #[token("probe")]
+    ProbeType,
+
+    #[token("Probe")]
+    Probe,
+
+    #[token("Analog")]
+    Analog,
+
+    #[token("Fixed")]
+    Fixed,
+
+    #[token("flip")]
+    Flip,
+
+    #[regex("add|sub|mul|div|rem|lt|leq|gt|geq|eq|neq|dshl|dshr|and|or|xor|cat")]
+    E2Op,
+
+    #[regex("asUInt|asSInt|asClock|asAsyncReset|cvt|neg|not|andr|orr|xorr")]
+    E1Op,
+
+    #[regex("(pad|shl|shr|head|tail)[(]")]
+    E1I1Op,
+
+    #[regex("bits[(]")]
+    E1I2Op,
+
+    #[token("mux")]
+    Mux,
+
+    #[token("validif")]
+    ValidIf,
+
+    #[token("mem")]
+    Mem,
+
+    #[token("smem")]
+    SMem,
+
+    #[token("cmem")]
+    CMem,
+
+    #[token("write")]
+    Write,
+
+    #[token("read")]
+    Read,
+
+    #[token("infer")]
+    Infer,
+
+    #[token("mport")]
+    Mport,
+
+    #[token("data-type")]
+    DataType,
+
+    #[token("depth")]
+    Depth,
+
+    #[token("read-latency")]
+    ReadLatency,
+
+    #[token("write-latency")]
+    WriteLatency,
+
+    #[token("read-under-write")]
+    ReadUnderWrite,
+
+    #[token("reader")]
+    Reader,
+
+    #[token("writer")]
+    Writer,
+
+    #[token("readwriter")]
+    Readwriter,
+
+    #[token("wire")]
+    Wire,
+
+    #[token("reg")]
+    Reg,
+
+    #[token("regreset")]
+    Regreset,
+
+    #[token("inst")]
+    Inst,
+
+    #[token("of")]
+    Of,
+
+    #[token("node")]
+    Node,
+
+    #[token("invalidate")]
+    Invalidate,
+
+    #[token("attach")]
+    Attach,
+
+    #[token("when")]
+    When,
+
+    #[token("else")]
+    Else,
+
+    #[token("stop")]
+    Stop,
+
+    #[token("printf")]
+    Printf,
+
+    #[token("assert")]
+    Assert,
+
+    #[token("skip")]
+    Skip,
+
+    #[token("input")]
+    Input,
+
+    #[token("output")]
+    Output,
+
+    #[token("module")]
+    Module,
+
+    #[token("extmodule")]
+    Extmodule,
+
+    #[token("defname")]
+    Defname,
+
+    #[token("parameter")]
+    Parameter,
+
+    #[token("intmodule")]
+    Intmodule,
+
+    #[token("intrinsic")]
+    Intrinsic,
 
     #[token("FIRRTL")]
     FIRRTL,
@@ -50,11 +235,23 @@ pub enum Token {
     #[token("version")]
     Version,
 
-    #[token("module")]
-    Module,
-
     #[token("circuit")]
     Circuit,
+
+    #[token("connect")]
+    Connect,
+
+    #[token("public")]
+    Public,
+
+    #[token("define")]
+    Define,
+
+    #[token("const")]
+    Const,
+
+    #[regex(r"[.,:=@%<>()\[\]{}]")]
+    Symbol,
 
     #[error]
     Error,
@@ -103,6 +300,10 @@ pub struct FIRRTLLexer<'a> {
     indent_levels: Vec<u32>,
     cur_indent: u32,
     info_string: String,
+    angle_num: u32,
+    square_num: u32,
+    bracket_num: u32,
+    parenthesis_num: u32,
 }
 
 impl<'a> FIRRTLLexer<'a> {
@@ -116,6 +317,10 @@ impl<'a> FIRRTLLexer<'a> {
             mode: LexerMode::Indent,
             cur_indent: 0,
             info_string: String::default(),
+            angle_num: 0,
+            square_num: 0,
+            bracket_num: 0,
+            parenthesis_num: 0,
         }
     }
 
@@ -160,11 +365,11 @@ impl<'a> FIRRTLLexer<'a> {
     fn info_mode(&mut self) -> Option<TokenString> {
         let ts = self.tokens.pop_front().unwrap();
         match ts.token {
-            Token::LeftSquareBracket => {
+            Token::LeftSquare => {
                 self.info_string = String::default();
                 None
             }
-            Token::RightSquareBracket => {
+            Token::RightSquare => {
                 self.mode = LexerMode::Normal;
                 Some(TokenString::new(Token::Info, self.info_string.clone()))
             }
@@ -186,9 +391,43 @@ impl<'a> FIRRTLLexer<'a> {
             Token::Space => {
                 None
             }
+            Token::IntegerDec => {
+                if self.angle_num == 0 &&
+                    self.square_num == 0 &&
+                    self.parenthesis_num == 0 &&
+                    self.bracket_num != 0 {
+                    Some(TokenString::new(Token::ID, ts.name.unwrap()))
+                } else {
+                    Some(ts)
+                }
+            }
             Token::AtSymbol => {
                 self.mode = LexerMode::Info;
                 None
+            }
+            Token::LeftAngle => {
+                self.angle_num += 1;
+                Some(ts)
+            }
+            Token::RightAngle => {
+                self.angle_num -= 1;
+                Some(ts)
+            }
+            Token::LeftBracket => {
+                self.bracket_num += 1;
+                Some(ts)
+            }
+            Token::RightBracket => {
+                self.bracket_num -= 1;
+                Some(ts)
+            }
+            Token::LeftParenthesis => {
+                self.parenthesis_num += 1;
+                Some(ts)
+            }
+            Token::RightParenthesis => {
+                self.parenthesis_num -= 1;
+                Some(ts)
             }
             _ => {
                 Some(ts)
