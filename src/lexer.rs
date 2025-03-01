@@ -6,8 +6,8 @@ use std::collections::VecDeque;
 pub enum Token {
     Indent,
     Dedent,
-    Info,
-    ID,
+    Info(String),
+    ID(i64),
 
     #[token(" ")]
     Space,
@@ -18,17 +18,17 @@ pub enum Token {
     #[token("\n")]
     Newline,
 
-    #[regex("0b[01]+|0o[0-7]+|0d[0-9]+|0h[0-9A-Fa-f]+", priority = 2)]
-    RadixInt,
+    #[regex("0b[01]+|0o[0-7]+|0d[0-9]+|0h[0-9A-Fa-f]+", |lex| lex.slice().to_string(), priority = 2)]
+    RadixInt(String),
 
-    #[regex("-?[0-9]+", priority = 3)]
-    IntegerDec,
+    #[regex("-?[0-9]+", |lex| lex.slice().parse(), priority = 3)]
+    IntegerDec(i64),
 
-    #[regex("[_A-Za-z][_A-Za-z0-9]*", priority = 1)]
-    Identifier,
+    #[regex("[_A-Za-z][_A-Za-z0-9]*", |lex| lex.slice().to_string(), priority = 1)]
+    Identifier(String),
 
-    #[regex(r#""([^"\\]|\\.)*""#)]
-    String,
+    #[regex(r#""([^"\\]|\\.)*""#, |lex| lex.slice().to_string())]
+    String(String),
 
     #[token("/")]
     Slash,
@@ -255,8 +255,8 @@ pub enum Token {
     #[token("const")]
     Const,
 
-    #[regex(r"[.,:=@%<>()\[\]{}]")]
-    Symbol,
+    #[regex(r"[.,:=@%<>()\[\]{}]", |lex| lex.slice().to_string())]
+    Symbol(String),
 
     #[token(".")]
     Period,
@@ -380,7 +380,7 @@ impl<'a> FIRRTLLexer<'a> {
             }
             Token::RightSquare => {
                 self.mode = LexerMode::Normal;
-                Some(TokenString::new(Token::Info, self.info_string.clone()))
+                Some(TokenString::from(Token::Info(self.info_string.clone())))
             }
             _ => {
                 self.info_string.push_str(&ts.name.unwrap());
@@ -392,8 +392,8 @@ impl<'a> FIRRTLLexer<'a> {
     fn dotid_mode(&mut self) -> Option<TokenString> {
         let ts = self.tokens.pop_front().unwrap();
         match ts.token {
-            Token::IntegerDec => {
-                Some(TokenString::new(Token::ID, ts.name.clone().unwrap()))
+            Token::IntegerDec(x) => {
+                Some(TokenString::from(Token::ID(x)))
             }
             Token::Backtick => {
                 self.mode = LexerMode::IntId;
@@ -409,8 +409,8 @@ impl<'a> FIRRTLLexer<'a> {
     fn intid_mode(&mut self) -> Option<TokenString> {
         let ts = self.tokens.pop_front().unwrap();
         match ts.token {
-            Token::IntegerDec => {
-                Some(TokenString::new(Token::ID, ts.name.clone().unwrap()))
+            Token::IntegerDec(x) => {
+                Some(TokenString::from(Token::ID(x)))
             }
             Token::Backtick => {
                 self.mode = LexerMode::Normal;
@@ -447,12 +447,12 @@ impl<'a> FIRRTLLexer<'a> {
             Token::Space => {
                 None
             }
-            Token::IntegerDec => {
+            Token::IntegerDec(x) => {
                 if self.angle_num == 0 &&
                     self.square_num == 0 &&
                     self.parenthesis_num == 0 &&
                     self.bracket_num != 0 {
-                    Some(TokenString::new(Token::ID, ts.name.unwrap()))
+                    Some(TokenString::from(Token::ID(x)))
                 } else {
                     Some(ts)
                 }
