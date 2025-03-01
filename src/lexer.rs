@@ -60,12 +60,20 @@ pub enum Token {
     #[token("@")]
     AtSymbol,
 
+    #[token("`")]
+    Backtick,
+
+    #[token("%[[")]
+    AnnoStart,
+
+    #[token("]]")]
+    AnnoEnd,
+
     #[token("<<")]
     DoubleLeft,
 
     #[token(">>")]
     DoubleRight,
-
 
     #[token("Clock")]
     Clock,
@@ -387,9 +395,43 @@ impl<'a> FIRRTLLexer<'a> {
             Token::IntegerDec => {
                 Some(TokenString::new(Token::ID, ts.name.clone().unwrap()))
             }
+            Token::Backtick => {
+                self.mode = LexerMode::IntId;
+                None
+            }
             _ => {
                 self.mode = LexerMode::Normal;
                 Some(ts)
+            }
+        }
+    }
+
+    fn intid_mode(&mut self) -> Option<TokenString> {
+        let ts = self.tokens.pop_front().unwrap();
+        match ts.token {
+            Token::IntegerDec => {
+                Some(TokenString::new(Token::ID, ts.name.clone().unwrap()))
+            }
+            Token::Backtick => {
+                self.mode = LexerMode::Normal;
+                None
+            }
+            _ => {
+                println!("{:?}", ts);
+                Some(TokenString::from(Token::Error))
+            }
+        }
+    }
+
+    fn anno_mode(&mut self) -> Option<TokenString> {
+        let ts = self.tokens.pop_front().unwrap();
+        match ts.token {
+            Token::AnnoEnd => {
+                self.mode = LexerMode::Normal;
+                None
+            }
+            _ => {
+                None
             }
         }
     }
@@ -450,9 +492,17 @@ impl<'a> FIRRTLLexer<'a> {
                 self.parenthesis_num += 1;
                 Some(ts)
             }
+            Token::Backtick => {
+                self.mode = LexerMode::IntId;
+                None
+            }
             Token::Period => {
                 self.mode = LexerMode::DotId;
                 Some(ts)
+            }
+            Token::AnnoStart => {
+                self.mode = LexerMode::Anno;
+                None
             }
             _ => {
                 Some(ts)
@@ -474,56 +524,21 @@ impl<'a> FIRRTLLexer<'a> {
         self.try_push();
 
         while !self.tokens.is_empty() {
-// println!("mode: {:?}, token: {:?}", self.mode, self.tokens.front());
-
-            match self.mode {
-                LexerMode::Indent => {
-                    match self.indent_mode() {
-                        Some(ts) => {
-                            return Some(ts)
-                        }
-                        _ => {
-                            self.try_push();
-                            continue;
-                        }
-                    }
+            let next_token_opt = match self.mode {
+                LexerMode::Indent => { self.indent_mode() }
+                LexerMode::IntId  => { self.intid_mode() }
+                LexerMode::DotId  => { self.dotid_mode() }
+                LexerMode::Info   => { self.info_mode() }
+                LexerMode::Anno   => { self.anno_mode() }
+                LexerMode::Normal => { self.normal_mode() }
+            };
+            match next_token_opt {
+                Some(ts) => {
+                    return Some(ts)
                 }
-                LexerMode::IntId => {
-                }
-                LexerMode::DotId => {
-                    match self.dotid_mode() {
-                        Some(ts) => {
-                            return Some(ts)
-                        }
-                        _ => {
-                            self.try_push();
-                            continue;
-                        }
-                    }
-                }
-                LexerMode::Info => {
-                    match self.info_mode() {
-                        Some(ts) => {
-                            return Some(ts)
-                        }
-                        _ => {
-                            self.try_push();
-                            continue;
-                        }
-                    }
-                }
-                LexerMode::Anno => {
-                }
-                LexerMode::Normal => {
-                    match self.normal_mode() {
-                        Some(ts) => {
-                            return Some(ts)
-                        }
-                        _ => {
-                            self.try_push();
-                            continue;
-                        }
-                    }
+                _ => {
+                    self.try_push();
+                    continue;
                 }
             }
         }

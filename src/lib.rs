@@ -4,7 +4,20 @@ mod lexer;
 #[cfg(test)]
 mod test {
     use crate::lexer::*;
-    use logos::Logos;
+
+    fn run(source: &str) {
+        let mut lex = FIRRTLLexer::new(source);
+        while let Some(ts) = lex.next() {
+// println!("{:?}", ts);
+            match ts.token {
+                Token::Error => {
+                    println!("{:?}", ts);
+                    panic!("Got a error token");
+                }
+                _ => { }
+            }
+        }
+    }
 
     #[test]
     fn gcd() {
@@ -35,16 +48,7 @@ circuit GCD :
     connect io.outputValid, _io_outputValid_T @[src/main/scala/gcd/GCD.scala 36:18]
 "#;
 
-        let mut lex = FIRRTLLexer::new(source);
-        while let Some(ts) = lex.next() {
-            println!("- {:?}", ts);
-            match ts.token {
-                Token::Error => {
-                    panic!("Got a error token");
-                }
-                _ => { }
-            }
-        }
+        run(source);
     }
 
     #[test]
@@ -76,15 +80,20 @@ circuit OneReadOneWritePortSRAM :
     connect io.rdata, MPORT_1 @[src/main/scala/gcd/SRAM.scala 26:12]
     "#;
 
-        let mut lex = FIRRTLLexer::new(source);
-        while let Some(ts) = lex.next() {
-            println!("- {:?}", ts);
-            match ts.token {
-                Token::Error => {
-                    panic!("Got a error token");
-                }
-                _ => { }
-            }
-        }
+        run(source);
+    }
+
+    #[test]
+    fn rocketconfig() -> Result<(), std::io::Error> {
+        let source = std::fs::read_to_string("./test-inputs/chipyard.harness.TestHarness.RocketConfig.fir")?;
+        run(&source);
+        Ok(())
+    }
+
+    #[test]
+    fn largeboomconfig() -> Result<(), std::io::Error> {
+        let source = std::fs::read_to_string("./test-inputs/chipyard.harness.TestHarness.LargeBoomV3Config.fir")?;
+        run(&source);
+        Ok(())
     }
 }
