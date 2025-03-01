@@ -7,7 +7,7 @@ pub enum Token {
     Indent,
     Dedent,
     Info(String),
-    ID(i32),
+    ID(i64),
 
     #[token(" ")]
     Space,
@@ -18,11 +18,11 @@ pub enum Token {
     #[token("\n")]
     Newline,
 
-    #[regex("0b[01]+|0o[0-7]+|0d[0-9]+|0h[0-9A-Fa-f]+", |lex| lex.slice().parse(), priority = 2)]
-    RadixInt(i32),
+    #[regex("0b[01]+|0o[0-7]+|0d[0-9]+|0h[0-9A-Fa-f]+", |lex| lex.slice().to_string(), priority = 2)]
+    RadixInt(String),
 
     #[regex("-?[0-9]+", |lex| lex.slice().parse(), priority = 3)]
-    IntegerDec(i32),
+    IntegerDec(i64),
 
     #[regex("[_A-Za-z][_A-Za-z0-9]*", |lex| lex.slice().to_string(), priority = 1)]
     Identifier(String),
