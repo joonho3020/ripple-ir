@@ -1,0 +1,12 @@
+use crate::ast::*;
+use crate::lexer::*;
+
+grammar;
+
+pub Circuit: Circuit = {
+}
+
+extern {
+  type Location = usize;
+  type Error = LexicalError;
+}
