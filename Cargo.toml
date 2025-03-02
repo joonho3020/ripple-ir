@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 logos = "0.12"
 lalrpop-util = { version = "0.21.0", features = ["lexer", "unicode"] }
+serde_json = "1.0.139"
 
 [build-dependencies]
 lalrpop = "0.22.1"

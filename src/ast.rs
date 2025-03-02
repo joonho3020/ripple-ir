@@ -1,3 +1,4 @@
+use serde_json::Value;
 
 #[derive(Debug, Clone, PartialEq, Hash)]
 pub struct Info(pub String);
@@ -309,16 +310,13 @@ impl ExtModule {
     }
 }
 
-#[warn(dead_code)]
+#[allow(dead_code)]
 pub struct IntModule {
     pub name: Identifier,
     pub ports: Ports,
     pub params: Parameters,
     pub info: Info,
 }
-
-#[derive(Debug, Clone, PartialEq, Hash)]
-pub struct Version(pub u32, pub u32, pub u32);
 
 #[derive(Debug, Clone, PartialEq, Hash)]
 pub enum CircuitModule {
@@ -329,16 +327,29 @@ pub enum CircuitModule {
 
 pub type CircuitModules = Vec<Box<CircuitModule>>;
 
+#[derive(Debug, Default, Clone, PartialEq, Hash)]
+pub struct Annotations(pub serde_json::Value);
+
+impl Annotations {
+    pub fn from_str(input: String) -> Self {
+        let input = "[".to_owned() + &input + "]";
+        Self { 0: serde_json::from_str(&input).unwrap() }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Hash)]
+pub struct Version(pub u32, pub u32, pub u32);
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Circuit {
     pub version: Version,
     pub name: Identifier,
-// TODO: pub annos: String,
+    pub annos: Annotations,
     pub modules: CircuitModules,
 }
 
 impl Circuit {
-    pub fn new(version: Version, name: Identifier, modules: CircuitModules) -> Self {
-        Self { version, name, modules }
+    pub fn new(version: Version, name: Identifier, annos: Annotations, modules: CircuitModules) -> Self {
+        Self { version, name, annos, modules }
     }
 }

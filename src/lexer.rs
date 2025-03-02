@@ -1,4 +1,4 @@
-use logos::{Lexer, Logos, Span};
+use logos::{Lexer, Logos};
 use std::collections::VecDeque;
 use std::num::ParseIntError;
 
@@ -23,6 +23,7 @@ pub enum Token {
     Indent,
     Dedent,
     Info(String),
+    Annotations(String),
     ID(i64),
 
     #[token(" ")]
@@ -330,6 +331,7 @@ pub struct FIRRTLLexer<'input> {
     indent_levels: Vec<u32>,
     cur_indent: u32,
     info_string: String,
+    anno_string: String,
     angle_num: u32,
     square_num: u32,
     bracket_num: u32,
@@ -349,6 +351,7 @@ impl<'input> FIRRTLLexer<'input> {
             mode: LexerMode::Indent,
             cur_indent: 0,
             info_string: String::default(),
+            anno_string: String::default(),
             angle_num: 0,
             square_num: 0,
             bracket_num: 0,
@@ -456,9 +459,10 @@ impl<'input> FIRRTLLexer<'input> {
         match ts.token {
             Token::AnnoEnd => {
                 self.mode = LexerMode::Normal;
-                None
+                Some(TokenString::from((Token::Annotations(self.anno_string.clone()), ts.line, ts.start)))
             }
             _ => {
+                self.anno_string.push_str(&ts.name.unwrap());
                 None
             }
         }

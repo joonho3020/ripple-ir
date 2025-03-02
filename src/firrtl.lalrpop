@@ -11,6 +11,7 @@ extern {
     "indent"           => Token::Indent,
     "dedent"           => Token::Dedent,
     "info"             => Token::Info(<String>),
+    "annotations"      => Token::Annotations(<String>),
     "id"               => Token::ID(<i64>),
     " "                => Token::Space,
     "\t"               => Token::Tab,
@@ -30,7 +31,7 @@ extern {
     ")"                => Token::RightParenthesis,
     "@"                => Token::AtSymbol,
     "`"                => Token::Backtick,
-    "@[["              => Token::AnnoStart,
+    "%[["              => Token::AnnoStart,
     "]]"               => Token::AnnoEnd,
     "<<"               => Token::DoubleLeft,
     ">>"               => Token::DoubleRight,
@@ -162,7 +163,6 @@ pub Exprs: ast::Exprs = {
     <head: Expr> => vec![Box::new(head)],
 };
 
-// TODO: Take care of radix integers
 pub Expr: ast::Expr = {
     <u: "uint"> <w: Width> "(" ")" => ast::Expr::UIntNoInit(w),
     <u: "uint"> <w: Width> "(" <i: "int"> ")" => ast::Expr::UIntInit(w, i),
@@ -240,6 +240,10 @@ pub ExtModule: ast::ExtModule = {
     "extmodule" <name: Identifier> "symbol" <info: Info> "indent" <ports: Ports> <defname: DefName> <params: Parameters> "dedent" => ast::ExtModule::new(name, ports, defname, params, info),
 };
 
+pub Annotations: ast::Annotations = {
+    <a: "annotations"> => ast::Annotations::from_str(a)
+};
+
 pub Version: ast::Version = {
     "FIRRTL" "version" <a: "int"> "." <b: "id"> "." <c: "id"> => ast::Version(a as u32, b as u32, c as u32),
 };
@@ -255,5 +259,6 @@ pub CircuitModules: ast::CircuitModules = {
 };
 
 pub Circuit: ast::Circuit = {
-    <version: Version> "circuit" <name: Identifier> "symbol" "indent" <modules: CircuitModules> "dedent" => ast::Circuit::new(version, name, modules),
+    <version: Version> "circuit" <name: Identifier> "symbol" <annos: Annotations> "indent" <modules: CircuitModules> "dedent" => ast::Circuit::new(version, name, annos, modules),
+    <version: Version> "circuit" <name: Identifier> "symbol" "indent" <modules: CircuitModules> "dedent" => ast::Circuit::new(version, name, ast::Annotations::default(), modules),
 }
