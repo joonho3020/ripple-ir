@@ -166,8 +166,10 @@ pub Exprs: ast::Exprs = {
 pub Expr: ast::Expr = {
     <u: "uint"> <w: Width> "(" ")" => ast::Expr::UIntNoInit(w),
     <u: "uint"> <w: Width> "(" <i: "int"> ")" => ast::Expr::UIntInit(w, i),
+    <u: "uint"> <w: Width> "(" <ri: "radixint"> ")" => ast::Expr::UIntInit(w, ast::Expr::parse_radixint(&ri).expect("parse_radixint")),
     <s: "sint"> <w: Width> "(" ")" => ast::Expr::SIntNoInit(w),
     <s: "sint"> <w: Width> "(" <i: "int"> ")" => ast::Expr::SIntInit(w, i),
+    <s: "sint"> <w: Width> "(" <ri: "radixint"> ")" => ast::Expr::SIntInit(w, ast::Expr::parse_radixint(&ri).expect("parse_radixint")),
     <r: Reference> => ast::Expr::Reference(r),
     <m: "mux"> "(" <sel: Expr> "symbol" <exp_true: Expr> "symbol" <exp_false: Expr> ")" => ast::Expr::Mux(Box::new(sel), Box::new(exp_true), Box::new(exp_false)),
     <vif: "validif"> "(" <if_expr: Expr> "symbol" <expr: Expr> ")" => ast::Expr::ValidIf(Box::new(if_expr), Box::new(expr)),
@@ -239,7 +241,7 @@ pub ExtModule: ast::ExtModule = {
 };
 
 pub Version: ast::Version = {
-    "FIRRTL" "version" <a: "int"> "." <b: "int"> "." <c: "int"> => ast::Version(a as u32, b as u32, c as u32),
+    "FIRRTL" "version" <a: "int"> "." <b: "id"> "." <c: "id"> => ast::Version(a as u32, b as u32, c as u32),
 };
 
 pub CircuitModule: ast::CircuitModule = {
@@ -253,5 +255,5 @@ pub CircuitModules: ast::CircuitModules = {
 };
 
 pub Circuit: ast::Circuit = {
-    <version: Version> "circuit" <name: Identifier> "symbol" <info: Info> "indent" <modules: CircuitModules> "dedent" => ast::Circuit::new(version, name, info, modules),
+    <version: Version> "circuit" <name: Identifier> "symbol" "indent" <modules: CircuitModules> "dedent" => ast::Circuit::new(version, name, modules),
 }

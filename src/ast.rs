@@ -153,6 +153,22 @@ pub enum Expr {
     PrimOp1Expr2Int(PrimOp1Expr2Int, Box<Expr>, u32, u32),
 }
 
+impl Expr {
+    pub fn parse_radixint(s: &str) -> Result<i64, String> {
+        if let Some(num) = s.strip_prefix("0b") {
+            i64::from_str_radix(num, 2).map_err(|e| e.to_string())
+        } else if let Some(num) = s.strip_prefix("0o") {
+            i64::from_str_radix(num, 8).map_err(|e| e.to_string())
+        } else if let Some(num) = s.strip_prefix("0d") {
+            num.parse::<i64>().map_err(|e| e.to_string())
+        } else if let Some(num) = s.strip_prefix("0h") {
+            i64::from_str_radix(num, 16).map_err(|e| e.to_string())
+        } else {
+            Err(format!("Invalid number format: {}", s))
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Hash)]
 pub enum TypeGround {
     Clock,
@@ -318,12 +334,11 @@ pub struct Circuit {
     pub version: Version,
     pub name: Identifier,
 // TODO: pub annos: String,
-    pub info: Info,
     pub modules: CircuitModules,
 }
 
 impl Circuit {
-    pub fn new(version: Version, name: Identifier, info: Info, modules: CircuitModules) -> Self {
-        Self { version, name, info, modules }
+    pub fn new(version: Version, name: Identifier, modules: CircuitModules) -> Self {
+        Self { version, name, modules }
     }
 }

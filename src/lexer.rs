@@ -295,25 +295,28 @@ enum LexerMode {
 #[derive(Debug)]
 pub struct TokenString {
     pub token: Token,
-    pub span: Span,
+    pub line: usize,
+    pub start: usize,
     pub name: Option<String>,
 }
 
-impl From<(Token, Span)> for TokenString {
-    fn from(value: (Token, Span)) -> Self {
+impl From<(Token, usize, usize)> for TokenString {
+    fn from(value: (Token, usize, usize)) -> Self {
         Self {
             token: value.0,
-            span:  value.1,
+            line: value.1,
+            start: value.2,
             name: None
         }
     }
 }
 
 impl TokenString {
-    fn new(token: Token, span: Span, name: String) -> Self {
+    fn new(token: Token, line: usize, start: usize, name: String) -> Self {
         Self {
             token,
-            span,
+            line,
+            start,
             name: Some(name)
         }
     }
@@ -332,6 +335,7 @@ pub struct FIRRTLLexer<'input> {
     bracket_num: u32,
     parenthesis_num: u32,
     returned_eof: bool,
+    lineno: usize,
 }
 
 impl<'input> FIRRTLLexer<'input> {
@@ -350,6 +354,7 @@ impl<'input> FIRRTLLexer<'input> {
             bracket_num: 0,
             parenthesis_num: 0,
             returned_eof: false,
+            lineno: 1,
         }
     }
 
@@ -365,11 +370,12 @@ impl<'input> FIRRTLLexer<'input> {
                 None
             }
             Token::Newline => {
+                self.lineno += 1;
                 self.cur_indent = 0;
                 None
             }
             _ => {
-                let span = ts.span.clone();
+                let start = ts.start;
                 self.tokens.push_front(ts);
 
 // println!("INDENT MODE cur_indent: {} top: {:?}",
@@ -380,10 +386,10 @@ impl<'input> FIRRTLLexer<'input> {
                 if self.cur_indent > lvl {
                     self.mode = LexerMode::Normal;
                     self.indent_levels.push(self.cur_indent);
-                    return Some(TokenString::from((Token::Indent, span)));
+                    return Some(TokenString::from((Token::Indent, self.lineno, start)));
                 } else if self.cur_indent < lvl {
                     self.indent_levels.pop();
-                    return Some(TokenString::from((Token::Dedent, span)));
+                    return Some(TokenString::from((Token::Dedent, self.lineno, start)));
                 } else {
                     self.mode = LexerMode::Normal;
                     None
@@ -401,7 +407,7 @@ impl<'input> FIRRTLLexer<'input> {
             }
             Token::RightSquare => {
                 self.mode = LexerMode::Normal;
-                Some(TokenString::from((Token::Info(self.info_string.clone()), ts.span)))
+                Some(TokenString::from((Token::Info(self.info_string.clone()), ts.line, ts.start)))
             }
             _ => {
                 self.info_string.push_str(&ts.name.unwrap());
@@ -414,7 +420,8 @@ impl<'input> FIRRTLLexer<'input> {
         let ts = self.tokens.pop_front().unwrap();
         match ts.token {
             Token::IntegerDec(x) => {
-                Some(TokenString::from((Token::ID(x), ts.span)))
+                self.mode = LexerMode::Normal;
+                Some(TokenString::from((Token::ID(x), ts.line, ts.start)))
             }
             Token::Backtick => {
                 self.mode = LexerMode::IntId;
@@ -431,7 +438,7 @@ impl<'input> FIRRTLLexer<'input> {
         let ts = self.tokens.pop_front().unwrap();
         match ts.token {
             Token::IntegerDec(x) => {
-                Some(TokenString::from((Token::ID(x), ts.span)))
+                Some(TokenString::from((Token::ID(x), ts.line, ts.start)))
             }
             Token::Backtick => {
                 self.mode = LexerMode::Normal;
@@ -439,7 +446,7 @@ impl<'input> FIRRTLLexer<'input> {
             }
             _ => {
                 println!("{:?}", ts);
-                Some(TokenString::from((Token::Error, ts.span)))
+                Some(TokenString::from((Token::Error, ts.line, ts.start)))
             }
         }
     }
@@ -462,7 +469,8 @@ impl<'input> FIRRTLLexer<'input> {
             self.indent_levels.pop();
             return Some(TokenString {
                 token: Token::Dedent,
-                span: Span::default(),
+                line: self.lineno,
+                start: 0,
                 name: None,
 
             });
@@ -475,6 +483,7 @@ impl<'input> FIRRTLLexer<'input> {
         let ts = self.tokens.pop_front().unwrap();
         match ts.token {
             Token::Newline => {
+                self.lineno += 1;
                 self.cur_indent = 0;
                 self.mode = LexerMode::Indent;
                 None
@@ -487,7 +496,7 @@ impl<'input> FIRRTLLexer<'input> {
                     self.square_num == 0 &&
                     self.parenthesis_num == 0 &&
                     self.bracket_num != 0 {
-                    Some(TokenString::from((Token::ID(x), ts.span)))
+                    Some(TokenString::from((Token::ID(x), ts.line, ts.start)))
                 } else {
                     Some(ts)
                 }
@@ -548,7 +557,11 @@ impl<'input> FIRRTLLexer<'input> {
     fn try_push(&mut self) {
         match self.lexer.next() {
             Some(token) => {
-                self.tokens.push_back(TokenString::new(token, self.lexer.span(), self.lexer.slice().to_string()));
+                self.tokens.push_back(TokenString::new(
+                        token,
+                        self.lineno,
+                        self.lexer.span().start,
+                        self.lexer.slice().to_string()));
             }
             _ => { }
         }
@@ -577,7 +590,7 @@ impl<'input> FIRRTLLexer<'input> {
             }
         }
 
-        // Finished all the tokens
+         // Finished all the tokens
         if !self.returned_eof {
             match self.eof_mode() {
                 Some(ts) => {
@@ -600,6 +613,6 @@ impl <'input> Iterator for FIRRTLLexer<'input> {
     type Item = Spanned<Token, usize, LexicalError>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.next_token().map(|x| Ok((x.span.start, x.token, x.span.end)))
+        self.next_token().map(|x| Ok((x.line, x.token, x.start)))
     }
 }
