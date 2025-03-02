@@ -128,6 +128,7 @@ pub Field: ast::Field = {
 pub TypeAggregate: ast::TypeAggregate = {
     "{" <fields: Fields> "}" => ast::TypeAggregate::Fields(Box::new(fields)),
     <tpe: Type> "[" <i: "int"> "]"  => ast::TypeAggregate::Array(Box::new(tpe), i),
+    <tpe: Type> "[" <i: "id"> "]"  => ast::TypeAggregate::Array(Box::new(tpe), i),
 };
 
 pub Type: ast::Type = {
@@ -225,7 +226,7 @@ pub ChirrtlMemoryPort: ast::ChirrtlMemoryPort = {
 pub Reference: ast::Reference = {
     <name: Identifier> => ast::Reference::Ref(name),
     <id1: Reference> "." <id2: Identifier> => ast::Reference::RefDot(Box::new(id1), id2),
-    <id1: Reference> "[" <id2: Identifier> "]" => ast::Reference::RefIdxInt(Box::new(id1), id2),
+    <id1: Reference> "[" <id2: "int"> "]" => ast::Reference::RefIdxInt(Box::new(id1), id2),
 };
 
 
@@ -241,6 +242,8 @@ pub Stmt: ast::Stmt = {
   "reg" <name: Identifier> "symbol" <tpe: Type> "symbol" <clk: Expr>              => ast::Stmt::Reg(name, tpe, clk, ast::Info::default()),
   "reg_reset" <name: Identifier> "symbol" <tpe: Type> "symbol" <clk: Expr> <rst: Expr> <init: Expr> <info: Info> => ast::Stmt::RegReset(name, tpe, clk, rst, init, info),
   "reg_reset" <name: Identifier> "symbol" <tpe: Type> "symbol" <clk: Expr> <rst: Expr> <init: Expr>              => ast::Stmt::RegReset(name, tpe, clk, rst, init, ast::Info::default()),
+  <m: ChirrtlMemory> => ast::Stmt::ChirrtlMemory(m),
+  <mp: ChirrtlMemoryPort> => ast::Stmt::ChirrtlMemoryPort(mp),
   "inst" <inst: Identifier> "of" <module: Identifier> <info: Info> => ast::Stmt::Inst(inst, module, info),
   "inst" <inst: Identifier> "of" <module: Identifier>              => ast::Stmt::Inst(inst, module, ast::Info::default()),
   "node" <name: Identifier> "symbol" <expr: Expr> <info: Info> => ast::Stmt::Node(name, expr, info),

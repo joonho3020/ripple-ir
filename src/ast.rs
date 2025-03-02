@@ -14,7 +14,7 @@ pub enum Identifier {
 pub enum Reference {
     Ref(Identifier),
     RefDot(Box<Reference>, Identifier),
-    RefIdxInt(Box<Reference>, Identifier)
+    RefIdxInt(Box<Reference>, i64)
 }
 
 #[derive(Debug, Clone, PartialEq, Hash)]
@@ -231,8 +231,8 @@ pub enum Stmt {
     Reg(Identifier,  Type, Expr, Info),
     RegReset(Identifier, Type, Expr, Expr, Expr, Info),
 // Memory()
-// ChirrtlMemory()
-// ChirrtlMemoryPort()
+    ChirrtlMemory(ChirrtlMemory),
+    ChirrtlMemoryPort(ChirrtlMemoryPort),
     Inst(Identifier, Identifier, Info),
     Node(Identifier, Expr, Info),
     Connect(Expr, Expr, Info),
