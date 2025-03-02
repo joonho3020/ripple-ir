@@ -97,7 +97,7 @@ extern {
 
 pub Info: ast::Info = {
   <info: "info"> => ast::Info(info)
-}
+};
 
 // TODO: Add radint case
 pub Width: ast::Width = {
@@ -117,7 +117,7 @@ pub TypeGround: ast::TypeGround = {
 pub Fields: ast::Fields = {
     <mut head: Fields> "symbol" <tail: Field> => { head.push(Box::new(tail)); head } ,
     <head: Field> => vec![Box::new(head)],
-}
+};
 
 pub Field: ast::Field = {
     <name: Identifier> "symbol" <tpe: Type> => ast::Field::Straight(name, Box::new(tpe)),
@@ -160,7 +160,7 @@ pub PrimOp1Expr2Int: ast::PrimOp1Expr2Int = {
 pub Exprs: ast::Exprs = {
     <mut head: Exprs> "symbol" <tail: Expr> => { head.push(Box::new(tail)); head },
     <head: Expr> => vec![Box::new(head)],
-}
+};
 
 // TODO: Take care of radix integers
 pub Expr: ast::Expr = {
@@ -188,7 +188,7 @@ pub Reference: ast::Reference = {
 pub Stmts: ast::Stmts = {
     <mut head: Stmts> <tail: Stmt> => { head.push(Box::new(tail)); head } ,
     <head: Stmt> => vec![Box::new(head)],
-}
+};
 
 pub Stmt: ast::Stmt = {
   "wire" <name: Identifier> "symbol" <tpe: Type> <info: Info> => ast::Stmt::Wire(name, tpe, info),
@@ -203,48 +203,55 @@ pub Stmt: ast::Stmt = {
   "printf" "(" <clk: Expr> "symbol" <clk_val: Expr> "symbol" <msg: "string"> "symbol" <exprs: Exprs> ")" "symbol" <name: Identifier> <info: Info> => ast::Stmt::Printf(clk, clk_val, msg, exprs, info),
   "printf" "(" <clk: Expr> "symbol" <clk_val: Expr> "symbol" <msg: "string"> "symbol" <exprs: Exprs> ")" <info: Info> => ast::Stmt::Printf(clk, clk_val, msg, exprs, info),
   "assert" "(" <clk: Expr> "symbol" <pred: Expr> "symbol" <cond: Expr> "symbol" <msg: "string"> ")" <info: Info> => ast::Stmt::Assert(clk, pred, cond, msg, info),
+};
+
+pub Ports: ast::Ports = {
+    <mut head: Ports> <tail: Port> => { head.push(Box::new(tail)); head } ,
+    <head: Port> => vec![Box::new(head)],
+};
+
+pub Port: ast::Port = {
+    "input"  <name: Identifier> "symbol" <tpe: Type> <info: Info> => ast::Port::Input(name, tpe, info),
+    "output" <name: Identifier> "symbol" <tpe: Type> <info: Info> => ast::Port::Output(name, tpe, info),
+};
+
+pub Module: ast::Module = {
+             "module" <name: Identifier> "symbol" <info: Info> "indent" <ports: Ports> <stmts: Stmts> "dedent" => ast::Module::new(name, ports, stmts, info),
+    "public" "module" <name: Identifier> "symbol" <info: Info> "indent" <ports: Ports> <stmts: Stmts> "dedent" => ast::Module::new(name, ports, stmts, info),
+};
+
+pub DefName: ast::DefName = {
+    "defname" "symbol" <name: Identifier> => ast::DefName::from(name),
+};
+
+pub Parameter: ast::Parameter = {
+    "parameter" <name: Identifier> "symbol" <msg: "string"> => ast::Parameter::StringParam(name, msg),
+    "parameter" <name: Identifier> "symbol" <val: "int">    => ast::Parameter::IntParam(name, val),
+};
+
+pub Parameters: ast::Parameters = {
+    <mut head: Parameters> <tail: Parameter> => { head.push(Box::new(tail)); head } ,
+    <head: Parameter> => vec![Box::new(head)],
+};
+
+pub ExtModule: ast::ExtModule = {
+    "extmodule" <name: Identifier> "symbol" <info: Info> "indent" <ports: Ports> <defname: DefName> <params: Parameters> "dedent" => ast::ExtModule::new(name, ports, defname, params, info),
+};
+
+pub Version: ast::Version = {
+    "FIRRTL" "version" <a: "int"> "." <b: "int"> "." <c: "int"> => ast::Version(a as u32, b as u32, c as u32),
+};
+
+pub CircuitModule: ast::CircuitModule = {
+    <m: Module> => ast::CircuitModule::Module(m),
+    <em: ExtModule> => ast::CircuitModule::ExtModule(em),
+};
+
+pub CircuitModules: ast::CircuitModules = {
+    <mut head: CircuitModules> <tail: CircuitModule> => { head.push(Box::new(tail)); head } ,
+    <head: CircuitModule> => vec![Box::new(head)],
+};
+
+pub Circuit: ast::Circuit = {
+    <version: Version> "circuit" <name: Identifier> "symbol" <info: Info> "indent" <modules: CircuitModules> "dedent" => ast::Circuit::new(version, name, info, modules),
 }
-
-// pub Keyword: ast::Keyword = {
-//     "inst"       => ast::Keyword::Inst,
-//     "printf"     => ast::Keyword::Printf,
-//     "assert"     => ast::Keyword::Assert,
-//     "smem"       => ast::Keyword::SMem,
-//     "cmem"       => ast::Keyword::CMem,
-//     "of"         => ast::Keyword::Of,
-//     "reg"        => ast::Keyword::Reg,
-//     "input"      => ast::Keyword::Input,
-//     "output"     => ast::Keyword::Output,
-//     "invalidate" => ast::Keyword::Invalidate,
-//     "mux"        => ast::Keyword::Mux,
-//     "stop"       => ast::Keyword::Stop,
-//     "depth"      => ast::Keyword::Depth,
-//     "write"      => ast::Keyword::Write,
-//     "read"       => ast::Keyword::Read,
-//     "version"    => ast::Keyword::Version,
-//     "probe"      => ast::Keyword::Probe,
-//     "module"     => ast::Keyword::Module,
-//     "const"      => ast::Keyword::Const,
-// };
-
-
-NewLine<T>: Vec<T> = { // (1)
-    <mut v:(<T>)*> <e:T?> => match e { // (2)
-        None => v,
-        Some(e) => {
-            v.push(e);
-            v
-        }
-    }
-};
-
-// Macro for generating Vec<T> from comma separated `T`
-Comma<T>: Vec<T> = { // (1)
-    <mut v:(<T> "symbol")*> <e:T?> => match e { // (2)
-        None => v,
-        Some(e) => {
-            v.push(e);
-            v
-        }
-    }
-};

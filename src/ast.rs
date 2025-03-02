@@ -238,3 +238,92 @@ impl Stmt {
         }
     }
 }
+
+#[derive(Debug, Clone, PartialEq, Hash)]
+pub enum Port {
+    Input(Identifier, Type, Info),
+    Output(Identifier, Type, Info),
+}
+
+pub type Ports = Vec<Box<Port>>;
+
+#[derive(Debug, Clone, PartialEq, Hash)]
+pub struct Module  {
+    pub name: Identifier,
+    pub ports: Ports,
+    pub stmts: Stmts,
+    pub info: Info,
+}
+
+impl Module {
+    pub fn new(name: Identifier, ports: Ports, stmts: Stmts, info: Info) -> Self {
+        Self { name, ports, stmts, info, }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Hash)]
+pub struct DefName(Identifier);
+
+impl From<Identifier> for DefName {
+    fn from(value: Identifier) -> Self {
+        Self(value)
+    }
+}
+
+pub type Parameters = Vec<Box<Parameter>>;
+
+#[derive(Debug, Clone, PartialEq, Hash)]
+pub enum Parameter {
+    IntParam(Identifier, i64),
+    StringParam(Identifier, String),
+}
+
+#[derive(Debug, Clone, PartialEq, Hash)]
+pub struct ExtModule {
+    pub name: Identifier,
+    pub ports: Ports,
+    pub defname: DefName,
+    pub params: Parameters,
+    pub info: Info,
+}
+
+impl ExtModule {
+    pub fn new(name: Identifier, ports: Ports, defname: DefName, params: Parameters, info: Info) -> Self {
+        Self { name, ports, defname, params, info }
+    }
+}
+
+#[warn(dead_code)]
+pub struct IntModule {
+    pub name: Identifier,
+    pub ports: Ports,
+    pub params: Parameters,
+    pub info: Info,
+}
+
+#[derive(Debug, Clone, PartialEq, Hash)]
+pub struct Version(pub u32, pub u32, pub u32);
+
+#[derive(Debug, Clone, PartialEq, Hash)]
+pub enum CircuitModule {
+    Module(Module),
+    ExtModule(ExtModule),
+// IntModule(IntModule),
+}
+
+pub type CircuitModules = Vec<Box<CircuitModule>>;
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Circuit {
+    pub version: Version,
+    pub name: Identifier,
+// TODO: pub annos: String,
+    pub info: Info,
+    pub modules: CircuitModules,
+}
+
+impl Circuit {
+    pub fn new(version: Version, name: Identifier, info: Info, modules: CircuitModules) -> Self {
+        Self { version, name, info, modules }
+    }
+}
