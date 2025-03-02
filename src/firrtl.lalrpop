@@ -199,6 +199,27 @@ pub Expr: ast::Expr = {
     <op: PrimOp1Expr2Int> "(" <e1: Expr> "symbol" <int1: "int"> "symbol" <int2: "int"> ")" => ast::Expr::PrimOp1Expr2Int(op, Box::new(e1), int1 as u32, int2 as u32),
 };
 
+pub ChirrtlMemoryDataType: ast::Type = {
+    <tpe: Type> => { tpe }
+};
+
+pub ChirrtlMemoryReadUnderWrite: ast::ChirrtlMemoryReadUnderWrite = {
+    // FIXME: Properly set this flag
+    "read_under_write" => ast::ChirrtlMemoryReadUnderWrite::default(),
+};
+
+pub ChirrtlMemory: ast::ChirrtlMemory = {
+    "smem" <name: Identifier> "symbol" <tpe: ChirrtlMemoryDataType> "symbol" <ruw: ChirrtlMemoryReadUnderWrite> <info: Info> => ast::ChirrtlMemory::SMem(name, tpe, Some(ruw), info),
+    "smem" <name: Identifier> "symbol" <tpe: ChirrtlMemoryDataType> <info: Info> => ast::ChirrtlMemory::SMem(name, tpe, None, info),
+    "cmem" <name: Identifier> "symbol" <tpe: ChirrtlMemoryDataType> <info: Info> => ast::ChirrtlMemory::CMem(name, tpe, info),
+};
+
+pub ChirrtlMemoryPort: ast::ChirrtlMemoryPort = {
+    "write" "mport" <name: Identifier> "symbol" <mem_ref: Identifier> "[" <addr_ref: Expr> "]" "symbol" <clk_ref: Reference> <info: Info> => ast::ChirrtlMemoryPort::Write(name, mem_ref, addr_ref, clk_ref, info),
+    "read"  "mport" <name: Identifier> "symbol" <mem_ref: Identifier> "[" <addr_ref: Expr> "]" "symbol" <clk_ref: Reference> <info: Info> => ast::ChirrtlMemoryPort::Read(name, mem_ref, addr_ref, clk_ref, info),
+    "infer" "mport" <name: Identifier> "symbol" <mem_ref: Identifier> "[" <addr_ref: Expr> "]" "symbol" <clk_ref: Reference> <info: Info> => ast::ChirrtlMemoryPort::Infer(name, mem_ref, addr_ref, clk_ref, info),
+}
+
 // pub Refs = Comma<Ref>;
 
 pub Reference: ast::Reference = {
@@ -206,6 +227,7 @@ pub Reference: ast::Reference = {
     <id1: Reference> "." <id2: Identifier> => ast::Reference::RefDot(Box::new(id1), id2),
     <id1: Reference> "[" <id2: Identifier> "]" => ast::Reference::RefIdxInt(Box::new(id1), id2),
 };
+
 
 pub Stmts: ast::Stmts = {
     <mut head: Stmts> <tail: Stmt> => { head.push(Box::new(tail)); head } ,

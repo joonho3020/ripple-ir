@@ -202,6 +202,27 @@ pub enum Type {
     ConstTypeAggregate(Box<TypeAggregate>),
 }
 
+#[derive(Debug, Default, Clone, PartialEq, Hash)]
+pub enum ChirrtlMemoryReadUnderWrite {
+    #[default]
+    Undefined,
+    Old,
+    New
+}
+
+#[derive(Debug, Clone, PartialEq, Hash)]
+pub enum ChirrtlMemory {
+    SMem(Identifier, Type, Option<ChirrtlMemoryReadUnderWrite>, Info),
+    CMem(Identifier, Type, Info),
+}
+
+#[derive(Debug, Clone, PartialEq, Hash)]
+pub enum ChirrtlMemoryPort {
+    Write(Identifier, Identifier, Expr, Reference, Info),
+    Read (Identifier, Identifier, Expr, Reference, Info),
+    Infer(Identifier, Identifier, Expr, Reference, Info),
+}
+
 pub type Stmts = Vec<Box<Stmt>>;
 
 #[derive(Debug, Clone, PartialEq, Hash)]
