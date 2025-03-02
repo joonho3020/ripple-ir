@@ -1,6 +1,4 @@
-use serde_json::Value;
-
-#[derive(Debug, Clone, PartialEq, Hash)]
+#[derive(Debug, Default, Clone, PartialEq, Hash)]
 pub struct Info(pub String);
 
 #[derive(Debug, Copy, Clone, PartialEq, Hash)]
@@ -337,7 +335,7 @@ impl Annotations {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Hash)]
+#[derive(Debug, Default, Clone, PartialEq, Hash)]
 pub struct Version(pub u32, pub u32, pub u32);
 
 #[derive(Debug, Clone, PartialEq)]

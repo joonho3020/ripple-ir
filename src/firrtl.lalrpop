@@ -138,7 +138,27 @@ pub Type: ast::Type = {
 };
 
 pub Identifier: ast::Identifier = {
-    <id: "id">                 => ast::Identifier::ID(id as u32),
+    <id: "id">    => ast::Identifier::ID(id as u32),
+    "inst"        => ast::Identifier::Name("inst".to_string()),
+    "printf"      => ast::Identifier::Name("printf".to_string()),
+    "assert"      => ast::Identifier::Name("assert".to_string()),
+    "smem"        => ast::Identifier::Name("smem".to_string()),
+    "cmem"        => ast::Identifier::Name("cmem".to_string()),
+    "of"          => ast::Identifier::Name("of".to_string()),
+    "reg"         => ast::Identifier::Name("reg".to_string()),
+    "input"       => ast::Identifier::Name("input".to_string()),
+    "output"      => ast::Identifier::Name("output".to_string()),
+    "invalidate"  => ast::Identifier::Name("invalidate".to_string()),
+    "mux"         => ast::Identifier::Name("mux".to_string()),
+    "stop"        => ast::Identifier::Name("stop".to_string()),
+    "depth"       => ast::Identifier::Name("depth".to_string()),
+    "skip"        => ast::Identifier::Name("skip".to_string()),
+    "write"       => ast::Identifier::Name("write".to_string()),
+    "read"        => ast::Identifier::Name("read".to_string()),
+    "version"     => ast::Identifier::Name("version".to_string()),
+    "probe"       => ast::Identifier::Name("probe".to_string()),
+    "module"      => ast::Identifier::Name("module".to_string()),
+    "const"       => ast::Identifier::Name("const".to_string()),
     <identifier: "identifier"> => ast::Identifier::Name(identifier),
 };
 
@@ -194,17 +214,29 @@ pub Stmts: ast::Stmts = {
 
 pub Stmt: ast::Stmt = {
   "wire" <name: Identifier> "symbol" <tpe: Type> <info: Info> => ast::Stmt::Wire(name, tpe, info),
+  "wire" <name: Identifier> "symbol" <tpe: Type>              => ast::Stmt::Wire(name, tpe, ast::Info::default()),
   "reg" <name: Identifier> "symbol" <tpe: Type> "symbol" <clk: Expr> <info: Info> => ast::Stmt::Reg(name, tpe, clk, info),
+  "reg" <name: Identifier> "symbol" <tpe: Type> "symbol" <clk: Expr>              => ast::Stmt::Reg(name, tpe, clk, ast::Info::default()),
   "reg_reset" <name: Identifier> "symbol" <tpe: Type> "symbol" <clk: Expr> <rst: Expr> <init: Expr> <info: Info> => ast::Stmt::RegReset(name, tpe, clk, rst, init, info),
+  "reg_reset" <name: Identifier> "symbol" <tpe: Type> "symbol" <clk: Expr> <rst: Expr> <init: Expr>              => ast::Stmt::RegReset(name, tpe, clk, rst, init, ast::Info::default()),
   "inst" <inst: Identifier> "of" <module: Identifier> <info: Info> => ast::Stmt::Inst(inst, module, info),
+  "inst" <inst: Identifier> "of" <module: Identifier>              => ast::Stmt::Inst(inst, module, ast::Info::default()),
   "node" <name: Identifier> "symbol" <expr: Expr> <info: Info> => ast::Stmt::Node(name, expr, info),
+  "node" <name: Identifier> "symbol" <expr: Expr>              => ast::Stmt::Node(name, expr, ast::Info::default()),
   "connect" <sink: Expr> "symbol" <driver: Expr> <info: Info> => ast::Stmt::Connect(sink, driver, info),
+  "connect" <sink: Expr> "symbol" <driver: Expr>              => ast::Stmt::Connect(sink, driver, ast::Info::default()),
   "invalidate" <exp: Expr> <info: Info> => ast::Stmt::Invalidate(exp, info),
+  "invalidate" <exp: Expr>              => ast::Stmt::Invalidate(exp, ast::Info::default()),
   "when" <cond: Expr> "symbol" <info: Info> "indent" <stmts_true: Stmts> "dedent" "else" "symbol" "indent" <stmts_false: Stmts> "dedent" => ast::Stmt::When(cond, info, stmts_true, Some(stmts_false)),
+  "when" <cond: Expr> "symbol"              "indent" <stmts_true: Stmts> "dedent" "else" "symbol" "indent" <stmts_false: Stmts> "dedent" => ast::Stmt::When(cond, ast::Info::default(), stmts_true, Some(stmts_false)),
   "when" <cond: Expr> "symbol" <info: Info> "indent" <stmts_true: Stmts> "dedent"  => ast::Stmt::When(cond, info, stmts_true, None),
+  "when" <cond: Expr> "symbol"              "indent" <stmts_true: Stmts> "dedent"  => ast::Stmt::When(cond, ast::Info::default(), stmts_true, None),
   "printf" "(" <clk: Expr> "symbol" <clk_val: Expr> "symbol" <msg: "string"> "symbol" <exprs: Exprs> ")" "symbol" <name: Identifier> <info: Info> => ast::Stmt::Printf(clk, clk_val, msg, exprs, info),
+  "printf" "(" <clk: Expr> "symbol" <clk_val: Expr> "symbol" <msg: "string"> "symbol" <exprs: Exprs> ")" "symbol" <name: Identifier>              => ast::Stmt::Printf(clk, clk_val, msg, exprs, ast::Info::default()),
   "printf" "(" <clk: Expr> "symbol" <clk_val: Expr> "symbol" <msg: "string"> "symbol" <exprs: Exprs> ")" <info: Info> => ast::Stmt::Printf(clk, clk_val, msg, exprs, info),
+  "printf" "(" <clk: Expr> "symbol" <clk_val: Expr> "symbol" <msg: "string"> "symbol" <exprs: Exprs> ")"              => ast::Stmt::Printf(clk, clk_val, msg, exprs, ast::Info::default()),
   "assert" "(" <clk: Expr> "symbol" <pred: Expr> "symbol" <cond: Expr> "symbol" <msg: "string"> ")" <info: Info> => ast::Stmt::Assert(clk, pred, cond, msg, info),
+  "assert" "(" <clk: Expr> "symbol" <pred: Expr> "symbol" <cond: Expr> "symbol" <msg: "string"> ")"              => ast::Stmt::Assert(clk, pred, cond, msg, ast::Info::default()),
 };
 
 pub Ports: ast::Ports = {
@@ -214,12 +246,16 @@ pub Ports: ast::Ports = {
 
 pub Port: ast::Port = {
     "input"  <name: Identifier> "symbol" <tpe: Type> <info: Info> => ast::Port::Input(name, tpe, info),
+    "input"  <name: Identifier> "symbol" <tpe: Type>              => ast::Port::Input(name, tpe, ast::Info::default()),
     "output" <name: Identifier> "symbol" <tpe: Type> <info: Info> => ast::Port::Output(name, tpe, info),
+    "output" <name: Identifier> "symbol" <tpe: Type>              => ast::Port::Output(name, tpe, ast::Info::default()),
 };
 
 pub Module: ast::Module = {
              "module" <name: Identifier> "symbol" <info: Info> "indent" <ports: Ports> <stmts: Stmts> "dedent" => ast::Module::new(name, ports, stmts, info),
     "public" "module" <name: Identifier> "symbol" <info: Info> "indent" <ports: Ports> <stmts: Stmts> "dedent" => ast::Module::new(name, ports, stmts, info),
+             "module" <name: Identifier> "symbol"              "indent" <ports: Ports> <stmts: Stmts> "dedent" => ast::Module::new(name, ports, stmts, ast::Info::default()),
+    "public" "module" <name: Identifier> "symbol"              "indent" <ports: Ports> <stmts: Stmts> "dedent" => ast::Module::new(name, ports, stmts, ast::Info::default()),
 };
 
 pub DefName: ast::DefName = {
@@ -238,6 +274,7 @@ pub Parameters: ast::Parameters = {
 
 pub ExtModule: ast::ExtModule = {
     "extmodule" <name: Identifier> "symbol" <info: Info> "indent" <ports: Ports> <defname: DefName> <params: Parameters> "dedent" => ast::ExtModule::new(name, ports, defname, params, info),
+    "extmodule" <name: Identifier> "symbol"              "indent" <ports: Ports> <defname: DefName> <params: Parameters> "dedent" => ast::ExtModule::new(name, ports, defname, params, ast::Info::default()),
 };
 
 pub Annotations: ast::Annotations = {
@@ -259,6 +296,8 @@ pub CircuitModules: ast::CircuitModules = {
 };
 
 pub Circuit: ast::Circuit = {
-    <version: Version> "circuit" <name: Identifier> "symbol" <annos: Annotations> "indent" <modules: CircuitModules> "dedent" => ast::Circuit::new(version, name, annos, modules),
+                       "circuit" <name: Identifier> "symbol" "indent" <modules: CircuitModules> "dedent" => ast::Circuit::new(ast::Version::default(), name, ast::Annotations::default(), modules),
     <version: Version> "circuit" <name: Identifier> "symbol" "indent" <modules: CircuitModules> "dedent" => ast::Circuit::new(version, name, ast::Annotations::default(), modules),
+                       "circuit" <name: Identifier> "symbol" <annos: Annotations> "indent" <modules: CircuitModules> "dedent" => ast::Circuit::new(ast::Version::default(), name, annos, modules),
+    <version: Version> "circuit" <name: Identifier> "symbol" <annos: Annotations> "indent" <modules: CircuitModules> "dedent" => ast::Circuit::new(version, name, annos, modules),
 }
