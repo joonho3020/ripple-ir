@@ -1,12 +1,158 @@
-use crate::ast::*;
+use crate::ast;
 use crate::lexer::*;
 
 grammar;
 
-pub Circuit: Circuit = {
-}
-
 extern {
   type Location = usize;
   type Error = LexicalError;
+
+  enum Token {
+    "indent"           => Token::Indent,
+    "dedent"           => Token::Dedent,
+    "info"             => Token::Info(<String>),
+    "id"               => Token::ID(<i64>),
+    " "                => Token::Space,
+    "\t"               => Token::Tab,
+    "\n"               => Token::Newline,
+    "radixint"         => Token::RadixInt(<String>),
+    "int"              => Token::IntegerDec(<i64>),
+    "identifier"       => Token::Identifier(<String>),
+    "String"           => Token::String(<String>),
+    "/"                => Token::Slash,
+    "["                => Token::LeftSquare,
+    "]"                => Token::RightSquare,
+    "<"                => Token::LeftAngle,
+    ">"                => Token::RightAngle,
+    "{"                => Token::LeftBracket,
+    "}"                => Token::RightBracket,
+    "("                => Token::LeftParenthesis,
+    ")"                => Token::RightParenthesis,
+    "@"                => Token::AtSymbol,
+    "`"                => Token::Backtick,
+    "@[["              => Token::AnnoStart,
+    "]]"               => Token::AnnoEnd,
+    "<<"               => Token::DoubleLeft,
+    ">>"               => Token::DoubleRight,
+    "clock"            => Token::Clock,
+    "reset"            => Token::Reset,
+    "async_reset"      => Token::AsyncReset,
+    "uint"             => Token::UInt,
+    "sint"             => Token::SInt,
+    "probe_type"       => Token::ProbeType,
+    "probe"            => Token::Probe,
+    "analog"           => Token::Analog,
+    "fixed"            => Token::Fixed,
+    "flip"             => Token::Flip,
+    "primop_e2"        => Token::E2Op(<String>),
+    "primop_e1"        => Token::E1Op(<String>),
+    "primop_e1i1"      => Token::E1I1Op(<String>),
+    "primop_e1i2"      => Token::E1I2Op(<String>),
+    "mux"              => Token::Mux,
+    "validif"          => Token::ValidIf,
+    "smem"             => Token::SMem,
+    "cmem"             => Token::CMem,
+    "write"            => Token::Write,
+    "read"             => Token::Read,
+    "infer"            => Token::Infer,
+    "mport"            => Token::Mport,
+    "datatype"         => Token::DataType,
+    "depth"            => Token::Depth,
+    "read_lat"         => Token::ReadLatency,
+    "write_lat"        => Token::WriteLatency,
+    "read_under_write" => Token::ReadUnderWrite,
+    "wire"             => Token::Wire,
+    "reg"              => Token::Reg,
+    "reg_reset"        => Token::RegReset,
+    "inst"             => Token::Inst,
+    "of"               => Token::Of,
+    "node"             => Token::Node,
+    "invalidate"       => Token::Invalidate,
+    "attach"           => Token::Attach,
+    "when"             => Token::When,
+    "else"             => Token::Else,
+    "stop"             => Token::Stop,
+    "printf"           => Token::Printf,
+    "assert"           => Token::Assert,
+    "skip"             => Token::Skip,
+    "input"            => Token::Input,
+    "output"           => Token::Output,
+    "module"           => Token::Module,
+    "extmodule"        => Token::ExtModule,
+    "intmodule"        => Token::IntModule,
+    "defname"          => Token::DefName,
+    "parameter"        => Token::Parameter,
+    "intrinsic"        => Token::Intrinsic,
+    "FIRRTL"           => Token::FIRRTL,
+    "version"          => Token::Version,
+    "circuit"          => Token::Circuit,
+    "connect"          => Token::Connect,
+    "public"           => Token::Public,
+    "define"           => Token::Define,
+    "const"            => Token::Const,
+    "symbol"           => Token::Symbol(<String>),
+    "."                => Token::Period,
+  }
+}
+
+pub Expr: ast::Expr = {
+    <w: Width>     => ast::Expr::IntType(w),
+    <r: Reference> => ast::Expr::Reference(r),
+    <op: PrimOp2Expr> "(" <e1: Expr> "symbol" <e2: Expr> ")" => ast::Expr::PrimOp2Expr(op, Box::new(e1), Box::new(e2)),
+    <op: PrimOp1Expr> "(" <e1: Expr> => ast::Expr::PrimOp1Expr(op, Box::new(e1)),
+    <op: PrimOp1Expr1Int> "(" <e1: Expr> "symbol" <int: "int"> ")" => ast::Expr::PrimOp1Expr1Int(op, Box::new(e1), int as u32),
+    <op: PrimOp1Expr2Int> "(" <e1: Expr> "symbol" <int1: "int"> "symbol" <int2: "int"> ")" => ast::Expr::PrimOp1Expr2Int(op, Box::new(e1), int1 as u32, int2 as u32),
+};
+
+pub Width: ast::Width = {
+    "<" <w: "int"> ">" => ast::Width(w as u32)
+};
+
+pub Identifier: ast::Identifier = {
+    <id: "id">                 => ast::Identifier::ID(id as u32),
+    <identifier: "identifier"> => ast::Identifier::Name(identifier),
+}
+
+pub Reference: ast::Reference = {
+    <identifier: Identifier> => ast::Reference::Ref(identifier),
+    <id1: Reference> "." <id2: Identifier> => ast::Reference::RefDot(Box::new(id1), id2),
+    <id1: Reference> "[" <id2: Identifier> "]" => ast::Reference::RefIdxInt(Box::new(id1), id2),
+};
+
+pub PrimOp2Expr: ast::PrimOp2Expr = {
+    <op: "primop_e2"> => ast::PrimOp2Expr::from(op),
+}
+
+pub PrimOp1Expr: ast::PrimOp1Expr = {
+    <op: "primop_e1"> => ast::PrimOp1Expr::from(op),
+}
+
+pub PrimOp1Expr1Int: ast::PrimOp1Expr1Int = {
+    <op: "primop_e1i1"> => ast::PrimOp1Expr1Int::from(op),
+}
+
+pub PrimOp1Expr2Int: ast::PrimOp1Expr2Int = {
+    <op: "primop_e1i2"> => ast::PrimOp1Expr2Int::from(op),
+}
+
+pub Keyword: ast::Keyword = {
+    "inst"       => ast::Keyword::Inst,
+    "printf"     => ast::Keyword::Printf,
+    "assert"     => ast::Keyword::Assert,
+    "smem"       => ast::Keyword::SMem,
+    "cmem"       => ast::Keyword::CMem,
+    "of"         => ast::Keyword::Of,
+    "reg"        => ast::Keyword::Reg,
+    "input"      => ast::Keyword::Input,
+    "output"     => ast::Keyword::Output,
+    "invalidate" => ast::Keyword::Invalidate,
+    "mux"        => ast::Keyword::Mux,
+    "stop"       => ast::Keyword::Stop,
+    "depth"      => ast::Keyword::Depth,
+    "write"      => ast::Keyword::Write,
+    "read"       => ast::Keyword::Read,
+    "version"    => ast::Keyword::Version,
+    "probe"      => ast::Keyword::Probe,
+    "module"     => ast::Keyword::Module,
+    "const"      => ast::Keyword::Const,
 }

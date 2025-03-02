@@ -1,8 +1,23 @@
-use logos::{Logos, Lexer};
+use logos::{Lexer, Logos, Span};
 use std::collections::VecDeque;
+use std::num::ParseIntError;
 
 
-#[derive(Logos, Debug, PartialEq)]
+
+#[derive(Default, Debug, Clone, PartialEq)]
+pub enum LexicalError {
+    InvalidInteger(ParseIntError),
+    #[default]
+    InvalidToken,
+}
+
+impl From<ParseIntError> for LexicalError {
+    fn from(err: ParseIntError) -> Self {
+        LexicalError::InvalidInteger(err)
+    }
+}
+
+#[derive(Logos, Debug, Clone, PartialEq)]
 pub enum Token {
     Indent,
     Dedent,
@@ -105,17 +120,17 @@ pub enum Token {
     #[token("flip")]
     Flip,
 
-    #[regex("add|sub|mul|div|rem|lt|leq|gt|geq|eq|neq|dshl|dshr|and|or|xor|cat")]
-    E2Op,
+    #[regex("add|sub|mul|div|rem|lt|leq|gt|geq|eq|neq|dshl|dshr|and|or|xor|cat", |lex| lex.slice().to_string())]
+    E2Op(String),
 
-    #[regex("asUInt|asSInt|asClock|asAsyncReset|cvt|neg|not|andr|orr|xorr")]
-    E1Op,
+    #[regex("asUInt|asSInt|asClock|asAsyncReset|cvt|neg|not|andr|orr|xorr", |lex| lex.slice().to_string())]
+    E1Op(String),
 
-    #[regex("(pad|shl|shr|head|tail)[(]")]
-    E1I1Op,
+    #[regex("(pad|shl|shr|head|tail)[(]", |lex| lex.slice().to_string())]
+    E1I1Op(String),
 
-    #[regex("bits[(]")]
-    E1I2Op,
+    #[regex("bits[(]", |lex| lex.slice().to_string())]
+    E1I2Op(String),
 
     #[token("mux")]
     Mux,
@@ -175,7 +190,7 @@ pub enum Token {
     Reg,
 
     #[token("regreset")]
-    Regreset,
+    RegReset,
 
     #[token("inst")]
     Inst,
@@ -220,16 +235,16 @@ pub enum Token {
     Module,
 
     #[token("extmodule")]
-    Extmodule,
+    ExtModule,
 
     #[token("defname")]
-    Defname,
+    DefName,
 
     #[token("parameter")]
     Parameter,
 
     #[token("intmodule")]
-    Intmodule,
+    IntModule,
 
     #[token("intrinsic")]
     Intrinsic,
@@ -262,9 +277,8 @@ pub enum Token {
     Period,
 
     #[error]
-    Error,
+    Error
 }
-
 
 #[derive(Default, Debug, Clone)]
 enum LexerMode {
@@ -280,30 +294,33 @@ enum LexerMode {
 #[derive(Debug)]
 pub struct TokenString {
     pub token: Token,
+    pub span: Span,
     pub name: Option<String>,
 }
 
-impl From<Token> for TokenString {
-    fn from(token: Token) -> Self {
+impl From<(Token, Span)> for TokenString {
+    fn from(value: (Token, Span)) -> Self {
         Self {
-            token,
+            token: value.0,
+            span:  value.1,
             name: None
         }
     }
 }
 
 impl TokenString {
-    fn new(token: Token, name: String) -> Self {
+    fn new(token: Token, span: Span, name: String) -> Self {
         Self {
             token,
+            span,
             name: Some(name)
         }
     }
 }
 
 #[derive(Debug)]
-pub struct FIRRTLLexer<'a> {
-    lexer: Lexer<'a, Token>,
+pub struct FIRRTLLexer<'input> {
+    lexer: Lexer<'input, Token>,
     tokens: VecDeque<TokenString>,
     mode: LexerMode,
     indent_levels: Vec<u32>,
@@ -315,10 +332,10 @@ pub struct FIRRTLLexer<'a> {
     parenthesis_num: u32,
 }
 
-impl<'a> FIRRTLLexer<'a> {
+impl<'input> FIRRTLLexer<'input> {
     const TAB_WIDTH: u32 = 2;
 
-    pub fn new(input: &'a str) -> Self {
+    pub fn new(input: &'input str) -> Self {
         Self {
             lexer: Token::lexer(input),
             tokens: VecDeque::new(),
@@ -349,6 +366,7 @@ impl<'a> FIRRTLLexer<'a> {
                 None
             }
             _ => {
+                let span = ts.span.clone();
                 self.tokens.push_front(ts);
 
 // println!("INDENT MODE cur_indent: {} top: {:?}",
@@ -359,10 +377,10 @@ impl<'a> FIRRTLLexer<'a> {
                 if self.cur_indent > lvl {
                     self.mode = LexerMode::Normal;
                     self.indent_levels.push(self.cur_indent);
-                    return Some(TokenString::from(Token::Indent));
+                    return Some(TokenString::from((Token::Indent, span)));
                 } else if self.cur_indent < lvl {
                     self.indent_levels.pop();
-                    return Some(TokenString::from(Token::Dedent));
+                    return Some(TokenString::from((Token::Dedent, span)));
                 } else {
                     self.mode = LexerMode::Normal;
                     None
@@ -380,7 +398,7 @@ impl<'a> FIRRTLLexer<'a> {
             }
             Token::RightSquare => {
                 self.mode = LexerMode::Normal;
-                Some(TokenString::from(Token::Info(self.info_string.clone())))
+                Some(TokenString::from((Token::Info(self.info_string.clone()), ts.span)))
             }
             _ => {
                 self.info_string.push_str(&ts.name.unwrap());
@@ -393,7 +411,7 @@ impl<'a> FIRRTLLexer<'a> {
         let ts = self.tokens.pop_front().unwrap();
         match ts.token {
             Token::IntegerDec(x) => {
-                Some(TokenString::from(Token::ID(x)))
+                Some(TokenString::from((Token::ID(x), ts.span)))
             }
             Token::Backtick => {
                 self.mode = LexerMode::IntId;
@@ -410,7 +428,7 @@ impl<'a> FIRRTLLexer<'a> {
         let ts = self.tokens.pop_front().unwrap();
         match ts.token {
             Token::IntegerDec(x) => {
-                Some(TokenString::from(Token::ID(x)))
+                Some(TokenString::from((Token::ID(x), ts.span)))
             }
             Token::Backtick => {
                 self.mode = LexerMode::Normal;
@@ -418,7 +436,7 @@ impl<'a> FIRRTLLexer<'a> {
             }
             _ => {
                 println!("{:?}", ts);
-                Some(TokenString::from(Token::Error))
+                Some(TokenString::from((Token::Error, ts.span)))
             }
         }
     }
@@ -452,7 +470,7 @@ impl<'a> FIRRTLLexer<'a> {
                     self.square_num == 0 &&
                     self.parenthesis_num == 0 &&
                     self.bracket_num != 0 {
-                    Some(TokenString::from(Token::ID(x)))
+                    Some(TokenString::from((Token::ID(x), ts.span)))
                 } else {
                     Some(ts)
                 }
@@ -485,10 +503,10 @@ impl<'a> FIRRTLLexer<'a> {
                 self.parenthesis_num -= 1;
                 Some(ts)
             }
-            Token::E1Op |
-                Token::E2Op |
-                Token::E1I1Op |
-                Token::E1I2Op => {
+            Token::E1Op(_) |
+                Token::E2Op(_) |
+                Token::E1I1Op(_) |
+                Token::E1I2Op(_) => {
                 self.parenthesis_num += 1;
                 Some(ts)
             }
@@ -508,19 +526,18 @@ impl<'a> FIRRTLLexer<'a> {
                 Some(ts)
             }
         }
-
     }
 
     fn try_push(&mut self) {
         match self.lexer.next() {
             Some(token) => {
-                self.tokens.push_back(TokenString::new(token, self.lexer.slice().to_string()));
+                self.tokens.push_back(TokenString::new(token, self.lexer.span(), self.lexer.slice().to_string()));
             }
             _ => { }
         }
     }
 
-    pub fn next(&mut self) -> Option<TokenString> {
+    pub fn next_token(&mut self) -> Option<TokenString> {
         self.try_push();
 
         while !self.tokens.is_empty() {
@@ -543,5 +560,15 @@ impl<'a> FIRRTLLexer<'a> {
             }
         }
         None
+    }
+}
+
+pub type Spanned<Tok, Loc, Error> = Result<(Loc, Tok, Loc), Error>;
+
+impl <'input> Iterator for FIRRTLLexer<'input> {
+    type Item = Spanned<Token, usize, LexicalError>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.next_token().map(|x| Ok((x.span.start, x.token, x.span.end)))
     }
 }

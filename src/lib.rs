@@ -1,13 +1,16 @@
 mod lexer;
+mod ast;
+use lalrpop_util::lalrpop_mod;
+lalrpop_mod!(pub firrtl);
 
 
 #[cfg(test)]
-mod test {
+mod lexer_test {
     use crate::lexer::*;
 
     fn run(source: &str) {
         let mut lex = FIRRTLLexer::new(source);
-        while let Some(ts) = lex.next() {
+        while let Some(ts) = lex.next_token() {
 // println!("{:?}", ts);
             match ts.token {
                 Token::Error => {
@@ -95,5 +98,32 @@ circuit OneReadOneWritePortSRAM :
         let source = std::fs::read_to_string("./test-inputs/chipyard.harness.TestHarness.LargeBoomV3Config.fir")?;
         run(&source);
         Ok(())
+    }
+}
+
+
+
+#[cfg(test)]
+mod parser_test {
+    use crate::lexer::*;
+    use crate::firrtl::ExprParser;
+
+    fn run(source: &str) {
+        let lexer = FIRRTLLexer::new(source);
+        let parser = ExprParser::new();
+        let ast = parser.parse(lexer).unwrap();
+        println!("{:?}", ast);
+    }
+
+    #[test]
+    fn width() {
+        let source = "gt(x, y)";
+// let source =
+// r#"reg x : UInt, clock @[src/main/scala/gcd/GCD.scala 24:15]
+// reg y : UInt, clock @[src/main/scala/gcd/GCD.scala 25:15]
+// node _T = gt(x, y) @[src/main/scala/gcd/GCD.scala 27:10]
+// "#;
+
+        run(source);
     }
 }
