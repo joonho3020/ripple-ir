@@ -157,10 +157,10 @@ pub PrimOp1Expr2Int: ast::PrimOp1Expr2Int = {
     <op: "primop_e1i2"> => ast::PrimOp1Expr2Int::from(op),
 };
 
-// pub Exprs: Vec<Box<ast::Expr>> = {
-//     <head: Exprs> "symbol" <tail: Expr> => head.push(tail),
-//     Expr => vec![<>],
-// }
+pub Exprs: ast::Exprs = {
+    <mut head: Exprs> "symbol" <tail: Expr> => { head.push(Box::new(tail)); head },
+    <head: Expr> => vec![Box::new(head)],
+}
 
 // TODO: Take care of radix integers
 pub Expr: ast::Expr = {
@@ -198,10 +198,10 @@ pub Stmt: ast::Stmt = {
   "node" <name: Identifier> "symbol" <expr: Expr> <info: Info> => ast::Stmt::Node(name, expr, info),
   "connect" <sink: Expr> "symbol" <driver: Expr> <info: Info> => ast::Stmt::Connect(sink, driver, info),
   "invalidate" <exp: Expr> <info: Info> => ast::Stmt::Invalidate(exp, info),
-  // "when" <cond: Expr> "symbol" <info: Info> "indent" <stmts_true: Stmts> "dedent" "else" "symbol" "indent" <stmts_false: Stmts> "dedent" => ast::Stmt::When(cond, info, stmts_true, Some(stmts_false)),
-  // "when" <cond: Expr> "symbol" <info: Info> "indent" <stmts_true: Stmts> "dedent"  => ast::Stmt::When(cond, info, stmts_true, None),
-  // "printf" "(" <clk: Expr> "symbol" <clk_val: Expr> "symbol" <msg: "string"> "symbol" <exprs: Exprs> ")" "symbol" <name: Identifier> <info: Info> => ast::Stmt::Printf(clk, clk_val, msg, exprs, info),
-  // "printf" "(" <clk: Expr> "symbol" <clk_val: Expr> "symbol" <msg: "string"> "symbol" <exprs: Exprs> ")" <info: Info> => ast::Stmt::Printf(clk, clk_val, msg, exprs, info),
+  "when" <cond: Expr> "symbol" <info: Info> "indent" <stmts_true: Stmts> "dedent" "else" "symbol" "indent" <stmts_false: Stmts> "dedent" => ast::Stmt::When(cond, info, stmts_true, Some(stmts_false)),
+  "when" <cond: Expr> "symbol" <info: Info> "indent" <stmts_true: Stmts> "dedent"  => ast::Stmt::When(cond, info, stmts_true, None),
+  "printf" "(" <clk: Expr> "symbol" <clk_val: Expr> "symbol" <msg: "string"> "symbol" <exprs: Exprs> ")" "symbol" <name: Identifier> <info: Info> => ast::Stmt::Printf(clk, clk_val, msg, exprs, info),
+  "printf" "(" <clk: Expr> "symbol" <clk_val: Expr> "symbol" <msg: "string"> "symbol" <exprs: Exprs> ")" <info: Info> => ast::Stmt::Printf(clk, clk_val, msg, exprs, info),
   "assert" "(" <clk: Expr> "symbol" <pred: Expr> "symbol" <cond: Expr> "symbol" <msg: "string"> ")" <info: Info> => ast::Stmt::Assert(clk, pred, cond, msg, info),
 }
 

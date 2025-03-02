@@ -19,6 +19,7 @@ impl From<ParseIntError> for LexicalError {
 
 #[derive(Logos, Debug, Clone, PartialEq)]
 pub enum Token {
+    EOF,
     Indent,
     Dedent,
     Info(String),
@@ -126,7 +127,7 @@ pub enum Token {
     #[regex("asUInt|asSInt|asClock|asAsyncReset|cvt|neg|not|andr|orr|xorr", |lex| lex.slice().to_string())]
     E1Op(String),
 
-    #[regex("(pad|shl|shr|head|tail)[(]", |lex| lex.slice().to_string())]
+    #[regex("pad|shl|shr|head|tail", |lex| lex.slice().to_string())]
     E1I1Op(String),
 
     #[regex("bits[(]", |lex| lex.slice().to_string())]
@@ -330,6 +331,7 @@ pub struct FIRRTLLexer<'input> {
     square_num: u32,
     bracket_num: u32,
     parenthesis_num: u32,
+    returned_eof: bool,
 }
 
 impl<'input> FIRRTLLexer<'input> {
@@ -347,6 +349,7 @@ impl<'input> FIRRTLLexer<'input> {
             square_num: 0,
             bracket_num: 0,
             parenthesis_num: 0,
+            returned_eof: false,
         }
     }
 
@@ -451,6 +454,20 @@ impl<'input> FIRRTLLexer<'input> {
             _ => {
                 None
             }
+        }
+    }
+
+    fn eof_mode(&mut self) -> Option<TokenString> {
+        if *self.indent_levels.last().unwrap() != 0 {
+            self.indent_levels.pop();
+            return Some(TokenString {
+                token: Token::Dedent,
+                span: Span::default(),
+                name: None,
+
+            });
+        } else {
+            return None;
         }
     }
 
@@ -559,7 +576,21 @@ impl<'input> FIRRTLLexer<'input> {
                 }
             }
         }
-        None
+
+        // Finished all the tokens
+        if !self.returned_eof {
+            match self.eof_mode() {
+                Some(ts) => {
+                    return Some(ts);
+                }
+                _ => {
+                    self.returned_eof = true;
+                    return None;
+                }
+            }
+        } else {
+            None
+        }
     }
 }
 

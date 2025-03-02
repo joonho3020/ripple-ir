@@ -1,5 +1,4 @@
 
-
 #[derive(Debug, Clone, PartialEq, Hash)]
 pub struct Info(pub String);
 
@@ -212,4 +211,30 @@ pub enum Stmt {
 // Stop(Expr, Expr, u64, Info),
     Printf(Expr, Expr, String, Exprs, Info),
     Assert(Expr, Expr, Expr, String, Info),
+}
+
+impl Stmt {
+    pub fn traverse(&self) {
+        match self {
+            Self::When(e, i, tstmts, fstmts_opt) => {
+                println!("When, {:?}, {:?}", e, i);
+                for tstmt in tstmts.iter() {
+                    println!("{:?}", tstmt);
+                }
+                match fstmts_opt {
+                    Some(fstmts) => {
+                        println!("ELSE");
+                        for fstmt in fstmts.iter() {
+                            println!("{:?}", fstmt);
+                        }
+                    }
+                    None => {
+                    }
+                }
+            }
+            _ => {
+                println!("{:?}", self);
+            }
+        }
+    }
 }

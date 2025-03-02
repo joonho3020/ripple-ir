@@ -103,10 +103,20 @@ circuit OneReadOneWritePortSRAM :
     #[test]
     fn width() {
         let source =
-r#"
-reg x : UInt, clock @[src/main/scala/gcd/GCD.scala 24:15]
+r#"reg x : UInt, clock @[src/main/scala/gcd/GCD.scala 24:15]
 reg y : UInt, clock @[src/main/scala/gcd/GCD.scala 25:15]
 node _T = gt(x, y) @[src/main/scala/gcd/GCD.scala 27:10]
+when _T : @[src/main/scala/gcd/GCD.scala 27:15]
+  node _x_T = sub(x, y) @[src/main/scala/gcd/GCD.scala 27:24]
+  node _x_T_1 = tail(_x_T, 1) @[src/main/scala/gcd/GCD.scala 27:24]
+  connect x, _x_T_1 @[src/main/scala/gcd/GCD.scala 27:19]
+else :
+  node _y_T = sub(y, x) @[src/main/scala/gcd/GCD.scala 28:25]
+  node _y_T_1 = tail(_y_T, 1) @[src/main/scala/gcd/GCD.scala 28:25]
+  connect y, _y_T_1 @[src/main/scala/gcd/GCD.scala 28:20]
+when io.loadingValues : @[src/main/scala/gcd/GCD.scala 30:26]
+  connect x, io.value1 @[src/main/scala/gcd/GCD.scala 31:7]
+  connect y, io.value2 @[src/main/scala/gcd/GCD.scala 32:7]
 "#;
 
         run(source);
@@ -124,7 +134,10 @@ mod parser_test {
         let lexer = FIRRTLLexer::new(source);
         let parser = StmtsParser::new();
         let ast = parser.parse(lexer).unwrap();
-        println!("{:?}", ast);
+
+        for stmt in ast.iter() {
+            stmt.traverse();
+        }
     }
 
     #[test]
@@ -133,6 +146,17 @@ mod parser_test {
 r#"reg x : UInt, clock @[src/main/scala/gcd/GCD.scala 24:15]
 reg y : UInt, clock @[src/main/scala/gcd/GCD.scala 25:15]
 node _T = gt(x, y) @[src/main/scala/gcd/GCD.scala 27:10]
+when _T : @[src/main/scala/gcd/GCD.scala 27:15]
+  node _x_T = sub(x, y) @[src/main/scala/gcd/GCD.scala 27:24]
+  node _x_T_1 = tail(_x_T, 1) @[src/main/scala/gcd/GCD.scala 27:24]
+  connect x, _x_T_1 @[src/main/scala/gcd/GCD.scala 27:19]
+else :
+  node _y_T = sub(y, x) @[src/main/scala/gcd/GCD.scala 28:25]
+  node _y_T_1 = tail(_y_T, 1) @[src/main/scala/gcd/GCD.scala 28:25]
+  connect y, _y_T_1 @[src/main/scala/gcd/GCD.scala 28:20]
+when io.loadingValues : @[src/main/scala/gcd/GCD.scala 30:26]
+  connect x, io.value1 @[src/main/scala/gcd/GCD.scala 31:7]
+  connect y, io.value2 @[src/main/scala/gcd/GCD.scala 32:7]
 "#;
 
         run(source);
