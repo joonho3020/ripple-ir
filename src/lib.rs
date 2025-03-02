@@ -11,7 +11,7 @@ mod lexer_test {
     fn run(source: &str) {
         let mut lex = FIRRTLLexer::new(source);
         while let Some(ts) = lex.next_token() {
-// println!("{:?}", ts);
+            println!("{:?}", ts);
             match ts.token {
                 Token::Error => {
                     println!("{:?}", ts);
@@ -99,6 +99,18 @@ circuit OneReadOneWritePortSRAM :
         run(&source);
         Ok(())
     }
+
+    #[test]
+    fn width() {
+        let source =
+r#"
+reg x : UInt, clock @[src/main/scala/gcd/GCD.scala 24:15]
+reg y : UInt, clock @[src/main/scala/gcd/GCD.scala 25:15]
+node _T = gt(x, y) @[src/main/scala/gcd/GCD.scala 27:10]
+"#;
+
+        run(source);
+    }
 }
 
 
@@ -106,23 +118,22 @@ circuit OneReadOneWritePortSRAM :
 #[cfg(test)]
 mod parser_test {
     use crate::lexer::*;
-    use crate::firrtl::ExprParser;
+    use crate::firrtl::StmtsParser;
 
     fn run(source: &str) {
         let lexer = FIRRTLLexer::new(source);
-        let parser = ExprParser::new();
+        let parser = StmtsParser::new();
         let ast = parser.parse(lexer).unwrap();
         println!("{:?}", ast);
     }
 
     #[test]
     fn width() {
-        let source = "gt(x, y)";
-// let source =
-// r#"reg x : UInt, clock @[src/main/scala/gcd/GCD.scala 24:15]
-// reg y : UInt, clock @[src/main/scala/gcd/GCD.scala 25:15]
-// node _T = gt(x, y) @[src/main/scala/gcd/GCD.scala 27:10]
-// "#;
+        let source =
+r#"reg x : UInt, clock @[src/main/scala/gcd/GCD.scala 24:15]
+reg y : UInt, clock @[src/main/scala/gcd/GCD.scala 25:15]
+node _T = gt(x, y) @[src/main/scala/gcd/GCD.scala 27:10]
+"#;
 
         run(source);
     }
