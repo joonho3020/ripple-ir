@@ -525,10 +525,40 @@ when do_deq : @[src/main/scala/chisel3/util/Decoupled.scala 273:16]
     }
 
     #[test]
-    fn pad_stmts() {
+    fn primop_name_overlaps_with_variable_2() {
         let source =
 r#"node pad = or(bootAddrReg, UInt<64>(0h0)) @[generators/rocket-chip/src/main/scala/regmapper/RegField.scala 150:19]"#;
 
+        let lexer = FIRRTLLexer::new(&source);
+        let parser = StmtsParser::new();
+        let ast = parser.parse(lexer).expect("FAILED");
+        println!("{:?}", ast);
+    }
+
+    #[test]
+    fn primop_name_overlaps_with_variable_3() {
+        let source =
+r#"
+cmem head : UInt<6> [40] @[generators/rocket-chip-inclusive-cache/design/craft/inclusivecache/src/ListBuffer.scala 48:18]
+cmem tail : UInt<6> [40] @[generators/rocket-chip-inclusive-cache/design/craft/inclusivecache/src/ListBuffer.scala 49:18]
+read mport push_tail = tail[io.push.bits.index], clock @[generators/rocket-chip-inclusive-cache/design/craft/inclusivecache/src/ListBuffer.scala 62:28]
+when _T : @[generators/rocket-chip-inclusive-cache/design/craft/inclusivecache/src/ListBuffer.scala 66:23]
+  node valid_set_shiftAmount = bits(io.push.bits.index, 5, 0) @[src/main/scala/chisel3/util/OneHot.scala 64:49]
+  node _valid_set_T = dshl(UInt<1>(0h1), valid_set_shiftAmount) @[src/main/scala/chisel3/util/OneHot.scala 65:12]
+  node _valid_set_T_1 = bits(_valid_set_T, 39, 0) @[src/main/scala/chisel3/util/OneHot.scala 65:27]
+  connect valid_set, _valid_set_T_1 @[generators/rocket-chip-inclusive-cache/design/craft/inclusivecache/src/ListBuffer.scala 67:15]
+  connect used_set, freeOH @[generators/rocket-chip-inclusive-cache/design/craft/inclusivecache/src/ListBuffer.scala 68:14]
+  write mport MPORT = data[freeIdx], clock @[generators/rocket-chip-inclusive-cache/design/craft/inclusivecache/src/ListBuffer.scala 69:15]
+  connect MPORT, io.push.bits.data @[generators/rocket-chip-inclusive-cache/design/craft/inclusivecache/src/ListBuffer.scala 69:15]
+  when push_valid : @[generators/rocket-chip-inclusive-cache/design/craft/inclusivecache/src/ListBuffer.scala 70:23]
+    write mport MPORT_1 = next[push_tail], clock @[generators/rocket-chip-inclusive-cache/design/craft/inclusivecache/src/ListBuffer.scala 71:17]
+    connect MPORT_1, freeIdx @[generators/rocket-chip-inclusive-cache/design/craft/inclusivecache/src/ListBuffer.scala 71:17]
+  else :
+    write mport MPORT_2 = head[io.push.bits.index], clock @[generators/rocket-chip-inclusive-cache/design/craft/inclusivecache/src/ListBuffer.scala 73:17]
+    connect MPORT_2, freeIdx @[generators/rocket-chip-inclusive-cache/design/craft/inclusivecache/src/ListBuffer.scala 73:17]
+  write mport MPORT_3 = tail[io.push.bits.index], clock @[generators/rocket-chip-inclusive-cache/design/craft/inclusivecache/src/ListBuffer.scala 75:15]
+  connect MPORT_3, freeIdx @[generators/rocket-chip-inclusive-cache/design/craft/inclusivecache/src/ListBuffer.scala 75:15]
+"#;
         let lexer = FIRRTLLexer::new(&source);
         let parser = StmtsParser::new();
         let ast = parser.parse(lexer).expect("FAILED");

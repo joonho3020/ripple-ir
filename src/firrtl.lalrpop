@@ -220,6 +220,11 @@ pub ChirrtlMemory: ast::ChirrtlMemory = {
     "smem" <name: Identifier> "symbol" <tpe: ChirrtlMemoryDataType> "symbol" <ruw: ChirrtlMemoryReadUnderWrite> <info: Info> => ast::ChirrtlMemory::SMem(name, tpe, Some(ruw), info),
     "smem" <name: Identifier> "symbol" <tpe: ChirrtlMemoryDataType> <info: Info> => ast::ChirrtlMemory::SMem(name, tpe, None, info),
     "cmem" <name: Identifier> "symbol" <tpe: ChirrtlMemoryDataType> <info: Info> => ast::ChirrtlMemory::CMem(name, tpe, info),
+
+    // TODO: add all other primop cases
+    "smem" <name: "primop_e1i1"> "symbol" <tpe: ChirrtlMemoryDataType> "symbol" <ruw: ChirrtlMemoryReadUnderWrite> <info: Info> => ast::ChirrtlMemory::SMem(ast::Identifier::Name(name), tpe, Some(ruw), info),
+    "smem" <name: "primop_e1i1"> "symbol" <tpe: ChirrtlMemoryDataType> <info: Info> => ast::ChirrtlMemory::SMem(ast::Identifier::Name(name), tpe, None, info),
+    "cmem" <name: "primop_e1i1"> "symbol" <tpe: ChirrtlMemoryDataType> <info: Info> => ast::ChirrtlMemory::CMem(ast::Identifier::Name(name), tpe, info),
 };
 
 pub ChirrtlMemoryPort: ast::ChirrtlMemoryPort = {
