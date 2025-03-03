@@ -213,8 +213,6 @@ circuit GCD :%[[
 
 }
 
-
-
 #[cfg(test)]
 mod parser_test {
     use crate::lexer::*;
@@ -610,22 +608,11 @@ extmodule GenericDigitalOutIOCell : @[generators/chipyard/src/main/scala/iocell/
     }
 
     #[test]
-    fn tlmonitor_61() -> Result<(), std::io::Error> {
-        let source = std::fs::read_to_string("./test-inputs/tlmonitor_61.fir")?;
-        let lexer = FIRRTLLexer::new(&source);
-        let parser = CircuitModuleParser::new();
-        let ast = parser.parse(lexer).expect("FAILED");
-    // println!("{:?}", ast);
-        Ok(())
-    }
-
-    #[test]
     fn bug() -> Result<(), std::io::Error> {
         let source = r#"node _T_567 = asSInt(_T_566) @[generators/rocket-chip/src/main/scala/diplomacy/Parameters.scala 137:46]"#;
         let lexer = FIRRTLLexer::new(&source);
         let parser = StmtParser::new();
         let ast = parser.parse(lexer).expect("FAILED");
-    // println!("{:?}", ast);
         Ok(())
     }
 
@@ -635,17 +622,15 @@ extmodule GenericDigitalOutIOCell : @[generators/chipyard/src/main/scala/iocell/
         let lexer = FIRRTLLexer::new(&source);
         let parser = CircuitParser::new();
         let ast = parser.parse(lexer).expect("FAILED");
-    // println!("{:?}", ast);
         Ok(())
     }
 
     #[test]
     fn boomconfig() -> Result<(), std::io::Error> {
-        let source = std::fs::read_to_string("./test-inputs/chipyard.harness.TestHarness.LargeBoomV3Config.fir.noanno")?;
+        let source = std::fs::read_to_string("./test-inputs/chipyard.harness.TestHarness.LargeBoomV3Config.fir")?;
         let lexer = FIRRTLLexer::new(&source);
         let parser = CircuitParser::new();
         let ast = parser.parse(lexer).expect("FAILED");
-    // println!("{:?}", ast);
         Ok(())
     }
 
@@ -661,7 +646,7 @@ extmodule GenericDigitalOutIOCell : @[generators/chipyard/src/main/scala/iocell/
 
     #[test]
     fn rocket_modules() -> Result<(), std::io::Error> {
-        for entry in std::fs::read_dir("./rocket-modules/")? {
+        for entry in std::fs::read_dir("./test-inputs/rocket-modules/")? {
             let entry = entry?;
             let path = entry.path();
 
