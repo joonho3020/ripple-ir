@@ -230,6 +230,7 @@ pub type Stmts = Vec<Box<Stmt>>;
 
 #[derive(Debug, Clone, PartialEq, Hash)]
 pub enum Stmt {
+    Skip(Info),
     Wire(Identifier, Type, Info),
     Reg(Identifier,  Type, Expr, Info),
     RegReset(Identifier, Type, Expr, Expr, Expr, Info),

@@ -200,6 +200,11 @@ pub Expr: ast::Expr = {
     <op: PrimOp1Expr> "(" <e1: Expr> ")" => ast::Expr::PrimOp1Expr(op, Box::new(e1)),
     <op: PrimOp1Expr1Int> "(" <e1: Expr> "symbol" <int: "int"> ")" => ast::Expr::PrimOp1Expr1Int(op, Box::new(e1), int),
     <op: PrimOp1Expr2Int> <e1: Expr> "symbol" <int1: "int"> "symbol" <int2: "int"> ")" => ast::Expr::PrimOp1Expr2Int(op, Box::new(e1), int1, int2),
+
+    // TODO: add all other primop cases
+    <op: PrimOp1Expr2Int> <e1: "primop_e1i1"> "symbol" <int1: "int"> "symbol" <int2: "int"> ")" => {
+      ast::Expr::PrimOp1Expr2Int(op, Box::new(ast::Expr::Reference(ast::Reference::Ref(ast::Identifier::Name(e1)))), int1, int2)
+    },
 };
 
 pub ChirrtlMemoryDataType: ast::Type = {
@@ -254,6 +259,10 @@ pub Stmt: ast::Stmt = {
 
   "node" <name: Identifier> "symbol" <expr: Expr> <info: Info> => ast::Stmt::Node(name, expr, info),
   "node" <name: Identifier> "symbol" <expr: Expr>              => ast::Stmt::Node(name, expr, ast::Info::default()),
+
+  // TODO: add all other primop cases
+  "node" <name: "primop_e1i1"> "symbol" <expr: Expr> <info: Info> => ast::Stmt::Node(ast::Identifier::Name(name), expr, info),
+
   "connect" <sink: Expr> "symbol" <driver: Expr> <info: Info> => ast::Stmt::Connect(sink, driver, info),
   "connect" <sink: Expr> "symbol" <driver: Expr>              => ast::Stmt::Connect(sink, driver, ast::Info::default()),
   "invalidate" <exp: Expr> <info: Info> => ast::Stmt::Invalidate(exp, info),
@@ -277,6 +286,9 @@ pub Stmt: ast::Stmt = {
 
   "assert" "(" <clk: Expr> "symbol" <pred: Expr> "symbol" <cond: Expr> "symbol" <msg: "string"> ")" "symbol" <name: Identifier> <info: Info> => ast::Stmt::Assert(clk, pred, cond, msg, info),
   "assert" "(" <clk: Expr> "symbol" <pred: Expr> "symbol" <cond: Expr> "symbol" <msg: "string"> ")" "symbol" <name: Identifier>              => ast::Stmt::Assert(clk, pred, cond, msg, ast::Info::default()),
+
+  "skip"              => ast::Stmt::Skip(ast::Info::default()),
+  "skip" <info: Info> => ast::Stmt::Skip(info),
 };
 
 pub Ports: ast::Ports = {
