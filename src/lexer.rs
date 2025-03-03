@@ -80,11 +80,11 @@ pub enum Token {
     #[token("`")]
     Backtick,
 
-    #[token("%[[")]
+    #[token("%[")]
     AnnoStart,
 
-    #[token("]]")]
-    AnnoEnd,
+// #[token("]]")]
+// AnnoEnd,
 
     #[token("<<")]
     DoubleLeft,
@@ -332,6 +332,7 @@ pub struct FIRRTLLexer<'input> {
     cur_indent: u32,
     info_string: String,
     anno_string: String,
+    previous_right_square: bool,
     angle_num: u32,
     square_num: u32,
     bracket_num: u32,
@@ -352,6 +353,7 @@ impl<'input> FIRRTLLexer<'input> {
             cur_indent: 0,
             info_string: String::default(),
             anno_string: String::default(),
+            previous_right_square: false,
             angle_num: 0,
             square_num: 0,
             bracket_num: 0,
@@ -457,11 +459,18 @@ impl<'input> FIRRTLLexer<'input> {
     fn anno_mode(&mut self) -> Option<TokenString> {
         let ts = self.tokens.pop_front().unwrap();
         match ts.token {
-            Token::AnnoEnd => {
-                self.mode = LexerMode::Normal;
-                Some(TokenString::from((Token::Annotations(self.anno_string.clone()), ts.line, ts.start)))
+            Token::RightSquare => {
+                if self.previous_right_square {
+                    self.mode = LexerMode::Normal;
+                    Some(TokenString::from((Token::Annotations(self.anno_string.clone()), ts.line, ts.start)))
+                } else {
+                    self.previous_right_square = true;
+                    self.anno_string.push_str(&ts.name.unwrap());
+                    None
+                }
             }
             _ => {
+                self.previous_right_square = false;
                 self.anno_string.push_str(&ts.name.unwrap());
                 None
             }

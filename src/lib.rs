@@ -640,6 +640,26 @@ extmodule GenericDigitalOutIOCell : @[generators/chipyard/src/main/scala/iocell/
     }
 
     #[test]
+    fn boomconfig() -> Result<(), std::io::Error> {
+        let source = std::fs::read_to_string("./test-inputs/chipyard.harness.TestHarness.LargeBoomV3Config.fir.noanno")?;
+        let lexer = FIRRTLLexer::new(&source);
+        let parser = CircuitParser::new();
+        let ast = parser.parse(lexer).expect("FAILED");
+    // println!("{:?}", ast);
+        Ok(())
+    }
+
+    #[test]
+    fn double_indexing() -> Result<(), std::io::Error> {
+        let source = r#"connect io_debug_fetch_pc_0_REG, pcs[io.debug_ftq_idx[0]] @[generators/boom/src/main/scala/v3/ifu/fetch-target-queue.scala 363:36]"#;
+        let lexer = FIRRTLLexer::new(&source);
+        let parser = StmtParser::new();
+        let ast = parser.parse(lexer).expect("FAILED");
+        println!("{:?}", ast);
+        Ok(())
+    }
+
+    #[test]
     fn rocket_modules() -> Result<(), std::io::Error> {
         for entry in std::fs::read_dir("./rocket-modules/")? {
             let entry = entry?;
