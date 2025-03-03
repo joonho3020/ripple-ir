@@ -13,6 +13,18 @@ pub enum Identifier {
 }
 
 #[derive(Debug, Clone, PartialEq, Hash)]
+pub struct Float {
+    pub integer: u32,
+    pub decimal: u32,
+}
+
+impl Float {
+    pub fn new(integer: u32, decimal: u32) -> Self {
+        Self { integer, decimal }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Hash)]
 pub enum Reference {
     Ref(Identifier),
     RefDot(Box<Reference>, Identifier),
@@ -315,6 +327,7 @@ pub type Parameters = Vec<Box<Parameter>>;
 #[derive(Debug, Clone, PartialEq, Hash)]
 pub enum Parameter {
     IntParam(Identifier, Int),
+    FloatParam(Identifier, Float),
     StringParam(Identifier, String),
 }
 

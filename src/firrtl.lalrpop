@@ -97,6 +97,10 @@ extern {
   }
 }
 
+pub Float: ast::Float = {
+    <integer: "int"> "."  <decimal: "id"> => ast::Float::new(integer.to_u32(), decimal.to_u32()),
+};
+
 pub Info: ast::Info = {
   <info: "info"> => ast::Info(info)
 };
@@ -322,6 +326,7 @@ pub DefName: ast::DefName = {
 
 pub Parameter: ast::Parameter = {
     "parameter" <name: Identifier> "symbol" <msg: "string"> => ast::Parameter::StringParam(name, msg),
+    "parameter" <name: Identifier> "symbol" <val: Float>    => ast::Parameter::FloatParam(name, val),
     "parameter" <name: Identifier> "symbol" <val: "int">    => ast::Parameter::IntParam(name, val),
 };
 
@@ -332,6 +337,7 @@ pub Parameters: ast::Parameters = {
 
 pub ExtModule: ast::ExtModule = {
     "extmodule" <name: Identifier> "symbol" <info: Info> "indent" <ports: Ports> <defname: DefName> <params: Parameters> "dedent" => ast::ExtModule::new(name, ports, defname, params, info),
+    "extmodule" <name: Identifier> "symbol" <info: Info> "indent" <ports: Ports> <defname: DefName>                      "dedent" => ast::ExtModule::new(name, ports, defname, vec![], info),
 };
 
 pub Annotations: ast::Annotations = {
