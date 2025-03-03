@@ -1,3 +1,5 @@
+use crate::Int;
+
 #[derive(Debug, Default, Clone, PartialEq, Hash)]
 pub struct Info(pub String);
 
@@ -6,7 +8,7 @@ pub struct Width(pub u32);
 
 #[derive(Debug, Clone, PartialEq, Hash)]
 pub enum Identifier {
-    ID(u32),
+    ID(Int),
     Name(String),
 }
 
@@ -14,7 +16,8 @@ pub enum Identifier {
 pub enum Reference {
     Ref(Identifier),
     RefDot(Box<Reference>, Identifier),
-    RefIdxInt(Box<Reference>, i64)
+    RefIdxInt(Box<Reference>, Int),
+    RefIdxExpr(Box<Reference>, Box<Expr>)
 }
 
 #[derive(Debug, Clone, PartialEq, Hash)]
@@ -140,28 +143,28 @@ pub type Exprs = Vec<Box<Expr>>;
 #[derive(Debug, Clone, PartialEq, Hash)]
 pub enum Expr {
     UIntNoInit(Width),
-    UIntInit(Width, i64),
+    UIntInit(Width, Int),
     SIntNoInit(Width),
-    SIntInit(Width, i64),
+    SIntInit(Width, Int),
     Reference(Reference),
     Mux(Box<Expr>, Box<Expr>, Box<Expr>),
     ValidIf(Box<Expr>, Box<Expr>),
     PrimOp2Expr(PrimOp2Expr, Box<Expr>, Box<Expr>),
     PrimOp1Expr(PrimOp1Expr, Box<Expr>),
-    PrimOp1Expr1Int(PrimOp1Expr1Int, Box<Expr>, u32),
-    PrimOp1Expr2Int(PrimOp1Expr2Int, Box<Expr>, u32, u32),
+    PrimOp1Expr1Int(PrimOp1Expr1Int, Box<Expr>, Int),
+    PrimOp1Expr2Int(PrimOp1Expr2Int, Box<Expr>, Int, Int),
 }
 
 impl Expr {
-    pub fn parse_radixint(s: &str) -> Result<i64, String> {
+    pub fn parse_radixint(s: &str) -> Result<Int, String> {
         if let Some(num) = s.strip_prefix("0b") {
-            i64::from_str_radix(num, 2).map_err(|e| e.to_string())
+            Int::from_str_radix(num, 2).map_err(|e| e.to_string())
         } else if let Some(num) = s.strip_prefix("0o") {
-            i64::from_str_radix(num, 8).map_err(|e| e.to_string())
+            Int::from_str_radix(num, 8).map_err(|e| e.to_string())
         } else if let Some(num) = s.strip_prefix("0d") {
-            num.parse::<i64>().map_err(|e| e.to_string())
+            num.parse::<Int>().map_err(|e| e.to_string())
         } else if let Some(num) = s.strip_prefix("0h") {
-            i64::from_str_radix(num, 16).map_err(|e| e.to_string())
+            Int::from_str_radix(num, 16).map_err(|e| e.to_string())
         } else {
             Err(format!("Invalid number format: {}", s))
         }
@@ -191,7 +194,7 @@ pub enum Field {
 #[derive(Debug, Clone, PartialEq, Hash)]
 pub enum TypeAggregate {
     Fields(Box<Fields>),
-    Array(Box<Type>, i64),
+    Array(Box<Type>, Int),
 }
 
 #[derive(Debug, Clone, PartialEq, Hash)]
@@ -245,7 +248,7 @@ pub enum Stmt {
     When(Expr, Info, Stmts, Option<Stmts>),
 // Stop(Expr, Expr, u64, Info),
 // Stop(Expr, Expr, u64, Info),
-    Printf(Expr, Expr, String, Exprs, Info),
+    Printf(Expr, Expr, String, Option<Exprs>, Info),
     Assert(Expr, Expr, Expr, String, Info),
 }
 
@@ -310,7 +313,7 @@ pub type Parameters = Vec<Box<Parameter>>;
 
 #[derive(Debug, Clone, PartialEq, Hash)]
 pub enum Parameter {
-    IntParam(Identifier, i64),
+    IntParam(Identifier, Int),
     StringParam(Identifier, String),
 }
 

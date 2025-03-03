@@ -1,8 +1,7 @@
+use crate::Int;
 use logos::{Lexer, Logos};
 use std::collections::VecDeque;
 use std::num::ParseIntError;
-
-
 
 #[derive(Default, Debug, Clone, PartialEq)]
 pub enum LexicalError {
@@ -17,6 +16,7 @@ impl From<ParseIntError> for LexicalError {
     }
 }
 
+
 #[derive(Logos, Debug, Clone, PartialEq)]
 pub enum Token {
     EOF,
@@ -24,7 +24,7 @@ pub enum Token {
     Dedent,
     Info(String),
     Annotations(String),
-    ID(i64),
+    ID(Int),
 
     #[token(" ")]
     Space,
@@ -39,7 +39,7 @@ pub enum Token {
     RadixInt(String),
 
     #[regex("-?[0-9]+", |lex| lex.slice().parse(), priority = 3)]
-    IntegerDec(i64),
+    IntegerDec(Int),
 
     #[regex("[_A-Za-z][_A-Za-z0-9]*", |lex| lex.slice().to_string(), priority = 1)]
     Identifier(String),
