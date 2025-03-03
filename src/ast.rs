@@ -162,7 +162,7 @@ impl Expr {
         } else if let Some(num) = s.strip_prefix("0o") {
             Int::from_str_radix(num, 8).map_err(|e| e.to_string())
         } else if let Some(num) = s.strip_prefix("0d") {
-            num.parse::<Int>().map_err(|e| e.to_string())
+            Int::from_str_radix(num, 10).map_err(|e| e.to_string())
         } else if let Some(num) = s.strip_prefix("0h") {
             Int::from_str_radix(num, 16).map_err(|e| e.to_string())
         } else {

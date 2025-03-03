@@ -103,7 +103,7 @@ pub Info: ast::Info = {
 
 // TODO: Add radint case
 pub Width: ast::Width = {
-    "<" <w: "int"> ">" => ast::Width(w as u32)
+    "<" <w: "int"> ">" => ast::Width(w.to_u32()),
 };
 
 pub TypeGround: ast::TypeGround = {
@@ -162,19 +162,22 @@ pub Identifier: ast::Identifier = {
     "probe"       => ast::Identifier::Name("probe".to_string()),
     "module"      => ast::Identifier::Name("module".to_string()),
     "const"       => ast::Identifier::Name("const".to_string()),
+    <x: "primop_e2"> => ast::Identifier::Name(x),
+    <x: "primop_e1"> => ast::Identifier::Name(x),
+    <x: "primop_e1i1"> => ast::Identifier::Name(x),
     <identifier: "identifier"> => ast::Identifier::Name(identifier),
 };
 
 pub PrimOp2Expr: ast::PrimOp2Expr = {
-    <op: "primop_e2"> => ast::PrimOp2Expr::from(op),
+    <op: "primop_e2"> "(" => ast::PrimOp2Expr::from(op),
 };
 
 pub PrimOp1Expr: ast::PrimOp1Expr = {
-    <op: "primop_e1"> => ast::PrimOp1Expr::from(op),
+    <op: "primop_e1"> "(" => ast::PrimOp1Expr::from(op),
 };
 
 pub PrimOp1Expr1Int: ast::PrimOp1Expr1Int = {
-    <op: "primop_e1i1"> => ast::PrimOp1Expr1Int::from(op),
+    <op: "primop_e1i1"> "(" => ast::PrimOp1Expr1Int::from(op),
 };
 
 pub PrimOp1Expr2Int: ast::PrimOp1Expr2Int = {
@@ -196,15 +199,15 @@ pub Expr: ast::Expr = {
     <r: Reference> => ast::Expr::Reference(r),
     <m: "mux"> "(" <sel: Expr> "symbol" <exp_true: Expr> "symbol" <exp_false: Expr> ")" => ast::Expr::Mux(Box::new(sel), Box::new(exp_true), Box::new(exp_false)),
     <vif: "validif"> "(" <if_expr: Expr> "symbol" <expr: Expr> ")" => ast::Expr::ValidIf(Box::new(if_expr), Box::new(expr)),
-    <op: PrimOp2Expr> "(" <e1: Expr> "symbol" <e2: Expr> ")" => ast::Expr::PrimOp2Expr(op, Box::new(e1), Box::new(e2)),
-    <op: PrimOp1Expr> "(" <e1: Expr> ")" => ast::Expr::PrimOp1Expr(op, Box::new(e1)),
-    <op: PrimOp1Expr1Int> "(" <e1: Expr> "symbol" <int: "int"> ")" => ast::Expr::PrimOp1Expr1Int(op, Box::new(e1), int),
+    <op: PrimOp2Expr>     <e1: Expr> "symbol" <e2: Expr> ")" => ast::Expr::PrimOp2Expr(op, Box::new(e1), Box::new(e2)),
+    <op: PrimOp1Expr>     <e1: Expr> ")" => ast::Expr::PrimOp1Expr(op, Box::new(e1)),
+    <op: PrimOp1Expr1Int> <e1: Expr> "symbol" <int: "int"> ")" => ast::Expr::PrimOp1Expr1Int(op, Box::new(e1), int),
     <op: PrimOp1Expr2Int> <e1: Expr> "symbol" <int1: "int"> "symbol" <int2: "int"> ")" => ast::Expr::PrimOp1Expr2Int(op, Box::new(e1), int1, int2),
 
     // TODO: add all other primop cases
-    <op: PrimOp1Expr2Int> <e1: "primop_e1i1"> "symbol" <int1: "int"> "symbol" <int2: "int"> ")" => {
-      ast::Expr::PrimOp1Expr2Int(op, Box::new(ast::Expr::Reference(ast::Reference::Ref(ast::Identifier::Name(e1)))), int1, int2)
-    },
+    // <op: PrimOp1Expr2Int> <e1: "primop_e1i1"> "symbol" <int1: "int"> "symbol" <int2: "int"> ")" => {
+    //   ast::Expr::PrimOp1Expr2Int(op, Box::new(ast::Expr::Reference(ast::Reference::Ref(ast::Identifier::Name(e1)))), int1, int2)
+    // },
 };
 
 pub ChirrtlMemoryDataType: ast::Type = {
@@ -222,9 +225,9 @@ pub ChirrtlMemory: ast::ChirrtlMemory = {
     "cmem" <name: Identifier> "symbol" <tpe: ChirrtlMemoryDataType> <info: Info> => ast::ChirrtlMemory::CMem(name, tpe, info),
 
     // TODO: add all other primop cases
-    "smem" <name: "primop_e1i1"> "symbol" <tpe: ChirrtlMemoryDataType> "symbol" <ruw: ChirrtlMemoryReadUnderWrite> <info: Info> => ast::ChirrtlMemory::SMem(ast::Identifier::Name(name), tpe, Some(ruw), info),
-    "smem" <name: "primop_e1i1"> "symbol" <tpe: ChirrtlMemoryDataType> <info: Info> => ast::ChirrtlMemory::SMem(ast::Identifier::Name(name), tpe, None, info),
-    "cmem" <name: "primop_e1i1"> "symbol" <tpe: ChirrtlMemoryDataType> <info: Info> => ast::ChirrtlMemory::CMem(ast::Identifier::Name(name), tpe, info),
+    // "smem" <name: "primop_e1i1"> "symbol" <tpe: ChirrtlMemoryDataType> "symbol" <ruw: ChirrtlMemoryReadUnderWrite> <info: Info> => ast::ChirrtlMemory::SMem(ast::Identifier::Name(name), tpe, Some(ruw), info),
+    // "smem" <name: "primop_e1i1"> "symbol" <tpe: ChirrtlMemoryDataType> <info: Info> => ast::ChirrtlMemory::SMem(ast::Identifier::Name(name), tpe, None, info),
+    // "cmem" <name: "primop_e1i1"> "symbol" <tpe: ChirrtlMemoryDataType> <info: Info> => ast::ChirrtlMemory::CMem(ast::Identifier::Name(name), tpe, info),
 };
 
 pub ChirrtlMemoryPort: ast::ChirrtlMemoryPort = {
@@ -266,7 +269,7 @@ pub Stmt: ast::Stmt = {
   "node" <name: Identifier> "symbol" <expr: Expr>              => ast::Stmt::Node(name, expr, ast::Info::default()),
 
   // TODO: add all other primop cases
-  "node" <name: "primop_e1i1"> "symbol" <expr: Expr> <info: Info> => ast::Stmt::Node(ast::Identifier::Name(name), expr, info),
+  // "node" <name: "primop_e1i1"> "symbol" <expr: Expr> <info: Info> => ast::Stmt::Node(ast::Identifier::Name(name), expr, info),
 
   "connect" <sink: Expr> "symbol" <driver: Expr> <info: Info> => ast::Stmt::Connect(sink, driver, info),
   "connect" <sink: Expr> "symbol" <driver: Expr>              => ast::Stmt::Connect(sink, driver, ast::Info::default()),
@@ -336,7 +339,7 @@ pub Annotations: ast::Annotations = {
 };
 
 pub Version: ast::Version = {
-    "FIRRTL" "version" <a: "int"> "." <b: "id"> "." <c: "id"> => ast::Version(a as u32, b as u32, c as u32),
+    "FIRRTL" "version" <a: "int"> "." <b: "id"> "." <c: "id"> => ast::Version(a.to_u32(), b.to_u32(), c.to_u32()),
 };
 
 pub CircuitModule: ast::CircuitModule = {

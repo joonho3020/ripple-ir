@@ -38,7 +38,7 @@ pub enum Token {
     #[regex("0b[01]+|0o[0-7]+|0d[0-9]+|0h[0-9A-Fa-f]+", |lex| lex.slice().to_string(), priority = 2)]
     RadixInt(String),
 
-    #[regex("-?[0-9]+", |lex| lex.slice().parse(), priority = 3)]
+    #[regex("-?[0-9]+", |lex| Int::from_str(lex.slice()), priority = 3)]
     IntegerDec(Int),
 
     #[regex("[_A-Za-z][_A-Za-z0-9]*", |lex| lex.slice().to_string(), priority = 1)]
@@ -485,7 +485,7 @@ impl<'input> FIRRTLLexer<'input> {
 
     fn normal_mode(&mut self) -> Option<TokenString> {
         let ts = self.tokens.pop_front().unwrap();
-        match ts.token {
+        match &ts.token {
             Token::Newline => {
                 self.lineno += 1;
                 self.cur_indent = 0;
@@ -500,7 +500,7 @@ impl<'input> FIRRTLLexer<'input> {
                     self.square_num == 0 &&
                     self.parenthesis_num == 0 &&
                     self.bracket_num != 0 {
-                    Some(TokenString::from((Token::ID(x), ts.line, ts.start)))
+                    Some(TokenString::from((Token::ID(x.clone()), ts.line, ts.start)))
                 } else {
                     Some(ts)
                 }
