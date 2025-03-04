@@ -46,6 +46,12 @@ impl Float {
     }
 }
 
+impl Display for Float {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}.{}", self.integer, self.decimal)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Hash)]
 pub enum Reference {
     Ref(Identifier),
@@ -538,6 +544,12 @@ impl From<Identifier> for DefName {
     }
 }
 
+impl Display for DefName {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "defname = {}", self.0)
+    }
+}
+
 pub type Parameters = Vec<Box<Parameter>>;
 
 #[derive(Debug, Clone, PartialEq, Hash)]
@@ -545,6 +557,16 @@ pub enum Parameter {
     IntParam(Identifier, Int),
     FloatParam(Identifier, Float),
     StringParam(Identifier, String),
+}
+
+impl Display for Parameter {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::IntParam(name, value) => write!(f, "parameter {} = {:?}", name, value),
+            Self::FloatParam(name, value) => write!(f, "parameter {} = {}", name, value),
+            Self::StringParam(name, value) => write!(f, "parameter {} = {}", name, value),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Hash)]
