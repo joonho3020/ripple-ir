@@ -1,4 +1,4 @@
-use crate::Int;
+use crate::parser::Int;
 use logos::{Lexer, Logos};
 use std::collections::VecDeque;
 use std::num::ParseIntError;

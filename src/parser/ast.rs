@@ -1,4 +1,4 @@
-use crate::Int;
+use crate::parser::Int;
 
 #[derive(Debug, Default, Clone, PartialEq, Hash)]
 pub struct Info(pub String);
