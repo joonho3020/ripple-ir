@@ -1,10 +1,14 @@
 mod lexer;
-mod ast;
+pub mod ast;
+use crate::ast::Circuit;
+use crate::lexer::*;
+use crate::firrtl::*;
 use lalrpop_util::lalrpop_mod;
 use num_bigint::{BigInt, ParseBigIntError};
 use num_traits::Num;
 use std::str::FromStr;
-
+use thiserror::Error;
+use lalrpop_util::ParseError;
 
 lalrpop_mod!(pub firrtl);
 
@@ -23,7 +27,6 @@ impl Int {
 
     fn from_str_radix(num: &str, radix: u32) -> Result<Self, ParseBigIntError>  {
         let bigint = BigInt::from_str_radix(num, radix)?;
-// println!("Int::from_str_radix num: {} radix: {} bigint: {}", num, radix, bigint);
         Ok(Self {
             0: bigint
         })
@@ -31,13 +34,17 @@ impl Int {
 
     fn from_str(num: &str) -> Result<Self, ParseBigIntError> {
         let bigint = BigInt::from_str(num)?;
-// println!("Int::from_str num: {} bigint: {}", num, bigint);
         Ok(Self {
             0: bigint
         })
     }
 }
 
+pub fn parse_circuit(source: &str) -> Result<Circuit, ParseError<usize, Token, LexicalError>> {
+    let lexer = FIRRTLLexer::new(source);
+    let parser = CircuitParser::new();
+    parser.parse(lexer)
+}
 
 #[cfg(test)]
 mod lexer_test {

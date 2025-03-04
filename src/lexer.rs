@@ -16,7 +16,6 @@ impl From<ParseIntError> for LexicalError {
     }
 }
 
-
 #[derive(Logos, Debug, Clone, PartialEq)]
 pub enum Token {
     EOF,
@@ -382,10 +381,6 @@ impl<'input> FIRRTLLexer<'input> {
             _ => {
                 let start = ts.start;
                 self.tokens.push_front(ts);
-
-// println!("INDENT MODE cur_indent: {} top: {:?}",
-// self.cur_indent,
-// self.indent_levels.last());
 
                 let lvl = *self.indent_levels.last().unwrap();
                 if self.cur_indent > lvl {
