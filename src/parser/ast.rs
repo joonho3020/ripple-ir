@@ -1,15 +1,37 @@
+use std::fmt::Display;
 use crate::parser::Int;
 
 #[derive(Debug, Default, Clone, PartialEq, Hash)]
 pub struct Info(pub String);
 
+impl Display for Info {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "@[{}]", self.0)
+    }
+}
+
 #[derive(Debug, Copy, Clone, PartialEq, Hash)]
 pub struct Width(pub u32);
+
+impl Display for Width {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Hash)]
 pub enum Identifier {
     ID(Int),
     Name(String),
+}
+
+impl Display for Identifier {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::ID(x)   => write!(f, "{:?}", x),
+            Self::Name(x) => write!(f, "{}", x)
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Hash)]
@@ -30,6 +52,17 @@ pub enum Reference {
     RefDot(Box<Reference>, Identifier),
     RefIdxInt(Box<Reference>, Int),
     RefIdxExpr(Box<Reference>, Box<Expr>)
+}
+
+impl Display for Reference {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Ref(name)    => write!(f, "{}", name),
+            Self::RefDot(r, name) => write!(f, "{}.{}", r, name),
+            Self::RefIdxInt(r, int) => write!(f, "{}[{:?}]", r, int),
+            Self::RefIdxExpr(r, expr) => write!(f, "{}[{}]", r, expr),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Hash)]
@@ -152,6 +185,18 @@ impl From<String> for PrimOp1Expr2Int {
 
 pub type Exprs = Vec<Box<Expr>>;
 
+fn fmt_exprs(exprs: &Exprs) -> String {
+    let mut ret = "".to_string();
+    let len = exprs.len();
+    for (id, e) in exprs.iter().enumerate() {
+        ret.push_str(&format!("{}", e));
+        if id != len - 1 {
+            ret.push_str(", ");
+        }
+    }
+    return ret;
+}
+
 #[derive(Debug, Clone, PartialEq, Hash)]
 pub enum Expr {
     UIntNoInit(Width),
@@ -183,6 +228,24 @@ impl Expr {
     }
 }
 
+impl Display for Expr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Expr::UIntNoInit(w) => write!(f, "UInt<{}>()", w),
+            Expr::UIntInit(w, init) => write!(f, "UInt<{}>({:?})", w, init),
+            Expr::SIntNoInit(w) => write!(f, "SInt<{}>()", w),
+            Expr::SIntInit(w, init) => write!(f, "SInt<{}>({:?})", w, init),
+            Expr::Reference(r) => write!(f, "{}", r),
+            Expr::Mux(cond, te, fe) => write!(f, "mux({}, {}, {})", cond, te, fe),
+            Expr::ValidIf(cond, te) => write!(f, "validif({}, {})", cond, te),
+            Expr::PrimOp2Expr(op, a, b) => write!(f, "{:?}({}, {})", op, a, b),
+            Expr::PrimOp1Expr(op, a) => write!(f, "{:?}({})", op, a),
+            Expr::PrimOp1Expr1Int(op, a, b) => write!(f, "{:?}({}, {:?})", op, a, b),
+            Expr::PrimOp1Expr2Int(op, a, b, c) => write!(f, "{:?}({}, {:?}, {:?})", op, a, b, c),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Hash)]
 pub enum TypeGround {
     Clock,
@@ -195,6 +258,30 @@ pub enum TypeGround {
 // FixedType
 }
 
+impl Display for TypeGround {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Clock => { write!(f, "Clock") }
+            Self::Reset => { write!(f, "Reset") }
+            Self::AsyncReset => { write!(f, "AsyncReset") }
+            Self::UInt(w_opt) => {
+                if let Some(w) = w_opt {
+                    write!(f, "UInt<{}>", w)
+                } else {
+                    write!(f, "UInt")
+                }
+            }
+            Self::SInt(w_opt) => {
+                if let Some(w) = w_opt {
+                    write!(f, "SInt<{}>", w)
+                } else {
+                    write!(f, "SInt")
+                }
+            }
+        }
+    }
+}
+
 pub type Fields = Vec<Box<Field>>;
 
 #[derive(Debug, Clone, PartialEq, Hash)]
@@ -203,10 +290,40 @@ pub enum Field {
     Flipped(Identifier, Box<Type>),
 }
 
+impl Display for Field {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Straight(id, tpe) => {
+                write!(f, "{}: {}", id, tpe)
+            }
+            Self::Flipped(id, tpe) => {
+                write!(f, "flip {}: {}", id, tpe)
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Hash)]
 pub enum TypeAggregate {
     Fields(Box<Fields>),
     Array(Box<Type>, Int),
+}
+
+impl Display for TypeAggregate {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Fields(fields) => {
+                write!(f, "{{ ")?;
+                for field in fields.iter() {
+                    write!(f, "{}, ", field)?;
+                }
+                write!(f, " }}")
+            }
+            Self::Array(tpe, idx) => {
+                write!(f, "{}[{:?}]", tpe, idx)
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Hash)]
@@ -215,6 +332,17 @@ pub enum Type {
     ConstTypeGround(TypeGround),
     TypeAggregate(Box<TypeAggregate>),
     ConstTypeAggregate(Box<TypeAggregate>),
+}
+
+impl Display for Type {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::TypeGround(tg) => write!(f, "{}", tg),
+            Self::ConstTypeGround(tg) => write!(f, "{}", tg),
+            Self::TypeAggregate(ta) => write!(f, "{}", ta),
+            Self::ConstTypeAggregate(ta) => write!(f, "{}", ta),
+        }
+    }
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Hash)]
@@ -231,11 +359,44 @@ pub enum ChirrtlMemory {
     CMem(Identifier, Type, Info),
 }
 
+impl Display for ChirrtlMemory {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::SMem(name, tpe, ruw_opt, info) => {
+                if let Some(ruw) = ruw_opt {
+                    write!(f, "smem {} : {}, {:?} {}", name, tpe, ruw, info)
+                } else {
+                    write!(f, "smem {} : {} {}", name, tpe, info)
+                }
+            }
+            Self::CMem(name, tpe, info) => {
+                    write!(f, "cmem {} : {} {}", name, tpe, info)
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Hash)]
 pub enum ChirrtlMemoryPort {
     Write(Identifier, Identifier, Expr, Reference, Info),
     Read (Identifier, Identifier, Expr, Reference, Info),
     Infer(Identifier, Identifier, Expr, Reference, Info),
+}
+
+impl Display for ChirrtlMemoryPort {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ChirrtlMemoryPort::Write(port_name, mem_name, addr, clk, info) => {
+                write!(f, "write mport {} = {}[{}], {} {}", port_name, mem_name, addr, clk, info)
+            }
+            ChirrtlMemoryPort::Read(port_name, mem_name, addr, clk, info) => {
+                write!(f, "read mport {} = {}[{}], {} {}", port_name, mem_name, addr, clk, info)
+            }
+            ChirrtlMemoryPort::Infer(port_name, mem_name, addr, clk, info) => {
+                write!(f, "infer mport {} = {}[{}], {} {}", port_name, mem_name, addr, clk, info)
+            }
+        }
+    }
 }
 
 pub type Stmts = Vec<Box<Stmt>>;
@@ -291,10 +452,65 @@ impl Stmt {
     }
 }
 
+impl Display for Stmt {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Stmt::Skip(info) => write!(f, "skip {}", info),
+            Stmt::Wire(name, tpe, info) => write!(f, "wire {} : {} {}", name, tpe, info),
+            Stmt::Reg(name, tpe, clk, info) => write!(f, "reg {} : {}, {} {}", name, tpe, clk, info),
+            Stmt::RegReset(name, tpe, clk, rst, init, info) => write!(f, "reg {} : {}, {}, {}, {} {}", name, tpe, clk, rst, init, info),
+            Stmt::ChirrtlMemory(cm) => write!(f, "{}", cm),
+            Stmt::ChirrtlMemoryPort(cmp) => write!(f, "{}", cmp),
+            Stmt::Inst(inst, module, info) => write!(f, "{} of {} {}", inst, module, info),
+            Stmt::Node(name, expr, info) => write!(f, "node {} = {} {}", name, expr, info),
+            Stmt::Connect(lhs, rhs, info) => write!(f, "connect {}, {} {}", lhs, rhs, info),
+            Stmt::Invalidate(reference, info) => write!(f, "invalidate {} {}", reference, info),
+            Stmt::Printf(clk, clk_val, msg, fields_opt, info) => {
+                if let Some(fields) = fields_opt {
+                    write!(f, "printf({}, {}, {}, {}) : {}", clk, clk_val, msg, fmt_exprs(fields), info)
+                } else {
+                    write!(f, "printf({}, {}, {}) : {}", clk, clk_val, msg, info)
+                }
+            }
+            Stmt::Assert(clk, cond, cond_val, msg, info) => {
+                write!(f, "assert({}, {}, {}, {}) : {}", clk, cond, cond_val, msg, info)
+            }
+            Stmt::When(cond, info, when_stmts, else_stmts_opt) => {
+                // NOTE: Cannot track indent inside the Display trait, so this will cause weirdly
+                // indented stuff
+                writeln!(f, "when {} : {}", cond, info)?;
+                for stmt in when_stmts.iter() {
+                    writeln!(f, "{}{}", " ".repeat(2), stmt)?;
+                }
+                if let Some(else_stmts) = else_stmts_opt {
+                    writeln!(f, "else :")?;
+                    for stmt in else_stmts.iter() {
+                        writeln!(f, "{}{}", " ".repeat(2), stmt)?;
+                    }
+                }
+                Ok(())
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Hash)]
 pub enum Port {
     Input(Identifier, Type, Info),
     Output(Identifier, Type, Info),
+}
+
+impl Display for Port {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Input(id, tpe, info) => {
+                write!(f, "input {} : {} {}", id, tpe, info)
+            }
+            Self::Output(id, tpe, info) => {
+                write!(f, "output {} : {} {}", id, tpe, info)
+            }
+        }
+    }
 }
 
 pub type Ports = Vec<Box<Port>>;
@@ -375,6 +591,12 @@ impl Annotations {
 
 #[derive(Debug, Default, Clone, PartialEq, Hash)]
 pub struct Version(pub u32, pub u32, pub u32);
+
+impl Display for Version {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Version {}.{}.{}", self.0, self.1, self.2)
+    }
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Circuit {
