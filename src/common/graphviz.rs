@@ -33,7 +33,6 @@ where
         path: &str,
         node_attr: Option<&NodeAttributeMap>
     ) -> Result<String, std::io::Error> {
-        println!("export_graphviz");
         let mut g = graphviz_rust::dot_structures::Graph::DiGraph {
             id: graphviz_rust::dot_generator::id!(""),
             strict: false,
@@ -42,12 +41,9 @@ where
                 Stmt::from(GraphAttributes::splines(true))
             ]
         };
-        println!("g {:?}", g);
 
         for id in self.node_indices() {
-            println!("NodeId {:?}", id);
             let w = self.node_weight(id).unwrap();
-            println!("Node {:?} {}", id, w);
 
             // Create graphviz node
             let mut gv_node = Node {
@@ -67,7 +63,6 @@ where
 
             g.add_stmt(Stmt::Node(gv_node));
         }
-        println!("Graphviz node done");
 
         for id in self.edge_indices() {
             let ep = self.edge_endpoints(id).unwrap();
@@ -82,11 +77,9 @@ where
                 EdgeAttributes::label(format!("\"{}\"", w).to_string()));
             g.add_stmt(Stmt::Edge(e));
         }
-        println!("Graphviz edge done");
 
         // Export to pdf
         let dot = g.print(&mut PrinterContext::new(true, 4, "\n".to_string(), 90));
-        println!("dot: {:?}", dot);
         exec_dot(dot.clone(), vec![Format::Pdf.into(), CommandArg::Output(path.to_string())])?;
         Ok(dot)
     }

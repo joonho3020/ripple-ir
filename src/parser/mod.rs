@@ -12,7 +12,7 @@ use std::str::FromStr;
 
 lalrpop_mod!(pub firrtl);
 
-#[derive(Debug, Clone, PartialEq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Int(BigInt);
 
 impl Int {

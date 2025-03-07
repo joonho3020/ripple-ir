@@ -1,6 +1,6 @@
 use crate::parser::{ast::*, Int};
 use indextree::{Arena, NodeId};
-use std::fmt::Debug;
+use std::{collections::VecDeque, fmt::Debug};
 
 #[derive(Default, Debug, Clone, Copy, PartialEq, Hash)]
 pub enum Direction {
@@ -88,6 +88,33 @@ impl TypeTree {
             _ => { }
         }
         leaf_nodes
+    }
+
+    pub fn all_possible_references(&self) -> Vec<Reference> {
+        let mut ret = vec![];
+        let mut q: VecDeque<(NodeId, Reference)> = VecDeque::new();
+        if let Some(root_id) = self.root {
+            let root = self.get(root_id);
+            q.push_back((root_id, Reference::Ref(root.name.clone())));
+        }
+        while !q.is_empty() {
+            let (id, cur_ref) = q.pop_front().unwrap();
+            ret.push(cur_ref.clone());
+
+            for child_id in id.children(&self.arena) {
+                let child = self.get(child_id);
+                let child_ref = match &child.name {
+                    Identifier::ID(id) => {
+                        Reference::RefIdxInt(Box::new(cur_ref.clone()), id.clone())
+                    }
+                    Identifier::Name(_) => {
+                        Reference::RefDot(Box::new(cur_ref.clone()), child.name.clone())
+                    }
+                };
+                q.push_back((child_id, child_ref));
+            }
+        }
+        return ret;
     }
 }
 

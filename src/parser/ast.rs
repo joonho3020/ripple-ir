@@ -10,7 +10,7 @@ impl Display for Info {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct Width(pub u32);
 
 impl Display for Width {
@@ -19,7 +19,7 @@ impl Display for Width {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Identifier {
     ID(Int),
     Name(String),
@@ -52,7 +52,7 @@ impl Display for Float {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Reference {
     Ref(Identifier),
     RefDot(Box<Reference>, Identifier),
@@ -71,7 +71,7 @@ impl Display for Reference {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum PrimOp2Expr {
     Add,
     Sub,
@@ -92,7 +92,7 @@ pub enum PrimOp2Expr {
     Cat,
 }
 
-#[derive(Debug, Clone, PartialEq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum PrimOp1Expr {
     AsUInt,
     AsSInt,
@@ -107,7 +107,7 @@ pub enum PrimOp1Expr {
 }
 
 
-#[derive(Debug, Clone, PartialEq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum PrimOp1Expr1Int {
     Pad,
     Shl,
@@ -117,7 +117,7 @@ pub enum PrimOp1Expr1Int {
     BitSel,
 }
 
-#[derive(Debug, Clone, PartialEq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum PrimOp1Expr2Int {
     BitSelRange,
 }
@@ -203,7 +203,7 @@ fn fmt_exprs(exprs: &Exprs) -> String {
     return ret;
 }
 
-#[derive(Debug, Clone, PartialEq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Expr {
     UIntNoInit(Width),
     UIntInit(Width, Int),

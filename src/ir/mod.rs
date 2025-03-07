@@ -46,9 +46,9 @@ pub enum NodeType {
     PrimOp1Expr2Int(PrimOp1Expr2Int, Int, Int),
 
     // Stmt
-// Wire(Identifier, Type),
-    Reg(Identifier, TypeGround, Expr),
-    RegReset(Identifier, TypeGround, Expr, Expr, Expr),
+    Wire(Identifier, Type),
+    Reg(Identifier, Type, Expr),
+    RegReset(Identifier, Type, Expr, Expr, Expr),
     SMem(Identifier, Type, Option<ChirrtlMemoryReadUnderWrite>),
     CMem(Identifier, Type),
     Inst(Identifier, Identifier),
@@ -56,8 +56,8 @@ pub enum NodeType {
     // TODO: deal with printfs
 
     // Port
-    Input(Identifier, TypeGround),
-    Output(Identifier, TypeGround),
+    Input(Identifier, Type),
+    Output(Identifier, Type),
     Phi,
 }
 
@@ -71,6 +71,7 @@ impl Display for NodeType {
 
 #[derive(Debug, Clone, PartialEq, Hash)]
 pub enum EdgeType {
+    Default,
     Wire(Identifier, Type)
 }
 
