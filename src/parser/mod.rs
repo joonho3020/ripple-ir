@@ -1,12 +1,13 @@
 pub mod lexer;
 pub mod ast;
+pub mod typetree;
 
 use crate::parser::ast::Circuit;
 use crate::parser::firrtl::*;
 use crate::parser::lexer::{FIRRTLLexer, Token, LexicalError};
 use lalrpop_util::{lalrpop_mod, ParseError};
 use num_bigint::{BigInt, ParseBigIntError};
-use num_traits::Num;
+use num_traits::{FromPrimitive, Num};
 use std::str::FromStr;
 
 lalrpop_mod!(pub firrtl);
@@ -38,7 +39,18 @@ impl Int {
     }
 }
 
-pub fn parse_circuit(source: &str) -> Result<Circuit, ParseError<usize, Token, LexicalError>> {
+impl From<u32> for Int {
+    fn from(value: u32) -> Self {
+        Self {
+            0: BigInt::from_u32(value)
+                .expect(&format!("BigInt from_u32 {}", value))
+        }
+    }
+}
+
+pub type FIRRTLParserError = ParseError<usize, Token, LexicalError>;
+
+pub fn parse_circuit(source: &str) -> Result<Circuit, FIRRTLParserError> {
     let lexer = FIRRTLLexer::new(source);
     let parser = CircuitParser::new();
     parser.parse(lexer)
