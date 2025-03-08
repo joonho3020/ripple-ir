@@ -257,10 +257,43 @@ fn add_graph_edge_from_stmt(ir: &mut RippleIR, stmt: &Stmt, nm: &mut NodeMap) {
             assert!(is_reference_or_const(cond), "When condition should be a Reference {:?}", cond);
         }
         Stmt::Wire(..)           |
-            Stmt::Reg(..)        |
-            Stmt::RegReset(..)   |
             Stmt::Invalidate(..) |
             Stmt::Skip(..) => {
+        }
+        Stmt::Reg(name, _tpe, clk, _info) => {
+            if let Expr::Reference(clk_ref) = clk {
+                let reg_id = nm.node_map.get(&Reference::Ref(name.clone())).unwrap();
+                let clk_id = nm.node_map.get(clk_ref).expect(&format!("clk {:?} for Reg {:?} not found", clk, name));
+
+                ir.graph.add_edge(*clk_id, *reg_id, EdgeType::Default);
+            } else {
+                panic!("clk {:?} for reg {:?} is not a reference", clk, name);
+            }
+        }
+        Stmt::RegReset(name, _tpe, clk, rst, init, _info) => {
+            match (clk, rst) {
+                (Expr::Reference(clk_ref), Expr::Reference(rst_ref)) => {
+                    let reg_id = nm.node_map.get(&Reference::Ref(name.clone())).unwrap();
+                    let clk_id = nm.node_map.get(clk_ref).expect(&format!("clk {:?} for Reg {:?} not found", clk, name));
+                    let rst_id = nm.node_map.get(rst_ref).expect(&format!("rst {:?} for Reg {:?} not found", rst, name));
+
+                    let init_id = if let Expr::UIntInit(w, v) = init {
+                        ir.graph.add_node(NodeType::UIntLiteral(w.clone(), v.clone()))
+                    } else if let Expr::SIntInit(w, v) = init {
+                        ir.graph.add_node(NodeType::SIntLiteral(w.clone(), v.clone()))
+                    } else {
+                        panic!("No matching init {:?} for reg {:?}", init, name);
+                    };
+
+                    ir.graph.add_edge(*clk_id, *reg_id, EdgeType::Default);
+                    ir.graph.add_edge(*rst_id, *reg_id, EdgeType::Default);
+                    ir.graph.add_edge(init_id, *reg_id, EdgeType::Default);
+                }
+                _ => {
+                    panic!("No matching clk {:?} rst {:?} init {:?} for reg {:?}",
+                        clk, rst, init, name);
+                }
+            }
         }
         Stmt::ChirrtlMemory(_mem) => {
             todo!("ChirrtlMemory not yet handled");
