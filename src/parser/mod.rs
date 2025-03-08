@@ -1,6 +1,7 @@
 pub mod lexer;
 pub mod ast;
 pub mod typetree;
+pub mod whentree;
 
 use crate::parser::ast::Circuit;
 use crate::parser::firrtl::*;

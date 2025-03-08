@@ -119,7 +119,8 @@ impl TypeTree {
 }
 
 impl Type {
-    fn create_node_and_add_to_parent(&self,
+    fn create_node_and_add_to_parent(
+        &self,
         type_ground: Option<TypeGround>,
         name: Identifier,
         dir: Direction,
@@ -139,7 +140,8 @@ impl Type {
         child
     }
 
-    fn construct_tree_recursive(&self,
+    fn construct_tree_recursive(
+        &self,
         name: Identifier,
         dir: Direction,
         parent_opt: Option<NodeId>,
@@ -205,10 +207,10 @@ mod test {
                 CircuitModule::Module(m) => {
                     for port in m.ports.iter() {
                         let port_type_tree = match port.as_ref() {
-                            Port::Input(name, tpe, info) => {
+                            Port::Input(name, tpe, _info) => {
                                 tpe.construct_tree(name.clone(), Direction::Input)
                             }
-                            Port::Output(name, tpe, info) => {
+                            Port::Output(name, tpe, _info) => {
                                 tpe.construct_tree(name.clone(), Direction::Output)
                             }
                         };
@@ -216,7 +218,7 @@ mod test {
                     }
 
                 }
-                CircuitModule::ExtModule(e) => {
+                CircuitModule::ExtModule(_e) => {
                 }
             }
         }
