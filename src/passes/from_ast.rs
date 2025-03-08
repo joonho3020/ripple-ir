@@ -23,28 +23,29 @@ struct NodeMap {
 }
 
 /// Create a graph based IR from the FIRRTL AST
-pub fn from_circuit(ast: &Circuit) -> Vec<RippleIR> {
-    let mut ret = vec![];
+pub fn from_circuit(ast: &Circuit) -> RippleIR {
+    let mut ret = RippleIR::default();
     for module in ast.modules.iter() {
-        ret.push(from_circuit_module(module));
+        let (name, ripple_graph) = from_circuit_module(module);
+        ret.graphs.insert(name.clone(), ripple_graph);
     }
     return ret;
 }
 
-fn from_circuit_module(module: &CircuitModule) -> RippleIR {
+fn from_circuit_module(module: &CircuitModule) -> (&Identifier, RippleGraph) {
     let mut nodemap: NodeMap = NodeMap::default();
     match module {
         CircuitModule::Module(m) => {
-            from_module(m, &mut nodemap)
+            (&m.name, from_module(m, &mut nodemap))
         }
         CircuitModule::ExtModule(e) => {
-            from_ext_module(e, &mut nodemap)
+            (&e.name, from_ext_module(e, &mut nodemap))
         }
     }
 }
 
-fn from_module(module: &Module, nm: &mut NodeMap) -> RippleIR {
-    let mut ret = RippleIR::new();
+fn from_module(module: &Module, nm: &mut NodeMap) -> RippleGraph {
+    let mut ret = RippleGraph::new();
 
     collect_graph_nodes_from_ports(&mut ret, &module.ports, nm);
     collect_graph_nodes_from_stmts(&mut ret, &module.stmts, nm);
@@ -55,8 +56,8 @@ fn from_module(module: &Module, nm: &mut NodeMap) -> RippleIR {
     return ret;
 }
 
-fn from_ext_module(module: &ExtModule, nm: &mut NodeMap) -> RippleIR {
-    let ret = RippleIR::new();
+fn from_ext_module(module: &ExtModule, nm: &mut NodeMap) -> RippleGraph {
+    let ret = RippleGraph::new();
     return ret;
 }
 
@@ -69,7 +70,7 @@ fn all_references(tpe: &Type, name: &Identifier, dir: Option<Direction>) -> Vec<
 }
 
 /// Create graph nodes from the ports of this module
-fn collect_graph_nodes_from_ports(ir: &mut RippleIR, ports: &Ports, nm: &mut NodeMap) {
+fn collect_graph_nodes_from_ports(ir: &mut RippleGraph, ports: &Ports, nm: &mut NodeMap) {
     for port in ports.iter() {
         match port.as_ref() {
             Port::Input(name, tpe, _info) => {
@@ -94,14 +95,14 @@ fn collect_graph_nodes_from_ports(ir: &mut RippleIR, ports: &Ports, nm: &mut Nod
 }
 
 /// Create graph nodes from the module statements
-fn collect_graph_nodes_from_stmts(ir: &mut RippleIR, stmts: &Stmts, nm: &mut NodeMap) {
+fn collect_graph_nodes_from_stmts(ir: &mut RippleGraph, stmts: &Stmts, nm: &mut NodeMap) {
     for stmt in stmts {
         add_graph_node_from_stmt(ir, stmt.as_ref(), nm);
     }
 }
 
 /// Create a graph node for a statement
-fn add_graph_node_from_stmt(ir: &mut RippleIR, stmt: &Stmt, nm: &mut NodeMap) {
+fn add_graph_node_from_stmt(ir: &mut RippleGraph, stmt: &Stmt, nm: &mut NodeMap) {
     match stmt {
         Stmt::When(_cond, _info, when_stmts, else_stmts_opt) => {
             collect_graph_nodes_from_stmts(ir, when_stmts, nm);
@@ -152,8 +153,9 @@ fn add_graph_node_from_stmt(ir: &mut RippleIR, stmt: &Stmt, nm: &mut NodeMap) {
             };
             nm.node_map.insert(Reference::Ref(name.clone()), id);
         }
-        Stmt::Inst(_inst_name, _mod_name, _info) => {
-            todo!("Instances not yet handled");
+        Stmt::Inst(inst_name, mod_name, _info) => {
+            let id = ir.graph.add_node(NodeType::Inst(inst_name.clone(), mod_name.clone()));
+            nm.node_map.insert(Reference::Ref(inst_name.clone()), id);
         }
         Stmt::Node(out_name, expr, _info) => {
             // We add the constant nodes (e.g., UInt<1>(0)) later when adding
@@ -218,7 +220,7 @@ fn add_graph_node_from_stmt(ir: &mut RippleIR, stmt: &Stmt, nm: &mut NodeMap) {
 }
 
 /// Create graph edges from statements
-fn connect_graph_edges_from_stmts(ir: &mut RippleIR, stmts: &Stmts, nm: &mut NodeMap) {
+fn connect_graph_edges_from_stmts(ir: &mut RippleGraph, stmts: &Stmts, nm: &mut NodeMap) {
     for stmt in stmts {
         add_graph_edge_from_stmt(ir, stmt.as_ref(), nm);
     }
@@ -227,7 +229,7 @@ fn connect_graph_edges_from_stmts(ir: &mut RippleIR, stmts: &Stmts, nm: &mut Nod
 /// Given an expression (`rhs`), connect it to the sink node `dst_id` in the IR graph.
 /// Creates constant nodes that weren't created in the `collect_graph_nodes_from_stmts` step
 fn add_graph_edge_from_expr(
-    ir: &mut RippleIR,
+    ir: &mut RippleGraph,
     dst_id: NodeIndex,
     rhs: &Expr,
     edge_type: EdgeType,
@@ -275,7 +277,7 @@ fn add_graph_edge_from_expr(
 /// - `Node` statements. These perform primitive operations, or muxes (combinational operations)
 /// - `Connect`: phi nodes to their sink
 ///   - This won't connect the input and selection signals going into the phi nodes
-fn add_graph_edge_from_stmt(ir: &mut RippleIR, stmt: &Stmt, nm: &mut NodeMap) {
+fn add_graph_edge_from_stmt(ir: &mut RippleGraph, stmt: &Stmt, nm: &mut NodeMap) {
     match stmt {
         Stmt::When(cond, _info, when_stmts, else_stmts_opt) => {
             connect_graph_edges_from_stmts(ir, when_stmts, nm);
@@ -341,7 +343,6 @@ fn add_graph_edge_from_stmt(ir: &mut RippleIR, stmt: &Stmt, nm: &mut NodeMap) {
             }
         }
         Stmt::Inst(_inst_name, _mod_name, _info) => {
-            todo!("Instances not yet handled");
         }
         Stmt::Node(out_name, expr, _info) => {
             let dst_id = nm.node_map.get(&Reference::Ref(out_name.clone()))
@@ -422,7 +423,7 @@ fn add_graph_edge_from_stmt(ir: &mut RippleIR, stmt: &Stmt, nm: &mut NodeMap) {
 }
 
 /// Connect input signals going into the phi node
-fn connect_phi_in_edges_from_stmts(ir: &mut RippleIR, stmts: &Stmts, nm: &mut NodeMap) {
+fn connect_phi_in_edges_from_stmts(ir: &mut RippleGraph, stmts: &Stmts, nm: &mut NodeMap) {
     let mut whentree = WhenTree::new();
     whentree.from_stmts(stmts);
     let leaves = whentree.leaf_nodes();
@@ -463,7 +464,7 @@ fn connect_phi_in_edges_from_stmts(ir: &mut RippleIR, stmts: &Stmts, nm: &mut No
 
 /// Given a phi node with `id`, collect all the select signals used by
 /// the phi node inputs, and connect all these signals to the node.
-fn connect_phi_node_sel_id(ir: &mut RippleIR, id: NodeIndex, nm: &mut NodeMap) {
+fn connect_phi_node_sel_id(ir: &mut RippleGraph, id: NodeIndex, nm: &mut NodeMap) {
     let mut sel_exprs: IndexSet<Expr> = IndexSet::new();
 
     let pedges = ir.graph.edges_directed(id, Incoming);
@@ -491,7 +492,7 @@ fn connect_phi_node_sel_id(ir: &mut RippleIR, id: NodeIndex, nm: &mut NodeMap) {
 }
 
 /// Connect the selection signals going into the phi nodes
-fn connect_phi_node_sels(ir: &mut RippleIR, nm: &mut NodeMap) {
+fn connect_phi_node_sels(ir: &mut RippleGraph, nm: &mut NodeMap) {
     for id in ir.graph.node_indices() {
         let node = ir.graph.node_weight(id).unwrap();
         match node {
@@ -640,9 +641,9 @@ mod test {
         let source = std::fs::read_to_string(format!("./test-inputs/{}.fir", name))?;
         let circuit = parse_circuit(&source).expect("firrtl parser");
 
-        let irs = from_circuit(&circuit);
-        for ir in irs {
-            ir.export_graphviz(&format!("./test-outputs/{}.dot.pdf", name), None, true)?;
+        let ir = from_circuit(&circuit);
+        for (sub_name, graph) in ir.graphs {
+            graph.export_graphviz(&format!("./test-outputs/{}-{}.dot.pdf", name, sub_name), None, true)?;
         }
         Ok(())
     }
@@ -665,6 +666,11 @@ mod test {
     #[test]
     fn singleport_sram() {
         run("SinglePortSRAM").expect("SinglePortSRAM");
+    }
+
+    #[test]
+    fn hierarchy() {
+        run("Hierarchy").expect("Hierarchy");
     }
 
     fn run_check_assumption(input: &str) -> Result<(), std::io::Error> {

@@ -29,6 +29,7 @@ use crate::parser::ast::*;
 use crate::parser::whentree::Condition;
 use crate::parser::Int;
 use crate::common::graphviz::GraphViz;
+use indexmap::IndexMap;
 use petgraph::graph::{Graph, NodeIndex};
 use std::fmt::Display;
 
@@ -58,7 +59,7 @@ pub enum NodeType {
     ReadMemPort(Identifier),
     InferMemPort(Identifier),
     Inst(Identifier, Identifier),
-// Node(Identifier, Expr),
+
     // TODO: deal with printfs
 
     // Port
@@ -126,20 +127,31 @@ impl Display for EdgeType {
     }
 }
 
-pub type GraphIR = Graph<NodeType, EdgeType>;
+pub type IRGraph = Graph<NodeType, EdgeType>;
 
 #[derive(Debug, Clone)]
+pub struct RippleGraph {
+    pub graph: IRGraph,
+}
+
+impl RippleGraph {
+    pub fn new() -> Self {
+        Self { graph: IRGraph::new() }
+    }
+}
+
+#[derive(Debug, Default, Clone)]
 pub struct RippleIR {
-    pub graph: GraphIR
+    pub graphs: IndexMap<Identifier, RippleGraph>
 }
 
 impl RippleIR {
     pub fn new() -> Self {
-        Self { graph: GraphIR::new() }
+        Self { graphs: IndexMap::new() }
     }
 }
 
-impl GraphViz<NodeType, EdgeType> for RippleIR {
+impl GraphViz<NodeType, EdgeType> for RippleGraph {
     fn node_indices(self: &Self) -> petgraph::graph::NodeIndices {
         self.graph.node_indices()
     }
