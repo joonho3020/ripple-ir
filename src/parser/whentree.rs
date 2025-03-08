@@ -2,15 +2,22 @@ use crate::parser::ast::*;
 use indextree::{Arena, NodeId};
 
 
+/// Represents a chain of conditions in a decision tree (a.k.a mux tree)
 #[derive(Default, Debug, Clone, PartialEq, Hash)]
 pub enum Condition {
+    /// Root condition (basically always executed)
     #[default]
-    True,
+    Root,
+
+    /// Condition is true when Box<Condition> && Expr
     When(Box<Condition>, Expr),
+
+    /// Condition is true when Box<Condition> && !Expr
     Else(Box<Condition>, Expr),
 }
 
 impl Condition {
+    /// Collect all the selection `Expr` in this condition chain
     pub fn collect_sels(&self) -> Vec<Expr> {
         let mut ret: Vec<Expr> = vec![];
         match self {
@@ -27,8 +34,13 @@ impl Condition {
 
 #[derive(Default, Debug, Clone, PartialEq)]
 pub struct WhenTreeNode {
+    /// Condition to reach this node
     pub cond: Condition,
+
+    /// Priority of this node. Smaller means higher priority
     pub priority: u32,
+
+    /// Statements in this tree node
     pub stmts: Stmts
 }
 
@@ -38,6 +50,36 @@ impl WhenTreeNode {
     }
 }
 
+/// Represents a tree of decision blocks
+///
+/// ```
+/// stmt_5
+/// when (a)
+///   stmt_0
+///   when (b)
+///     stmt_1
+///   else
+///     stmt_2
+/// else
+///   stmt_3
+/// stmt_4
+/// ```
+///
+/// The above when statements will produce a tree like this:
+///
+/// ```
+/// Root
+/// |- stmt_4 (highest priority)
+/// |- when (a)
+/// |  |- when (b)
+/// |  |  |- stmt_1
+/// |  |- else
+/// |  |  |- stmt_2
+/// |  |stmt_0
+/// |- else
+/// |  |- stmt_3
+/// |- stmt_5 (lowest priority)
+/// ```
 #[derive(Debug, Clone, PartialEq)]
 pub struct WhenTree {
     pub arena: Arena<WhenTreeNode>,
@@ -85,6 +127,7 @@ impl WhenTree {
     ) {
         let mut cur_node: Option<&mut WhenTreeNode> = None;
 
+        // Traverse in reverse order to take last-connection semantics into account
         for stmt in stmts.iter().rev() {
             match stmt.as_ref() {
                 Stmt::When(cond, _info, when_stmts, else_stmts_opt) => {
@@ -128,10 +171,10 @@ impl WhenTree {
     }
 
     pub fn from_stmts(&mut self, stmts: &Stmts) {
-        let root_node = WhenTreeNode::new(Condition::True, 0);
+        let root_node = WhenTreeNode::new(Condition::Root, 0);
         let root_id = self.arena.new_node(root_node);
         self.root = Some(root_id);
-        self.from_stmts_recursive(&mut 0, Condition::True, root_id, stmts);
+        self.from_stmts_recursive(&mut 0, Condition::Root, root_id, stmts);
     }
 
     fn collect_leaf_nodes_recursive(&self, node: NodeId, leaf_nodes: &mut Vec<NodeId>) {
@@ -144,6 +187,7 @@ impl WhenTree {
         }
     }
 
+    /// Returns all the leaf nodes
     pub fn leaf_nodes(&self) -> Vec<&WhenTreeNode> {
         let mut leaf_nodes = Vec::new();
         match self.root {
