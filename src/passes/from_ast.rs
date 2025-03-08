@@ -190,10 +190,11 @@ fn add_graph_node_from_stmt(ir: &mut RippleIR, stmt: &Stmt, nm: &mut NodeMap) {
                     }
             }
         }
-        Stmt::Connect(lhs, _, _info) => {
+        Stmt::Connect(expr, _, _info) |
+            Stmt::Invalidate(expr, _info) => {
             // Insert phi nodes for all possible lhs connections
             // We can remove the unnecessary ones later
-            match lhs {
+            match expr {
                 Expr::Reference(r) => {
                     let root_name = r.root();
                     let root_ref = Reference::Ref(root_name.clone());
@@ -203,11 +204,9 @@ fn add_graph_node_from_stmt(ir: &mut RippleIR, stmt: &Stmt, nm: &mut NodeMap) {
                     }
                 }
                 _ => {
-                    panic!("Connect lhs {:?} unhandled type", lhs);
+                    panic!("Connect/Invalidate stmt {:?} expr {:?} unhandled type", stmt, expr);
                 }
             }
-        }
-        Stmt::Invalidate(..) => {
         }
         Stmt::Skip(..) => {
         }
@@ -285,8 +284,7 @@ fn add_graph_edge_from_stmt(ir: &mut RippleIR, stmt: &Stmt, nm: &mut NodeMap) {
             }
             assert!(is_reference_or_const(cond), "When condition should be a Reference {:?}", cond);
         }
-        Stmt::Wire(..)           |
-            Stmt::Invalidate(..) |
+        Stmt::Wire(..) |
             Stmt::Skip(..) => {
         }
         Stmt::Reg(name, _tpe, clk, _info) => {
@@ -402,6 +400,20 @@ fn add_graph_edge_from_stmt(ir: &mut RippleIR, stmt: &Stmt, nm: &mut NodeMap) {
                 nm.phi_connected.insert(root_ref);
             }
         }
+        Stmt::Invalidate(expr, _info) => {
+            if let Expr::Reference(r) = expr {
+                let root_name = r.root();
+                // If phi node not yet connected, connect now
+                let root_ref = Reference::Ref(root_name);
+                let phi_id = nm.phi_map.get(&root_ref)
+                    .expect(&format!("Phi node for {:?} doesn't exist", root_ref));
+
+                let dont_care_id = ir.graph.add_node(NodeType::DontCare);
+                ir.graph.add_edge(dont_care_id, *phi_id, EdgeType::PhiDontCare);
+            } else {
+                panic!("Invalidate expr {:?} is not a reference", expr);
+            }
+        }
         Stmt::Printf(_clk, _posedge, _msg, _exprs_opt, _info) => {
         }
         Stmt::Assert(_clk, _pred, _cond, _msg, _info) => {
@@ -463,6 +475,9 @@ fn connect_phi_node_sel_id(ir: &mut RippleIR, id: NodeIndex, nm: &mut NodeMap) {
                 for sel in sels {
                     sel_exprs.insert(sel);
                 }
+            }
+            EdgeType::PhiDontCare => {
+                continue;
             }
             _ => {
                 panic!("Unexpected Phi node driver edge {:?}", edge_w);

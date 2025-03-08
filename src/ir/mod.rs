@@ -37,6 +37,8 @@ pub enum NodeType {
     #[default]
     Invalid,
 
+    DontCare,
+
     UIntLiteral(Width, Int),
     SIntLiteral(Width, Int),
 
@@ -99,6 +101,9 @@ pub enum EdgeType {
 
     /// Reset edge
     Reset,
+
+    /// Represents don't cares going into phi nodes
+    PhiDontCare,
 
     /// Edge going into the phi node
     PhiInput(PhiPriority, Condition),
