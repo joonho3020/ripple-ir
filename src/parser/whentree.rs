@@ -206,9 +206,8 @@ mod test {
     use super::*;
     use crate::parser::parse_circuit;
 
-    #[test]
-    fn gcd() -> Result<(), std::io::Error> {
-        let source = std::fs::read_to_string("./examples/GCD.fir")?;
+    fn run(path: &str) -> Result<(), std::io::Error> {
+        let source = std::fs::read_to_string(path)?;
         let circuit = parse_circuit(&source).expect("firrtl parser");
 
         for cm in circuit.modules {
@@ -221,26 +220,16 @@ mod test {
                 _ => { }
             }
         }
-
         Ok(())
     }
 
     #[test]
-    fn nested_when() -> Result<(), std::io::Error> {
-        let source = std::fs::read_to_string("./examples/NestedWhen.fir")?;
-        let circuit = parse_circuit(&source).expect("firrtl parser");
+    fn gcd() {
+        run("./test-inputs/GCD.fir").expect("gcd");
+    }
 
-        for cm in circuit.modules {
-            let mut whentree = WhenTree::new();
-            match cm.as_ref() {
-                CircuitModule::Module(m) => {
-                    whentree.from_stmts(m.stmts.as_ref());
-                    whentree.print_tree();
-                }
-                _ => { }
-            }
-        }
-
-        Ok(())
+    #[test]
+    fn nested_when() {
+        run("./test-inputs/NestedWhen.fir").expect("nested_when");
     }
 }

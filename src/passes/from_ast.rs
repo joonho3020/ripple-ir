@@ -9,6 +9,7 @@ use petgraph::Direction::Incoming;
 type RefMap = IndexMap<Reference, NodeIndex>;
 type RefSet = IndexSet<Reference>;
 
+/// Book-keeping datastructure required when converting the FIRRTL AST to graph form
 #[derive(Default, Debug)]
 struct NodeMap {
     /// `Reference` (in the FIRRTL AST) -> NodeIndex of the graph
@@ -412,6 +413,8 @@ fn connect_phi_in_edges_from_stmts(ir: &mut RippleIR, stmts: &Stmts, nm: &mut No
     }
 }
 
+/// Given a phi node with `id`, collect all the select signals used by
+/// the phi node inputs, and connect all these signals to the node.
 fn connect_phi_node_sel_id(ir: &mut RippleIR, id: NodeIndex, nm: &mut NodeMap) {
     let mut sel_exprs: IndexSet<Expr> = IndexSet::new();
 
@@ -482,6 +485,9 @@ fn is_reference_or_const_or_primop1expr(expr: &Expr) -> bool {
     }
 }
 
+/// While converting the AST into graph form, we want to make sure
+/// certain assumptions about the AST hold to make the conversion pass
+/// scoped
 pub fn check_ast_assumption(ast: &Circuit) {
     for cm in ast.modules.iter() {
         match cm.as_ref() {
@@ -493,9 +499,6 @@ pub fn check_ast_assumption(ast: &Circuit) {
     }
 }
 
-/// While converting the AST into graph form, we want to make sure
-/// certain assumptions about the AST hold to make the conversion pass
-/// scoped
 fn check_stmt_assumption(stmts: &Stmts) {
     for stmt in stmts {
         match stmt.as_ref() {
@@ -576,55 +579,48 @@ mod test {
     use super::*;
     use crate::{common::graphviz::GraphViz, parser::parse_circuit};
 
-    #[test]
-    fn gcd() -> Result<(), std::io::Error> {
-        let source = std::fs::read_to_string("./examples/GCD.fir")?;
+    fn run(name: &str) -> Result<(), std::io::Error> {
+        let source = std::fs::read_to_string(format!("./test-inputs/{}.fir", name))?;
         let circuit = parse_circuit(&source).expect("firrtl parser");
 
         let irs = from_circuit(&circuit);
         for ir in irs {
-            ir.export_graphviz("./test-outputs/GCD.dot.pdf", None, true)?;
+            ir.export_graphviz(&format!("./test-outputs/{}.dot.pdf", name), None, true)?;
         }
         Ok(())
     }
 
     #[test]
-    fn nestedwhen() -> Result<(), std::io::Error> {
-        let source = std::fs::read_to_string("./examples/NestedWhen.fir")?;
-        let circuit = parse_circuit(&source).expect("firrtl parser");
-
-        let irs = from_circuit(&circuit);
-        for ir in irs {
-            ir.export_graphviz("./test-outputs/NestedWhen.dot.pdf", None, true)?;
-        }
-        Ok(())
+    fn gcd() {
+        run("GCD").expect("GCD");
     }
 
     #[test]
-    fn nestedbundle() -> Result<(), std::io::Error> {
-        let source = std::fs::read_to_string("./examples/NestedBundleModule.fir")?;
-        let circuit = parse_circuit(&source).expect("firrtl parser");
-
-        let irs = from_circuit(&circuit);
-        for ir in irs {
-            ir.export_graphviz("./test-outputs/NestedBundleModule.dot.pdf", None, true)?;
-        }
-        Ok(())
+    fn nestedwhen() {
+        run("NestedWhen").expect("NestedWhen");
     }
 
     #[test]
-    fn rocket_assumption() -> Result<(), std::io::Error> {
-        let source = std::fs::read_to_string("./test-inputs/chipyard.harness.TestHarness.RocketConfig.fir")?;
+    fn nestedbundle() {
+        run("NestedBundle").expect("NestedBundle");
+    }
+
+    fn run_check_assumption(input: &str) -> Result<(), std::io::Error> {
+        let source = std::fs::read_to_string(input)?;
         let circuit = parse_circuit(&source).expect("firrtl parser");
         check_ast_assumption(&circuit);
         Ok(())
     }
 
     #[test]
-    fn boom_assumption() -> Result<(), std::io::Error> {
-        let source = std::fs::read_to_string("./test-inputs/chipyard.harness.TestHarness.LargeBoomV3Config.fir")?;
-        let circuit = parse_circuit(&source).expect("firrtl parser");
-        check_ast_assumption(&circuit);
-        Ok(())
+    fn rocket_assumption() {
+        run_check_assumption("./test-inputs/chipyard.harness.TestHarness.RocketConfig.fir")
+            .expect("rocket ast assumption");
+    }
+
+    #[test]
+    fn boom_assumption() {
+        run_check_assumption("./test-inputs/chipyard.harness.TestHarness.LargeBoomV3Config.fir")
+            .expect("boom ast assumption");
     }
 }

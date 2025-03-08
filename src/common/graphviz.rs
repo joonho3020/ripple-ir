@@ -14,6 +14,8 @@ use petgraph::graph::{EdgeIndex, EdgeIndices, NodeIndex, NodeIndices};
 /// The attributes are added when passing this value to `export_graphviz`
 pub type NodeAttributeMap = IndexMap<NodeIndex, Attribute>;
 
+/// By implementing this trait, you can easily export petgraph graphs
+/// into a Graphviz dot format
 pub trait GraphViz<N, E>
 where
     N: Display,

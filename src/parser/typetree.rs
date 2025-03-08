@@ -199,7 +199,7 @@ mod test {
 
     #[test]
     fn print_type_tree() -> Result<(), std::io::Error> {
-        let source = std::fs::read_to_string("./examples/NestedBundleModule.fir")?;
+        let source = std::fs::read_to_string("./test-inputs/NestedBundle.fir")?;
         let circuit = parse_circuit(&source).expect("firrtl parser");
 
         for module in circuit.modules.iter() {
