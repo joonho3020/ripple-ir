@@ -170,6 +170,7 @@ impl WhenTree {
         }
     }
 
+    /// Creates a when tree from given `Stmts`
     pub fn from_stmts(&mut self, stmts: &Stmts) {
         let root_node = WhenTreeNode::new(Condition::Root, 0);
         let root_id = self.arena.new_node(root_node);
