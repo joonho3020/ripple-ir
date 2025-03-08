@@ -245,8 +245,12 @@ fn add_graph_edge_from_expr(
     }
 }
 
-/// Given a statement, add a graph edge
-/// This won't connect the input and selection signals going into the phi nodes
+/// Given a statement, adds a graph edge corresponding to the statement.
+/// There are only a few cases that addes a edge between two nodes in a graph:
+/// - `Reg`, `RegReset` clock, reset, init signals
+/// - `Node` statements. These perform primitive operations, or muxes (combinational operations)
+/// - `Connect`: phi nodes to their sink
+///   - This won't connect the input and selection signals going into the phi nodes
 fn add_graph_edge_from_stmt(ir: &mut RippleIR, stmt: &Stmt, nm: &mut NodeMap) {
     match stmt {
         Stmt::When(cond, _info, when_stmts, else_stmts_opt) => {
