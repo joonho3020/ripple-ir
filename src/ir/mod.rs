@@ -52,6 +52,9 @@ pub enum NodeType {
     RegReset(Identifier, Type, Expr, Expr, Expr),
     SMem(Identifier, Type, Option<ChirrtlMemoryReadUnderWrite>),
     CMem(Identifier, Type),
+    WriteMemPort(Identifier),
+    ReadMemPort(Identifier),
+    InferMemPort(Identifier),
     Inst(Identifier, Identifier),
 // Node(Identifier, Expr),
     // TODO: deal with printfs
@@ -90,8 +93,24 @@ impl PhiPriority {
 #[derive(Debug, Clone, PartialEq, Hash)]
 pub enum EdgeType {
     Default,
+
+    /// Clock edge
+    Clock,
+
+    /// Reset edge
+    Reset,
+
+    /// Edge going into the phi node
     PhiInput(PhiPriority, Condition),
+
+    /// Selection conditions going into the phi node
     PhiSel(Expr),
+
+    /// Connects the memory to its ports
+    MemPortEdge,
+
+    /// Connects the address signal to the memory port node
+    MemPortAddr,
 }
 
 impl Display for EdgeType {

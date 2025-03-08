@@ -24,6 +24,10 @@ test_debug: uncompress make_output_dir
   cargo nextest run
 
 [group: 'test']
+test_run name:
+  cargo nextest run {{name}} --nocapture
+
+[group: 'test']
 list:
   cargo nextest list
 

@@ -12,10 +12,10 @@ type RefSet = IndexSet<Reference>;
 /// Book-keeping datastructure required when converting the FIRRTL AST to graph form
 #[derive(Default, Debug)]
 struct NodeMap {
-    /// `Reference` (in the FIRRTL AST) -> NodeIndex of the graph
+    /// `Reference` (in the FIRRTL AST) -> `NodeIndex` of the graph
     pub node_map: RefMap,
 
-    /// `Reference` (sink node of the phi node) -> NodeIndex of the phi node
+    /// `Reference` (sink node of the phi node) -> `NodeIndex` of the phi node
     pub phi_map: RefMap,
 
     /// The if key exists, phi node has been connected to its sink
@@ -122,11 +122,35 @@ fn add_graph_node_from_stmt(ir: &mut RippleIR, stmt: &Stmt, nm: &mut NodeMap) {
                     name.clone(), tpe.clone(), clk.clone(), rst.clone(), init.clone()));
             nm.node_map.insert(Reference::Ref(name.clone()), id);
         }
-        Stmt::ChirrtlMemory(_mem) => {
-            todo!("ChirrtlMemory not yet implemented");
+        Stmt::ChirrtlMemory(mem) => {
+            match mem {
+                ChirrtlMemory::SMem(name, tpe, ruw_opt, _info) => {
+                    let id = ir.graph.add_node(
+                        NodeType::SMem(name.clone(), tpe.clone(), ruw_opt.clone()));
+                    nm.node_map.insert(Reference::Ref(name.clone()), id);
+                }
+                ChirrtlMemory::CMem(name, tpe, _info) => {
+                    let id = ir.graph.add_node(NodeType::CMem(name.clone(), tpe.clone()));
+                    nm.node_map.insert(Reference::Ref(name.clone()), id);
+                }
+            }
         }
-        Stmt::ChirrtlMemoryPort(_mport) => {
-            todo!("ChirrtlMemoryPort not yet implemented");
+        Stmt::ChirrtlMemoryPort(mport) => {
+            let (name, id) = match mport {
+                ChirrtlMemoryPort::Write(port, _mem, _addr, _clk, _info) => {
+                    let id = ir.graph.add_node(NodeType::WriteMemPort(port.clone()));
+                    (port, id)
+                }
+                ChirrtlMemoryPort::Read(port, _mem, _addr, _clk, _info) => {
+                    let id = ir.graph.add_node(NodeType::ReadMemPort(port.clone()));
+                    (port, id)
+                }
+                ChirrtlMemoryPort::Infer(port, _mem, _addr, _clk, _info) => {
+                    let id = ir.graph.add_node(NodeType::InferMemPort(port.clone()));
+                    (port, id)
+                }
+            };
+            nm.node_map.insert(Reference::Ref(name.clone()), id);
         }
         Stmt::Inst(_inst_name, _mod_name, _info) => {
             todo!("Instances not yet handled");
@@ -270,7 +294,7 @@ fn add_graph_edge_from_stmt(ir: &mut RippleIR, stmt: &Stmt, nm: &mut NodeMap) {
                 let reg_id = nm.node_map.get(&Reference::Ref(name.clone())).unwrap();
                 let clk_id = nm.node_map.get(clk_ref).expect(&format!("clk {:?} for Reg {:?} not found", clk, name));
 
-                ir.graph.add_edge(*clk_id, *reg_id, EdgeType::Default);
+                ir.graph.add_edge(*clk_id, *reg_id, EdgeType::Clock);
             } else {
                 panic!("clk {:?} for reg {:?} is not a reference", clk, name);
             }
@@ -290,8 +314,8 @@ fn add_graph_edge_from_stmt(ir: &mut RippleIR, stmt: &Stmt, nm: &mut NodeMap) {
                         panic!("No matching init {:?} for reg {:?}", init, name);
                     };
 
-                    ir.graph.add_edge(*clk_id, *reg_id, EdgeType::Default);
-                    ir.graph.add_edge(*rst_id, *reg_id, EdgeType::Default);
+                    ir.graph.add_edge(*clk_id, *reg_id, EdgeType::Clock);
+                    ir.graph.add_edge(*rst_id, *reg_id, EdgeType::Reset);
                     ir.graph.add_edge(init_id, *reg_id, EdgeType::Default);
                 }
                 _ => {
@@ -301,10 +325,22 @@ fn add_graph_edge_from_stmt(ir: &mut RippleIR, stmt: &Stmt, nm: &mut NodeMap) {
             }
         }
         Stmt::ChirrtlMemory(_mem) => {
-            todo!("ChirrtlMemory not yet handled");
         }
-        Stmt::ChirrtlMemoryPort(_mport) => {
-            todo!("ChirrtlMemoryPort not yet handled");
+        Stmt::ChirrtlMemoryPort(mport) => {
+            match mport {
+                ChirrtlMemoryPort::Write(port, mem, addr, clk, _info) |
+                ChirrtlMemoryPort::Read (port, mem, addr, clk, _info) |
+                ChirrtlMemoryPort::Infer(port, mem, addr, clk, _info) => {
+                    let port_id = nm.node_map.get(&Reference::Ref(port.clone())).unwrap();
+                    let mem_id  = nm.node_map.get(&Reference::Ref(mem.clone())).unwrap();
+                    let clk_id = nm.node_map.get(clk).expect(&format!("clk {:?} for MemPort {:?} not found", clk, port));
+
+                    ir.graph.add_edge(*port_id, *mem_id, EdgeType::MemPortEdge);
+                    ir.graph.add_edge(*mem_id, *port_id, EdgeType::MemPortEdge);
+                    ir.graph.add_edge(*clk_id, *port_id, EdgeType::Clock);
+                    add_graph_edge_from_expr(ir, *port_id, addr, EdgeType::MemPortAddr, nm);
+                }
+            }
         }
         Stmt::Inst(_inst_name, _mod_name, _info) => {
             todo!("Instances not yet handled");
@@ -518,8 +554,14 @@ fn check_stmt_assumption(stmts: &Stmts) {
             Stmt::ChirrtlMemory(_mem) => {
                 continue;
             }
-            Stmt::ChirrtlMemoryPort(_mport) => {
-                continue;
+            Stmt::ChirrtlMemoryPort(mport) => {
+                match mport {
+                    ChirrtlMemoryPort::Write(port, mem, addr, clk, _info) |
+                        ChirrtlMemoryPort::Read (port, mem, addr, clk, _info) |
+                        ChirrtlMemoryPort::Infer(port, mem, addr, clk, _info) => {
+                        assert!(is_reference_or_const_or_primop1expr(addr), "MemPort addr {:?} is not a Reference", addr);
+                    }
+                }
             }
             Stmt::Inst(_inst_name, _mod_name, _info) => {
                 continue;
@@ -603,6 +645,11 @@ mod test {
     #[test]
     fn nestedbundle() {
         run("NestedBundle").expect("NestedBundle");
+    }
+
+    #[test]
+    fn singleport_sram() {
+        run("SinglePortSRAM").expect("SinglePortSRAM");
     }
 
     fn run_check_assumption(input: &str) -> Result<(), std::io::Error> {
