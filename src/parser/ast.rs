@@ -71,6 +71,19 @@ impl Display for Reference {
     }
 }
 
+impl Reference {
+    pub fn root(&self) -> Identifier {
+        match self {
+            Self::Ref(name) => name.clone(),
+            Self::RefDot(parent, _)     |
+            Self::RefIdxInt(parent, _)  |
+            Self::RefIdxExpr(parent, _) => {
+                parent.root()
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum PrimOp2Expr {
     Add,

@@ -31,6 +31,19 @@ where
     fn export_graphviz(
         self: &Self,
         path: &str,
+        node_attr: Option<&NodeAttributeMap>,
+        debug: bool
+    ) -> Result<String, std::io::Error> {
+        let dot = self.graphviz_string(node_attr)?;
+        if debug {
+            println!("{}", dot);
+        }
+        exec_dot(dot.clone(), vec![Format::Pdf.into(), CommandArg::Output(path.to_string())])?;
+        return Ok(dot);
+    }
+
+    fn graphviz_string(
+        self: &Self,
         node_attr: Option<&NodeAttributeMap>
     ) -> Result<String, std::io::Error> {
         let mut g = graphviz_rust::dot_structures::Graph::DiGraph {
@@ -80,7 +93,6 @@ where
 
         // Export to pdf
         let dot = g.print(&mut PrinterContext::new(true, 4, "\n".to_string(), 90));
-        exec_dot(dot.clone(), vec![Format::Pdf.into(), CommandArg::Output(path.to_string())])?;
         Ok(dot)
     }
 }

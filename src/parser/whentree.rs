@@ -1,8 +1,8 @@
-use crate::parser::{ast::*, Int};
+use crate::parser::ast::*;
 use indextree::{Arena, NodeId};
 
 
-#[derive(Default, Debug, Clone, PartialEq)]
+#[derive(Default, Debug, Clone, PartialEq, Hash)]
 pub enum Condition {
     #[default]
     True,
@@ -10,6 +10,20 @@ pub enum Condition {
     Else(Box<Condition>, Expr),
 }
 
+impl Condition {
+    pub fn collect_sels(&self) -> Vec<Expr> {
+        let mut ret: Vec<Expr> = vec![];
+        match self {
+            Self::When(par, expr) |
+                Self::Else(par, expr) => {
+                ret.append(&mut par.collect_sels());
+                ret.push(expr.clone());
+            }
+            _ => { }
+        }
+        return ret;
+    }
+}
 
 #[derive(Default, Debug, Clone, PartialEq)]
 pub struct WhenTreeNode {
@@ -118,6 +132,27 @@ impl WhenTree {
         let root_id = self.arena.new_node(root_node);
         self.root = Some(root_id);
         self.from_stmts_recursive(&mut 0, Condition::True, root_id, stmts);
+    }
+
+    fn collect_leaf_nodes_recursive(&self, node: NodeId, leaf_nodes: &mut Vec<NodeId>) {
+        if node.children(&self.arena).next().is_none() {
+            leaf_nodes.push(node);
+        } else {
+            for child in node.children(&self.arena) {
+                self.collect_leaf_nodes_recursive(child, leaf_nodes);
+            }
+        }
+    }
+
+    pub fn leaf_nodes(&self) -> Vec<&WhenTreeNode> {
+        let mut leaf_nodes = Vec::new();
+        match self.root {
+            Some(rid) => {
+                self.collect_leaf_nodes_recursive(rid, &mut leaf_nodes);
+            }
+            _ => { }
+        }
+        leaf_nodes.iter().map(|id| self.get(*id)).collect()
     }
 }
 

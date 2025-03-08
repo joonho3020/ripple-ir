@@ -1,9 +1,20 @@
+use crate::parser::whentree::WhenTree;
 use crate::{ir::*, parser::ast::*};
 use crate::parser::typetree::{Direction, TypeTree};
 use petgraph::graph::NodeIndex;
-use indexmap::IndexMap;
+use indexmap::{IndexMap, IndexSet};
+use petgraph::visit::EdgeRef;
+use petgraph::Direction::Incoming;
 
 type RefMap = IndexMap<Reference, NodeIndex>;
+type RefSet = IndexSet<Reference>;
+
+#[derive(Default, Debug)]
+struct NodeMap {
+    pub node_map: RefMap,
+    pub phi_map: RefMap,
+    pub phi_connected: RefSet,
+}
 
 #[derive(Default, Debug)]
 struct AST2GraphConverter {
@@ -19,26 +30,28 @@ impl AST2GraphConverter {
     }
 
     fn from_circuit_module(module: &CircuitModule) -> RippleIR {
-        let mut refmap: RefMap = RefMap::new();
+        let mut nodemap: NodeMap = NodeMap::default();
         match module {
             CircuitModule::Module(m) => {
-                Self::from_module(m, &mut refmap)
+                Self::from_module(m, &mut nodemap)
             }
             CircuitModule::ExtModule(e) => {
-                Self::from_ext_module(e, &mut refmap)
+                Self::from_ext_module(e, &mut nodemap)
             }
         }
     }
 
-    fn from_module(module: &Module, refmap: &mut RefMap) -> RippleIR {
+    fn from_module(module: &Module, nm: &mut NodeMap) -> RippleIR {
         let mut ret = RippleIR::new();
-        Self::collect_ports(&mut ret, &module.ports, refmap);
-        Self::collect_node_stmts(&mut ret, &module.stmts, refmap);
-        Self::connect_nodes_stmts(&mut ret, &module.stmts, refmap);
+        Self::collect_ports(&mut ret, &module.ports, nm);
+        Self::collect_node_stmts(&mut ret, &module.stmts, nm);
+        Self::connect_nodes_stmts(&mut ret, &module.stmts, nm);
+        Self::connect_phi_node_input_stmts(&mut ret, &module.stmts, nm);
+        Self::connect_phi_node_sel_stmts(&mut ret, nm);
         return ret;
     }
 
-    fn from_ext_module(module: &ExtModule, refmap: &mut RefMap) -> RippleIR {
+    fn from_ext_module(module: &ExtModule, nm: &mut NodeMap) -> RippleIR {
         let ret = RippleIR::new();
         return ret;
     }
@@ -48,106 +61,53 @@ impl AST2GraphConverter {
         typetree.all_possible_references()
     }
 
-    fn collect_ports(ir: &mut RippleIR, ports: &Ports, refmap: &mut RefMap) {
+    fn collect_ports(ir: &mut RippleIR, ports: &Ports, nm: &mut NodeMap) {
         for port in ports.iter() {
             match port.as_ref() {
                 Port::Input(name, tpe, _info) => {
                     let id = ir.graph.add_node(NodeType::Input(name.clone(), tpe.clone()));
                     let all_refs = Self::all_references(tpe, name, Some(Direction::Input));
                     for reference in all_refs {
-                        refmap.insert(reference, id);
+                        nm.node_map.insert(reference, id);
                     }
                 }
                 Port::Output(name, tpe, _info) => {
                     let id = ir.graph.add_node(NodeType::Output(name.clone(), tpe.clone()));
                     let all_refs = Self::all_references(tpe, name, Some(Direction::Output));
                     for reference in all_refs {
-                        refmap.insert(reference, id);
+                        nm.node_map.insert(reference, id);
                     }
                 }
             }
         }
     }
 
-    fn collect_node_exprs(ir: &mut RippleIR, expr: &Expr, refmap: &mut RefMap) {
-        match expr {
-            Expr::UIntInit(w, init) => {
-                ir.graph.add_node(NodeType::UIntLiteral(*w, init.clone()));
-            }
-            Expr::SIntInit(w, init) => {
-                ir.graph.add_node(NodeType::SIntLiteral(*w, init.clone()));
-            }
-            Expr::Mux(cond, true_expr, false_expr) => {
-                ir.graph.add_node(NodeType::Mux);
-                Self::collect_node_exprs(ir, cond, refmap);
-                Self::collect_node_exprs(ir, true_expr, refmap);
-                Self::collect_node_exprs(ir, false_expr, refmap);
-            }
-            Expr::PrimOp2Expr(op, a, b) => {
-                ir.graph.add_node(NodeType::PrimOp2Expr(*op));
-                Self::collect_node_exprs(ir, a, refmap);
-                Self::collect_node_exprs(ir, b, refmap);
-            }
-            Expr::PrimOp1Expr(op, a) => {
-                ir.graph.add_node(NodeType::PrimOp1Expr(*op));
-                Self::collect_node_exprs(ir, a, refmap);
-            }
-            Expr::PrimOp1Expr1Int(op, a, x) => {
-                ir.graph.add_node(NodeType::PrimOp1Expr1Int(*op, x.clone()));
-                Self::collect_node_exprs(ir, a, refmap);
-            }
-            Expr::PrimOp1Expr2Int(op, a, x, y) => {
-                ir.graph.add_node(NodeType::PrimOp1Expr2Int(*op, x.clone(), y.clone()));
-                Self::collect_node_exprs(ir, a, refmap);
-            }
-            Expr::Reference(_) => {
-                // TODO: RefExpr?
-                return;
-            }
-            Expr::UIntNoInit(_) |
-                Expr::SIntNoInit(_) |
-                Expr::ValidIf(_, _) => {
-                panic!("collect_node_exprs doesn't handle expression {:?}", expr);
-            }
-        }
-    }
-
-    fn collect_node_stmts(ir: &mut RippleIR, stmts: &Stmts, refmap: &mut RefMap) {
+    fn collect_node_stmts(ir: &mut RippleIR, stmts: &Stmts, nm: &mut NodeMap) {
         for stmt in stmts {
-            Self::collect_node_stmt(ir, stmt.as_ref(), refmap);
+            Self::collect_node_stmt(ir, stmt.as_ref(), nm);
         }
     }
 
-    fn collect_node_stmt(ir: &mut RippleIR, stmt: &Stmt, refmap: &mut RefMap) {
+    fn collect_node_stmt(ir: &mut RippleIR, stmt: &Stmt, nm: &mut NodeMap) {
         match stmt {
-            Stmt::When(cond, _info, when_stmts, else_stmts_opt) => {
-                Self::collect_node_exprs(ir, cond, refmap);
-                Self::collect_node_stmts(ir, when_stmts, refmap);
+            Stmt::When(_cond, _info, when_stmts, else_stmts_opt) => {
+                Self::collect_node_stmts(ir, when_stmts, nm);
                 if let Some(else_stmts) = else_stmts_opt {
-                    Self::collect_node_stmts(ir, else_stmts, refmap);
+                    Self::collect_node_stmts(ir, else_stmts, nm);
                 }
             }
             Stmt::Wire(name, tpe, _info) => {
                 let id = ir.graph.add_node(NodeType::Wire(name.clone(), tpe.clone()));
-                let all_refs = Self::all_references(tpe, name, None);
-                for reference in all_refs {
-                    refmap.insert(reference, id);
-                }
+                nm.node_map.insert(Reference::Ref(name.clone()), id);
             }
             Stmt::Reg(name, tpe, clk, _info) => {
                 let id = ir.graph.add_node(NodeType::Reg(name.clone(), tpe.clone(), clk.clone()));
-                let all_refs = Self::all_references(tpe, name, None);
-                for reference in all_refs {
-                    refmap.insert(reference, id);
-                }
+                nm.node_map.insert(Reference::Ref(name.clone()), id);
             }
             Stmt::RegReset(name, tpe, clk, rst, init, _info) => {
                 let id = ir.graph.add_node(NodeType::RegReset(
                         name.clone(), tpe.clone(), clk.clone(), rst.clone(), init.clone()));
-                let all_refs = Self::all_references(tpe, name, None);
-                for reference in all_refs {
-                    refmap.insert(reference, id);
-                }
+                nm.node_map.insert(Reference::Ref(name.clone()), id);
             }
             Stmt::ChirrtlMemory(_mem) => {
                 todo!("ChirrtlMemory not yet implemented");
@@ -162,23 +122,23 @@ impl AST2GraphConverter {
                 match expr {
                     Expr::Mux(_, _, _) => {
                         let id = ir.graph.add_node(NodeType::Mux);
-                        refmap.insert(Reference::Ref(out_name.clone()), id);
+                        nm.node_map.insert(Reference::Ref(out_name.clone()), id);
                     }
                     Expr::PrimOp2Expr(op, _, _) => {
                         let id = ir.graph.add_node(NodeType::PrimOp2Expr(*op));
-                        refmap.insert(Reference::Ref(out_name.clone()), id);
+                        nm.node_map.insert(Reference::Ref(out_name.clone()), id);
                     }
                     Expr::PrimOp1Expr(op, _) => {
                         let id = ir.graph.add_node(NodeType::PrimOp1Expr(*op));
-                        refmap.insert(Reference::Ref(out_name.clone()), id);
+                        nm.node_map.insert(Reference::Ref(out_name.clone()), id);
                     }
                     Expr::PrimOp1Expr1Int(op, _, x) => {
                         let id = ir.graph.add_node(NodeType::PrimOp1Expr1Int(*op, x.clone()));
-                        refmap.insert(Reference::Ref(out_name.clone()), id);
+                        nm.node_map.insert(Reference::Ref(out_name.clone()), id);
                     }
                     Expr::PrimOp1Expr2Int(op, _, x, y) => {
                         let id = ir.graph.add_node(NodeType::PrimOp1Expr2Int(*op, x.clone(), y.clone()));
-                        refmap.insert(Reference::Ref(out_name.clone()), id);
+                        nm.node_map.insert(Reference::Ref(out_name.clone()), id);
                     }
                     Expr::Reference(_)      |
                         Expr::UIntNoInit(_) |
@@ -190,7 +150,22 @@ impl AST2GraphConverter {
                         }
                 }
             }
-            Stmt::Connect(..) => {
+            Stmt::Connect(lhs, _, _info) => {
+                // Insert phi nodes for all possible lhs connections
+                // We can remove the unnecessary ones later
+                match lhs {
+                    Expr::Reference(r) => {
+                        let root_name = r.root();
+                        let root_ref = Reference::Ref(root_name.clone());
+                        if !nm.phi_map.contains_key(&root_ref) {
+                            let id = ir.graph.add_node(NodeType::Phi(root_name.clone()));
+                            nm.phi_map.insert(root_ref, id);
+                        }
+                    }
+                    _ => {
+                        panic!("Connect lhs {:?} unhandled type", lhs);
+                    }
+                }
             }
             Stmt::Invalidate(..) => {
             }
@@ -203,25 +178,32 @@ impl AST2GraphConverter {
         }
     }
 
-    fn connect_nodes_stmts(ir: &mut RippleIR, stmts: &Stmts, refmap: &mut RefMap) {
+    fn connect_nodes_stmts(ir: &mut RippleIR, stmts: &Stmts, nm: &mut NodeMap) {
         for stmt in stmts {
-            Self::connect_nodes_stmt(ir, stmt.as_ref(), refmap);
+            Self::connect_nodes_stmt(ir, stmt.as_ref(), nm);
         }
     }
 
-    fn connect_dst_to_expr(ir: &mut RippleIR, dst_id: NodeIndex, rhs: &Expr, refmap: &RefMap) {
+    fn connect_dst_to_expr(
+        ir: &mut RippleIR,
+        dst_id: NodeIndex,
+        rhs: &Expr,
+        edge_type: EdgeType,
+        nm: &NodeMap) {
         match rhs {
             Expr::Reference(r) => {
-                let src_id = refmap.get(r).expect(&format!("Connect rhs not found in refmap {:?}", r));
-                ir.graph.add_edge(*src_id, dst_id, EdgeType::Default);
+                let root_name = r.root();
+                let src_id = nm.node_map.get(&Reference::Ref(root_name))
+                    .expect(&format!("Connect rhs {:?} not found in node_map", r));
+                ir.graph.add_edge(*src_id, dst_id, edge_type);
             }
             Expr::UIntInit(w, init) => {
                 let src_id = ir.graph.add_node(NodeType::UIntLiteral(*w, init.clone()));
-                ir.graph.add_edge(src_id, dst_id, EdgeType::Default);
+                ir.graph.add_edge(src_id, dst_id, edge_type);
             }
             Expr::SIntInit(w, init) => {
                 let src_id = ir.graph.add_node(NodeType::SIntLiteral(*w, init.clone()));
-                ir.graph.add_edge(src_id, dst_id, EdgeType::Default);
+                ir.graph.add_edge(src_id, dst_id, edge_type);
             }
             Expr::PrimOp1Expr(op, expr) => {
                 let op_id = ir.graph.add_node(NodeType::PrimOp1Expr(*op));
@@ -236,8 +218,8 @@ impl AST2GraphConverter {
                         panic!("Connect rhs PrimOp1Expr expr not a const {:?}", rhs);
                     }
                 };
-                ir.graph.add_edge(op_id, dst_id, EdgeType::Default);
-                ir.graph.add_edge(src_id, op_id, EdgeType::Default);
+                ir.graph.add_edge(op_id, dst_id, edge_type.clone());
+                ir.graph.add_edge(src_id, op_id, edge_type);
             }
             _ => {
                 assert!(false, "Connect rhs {:?} unhandled type", rhs);
@@ -245,12 +227,12 @@ impl AST2GraphConverter {
         }
     }
 
-    fn connect_nodes_stmt(ir: &mut RippleIR, stmt: &Stmt, refmap: &mut RefMap) {
+    fn connect_nodes_stmt(ir: &mut RippleIR, stmt: &Stmt, nm: &mut NodeMap) {
         match stmt {
             Stmt::When(cond, _info, when_stmts, else_stmts_opt) => {
-                Self::connect_nodes_stmts(ir, when_stmts, refmap);
+                Self::connect_nodes_stmts(ir, when_stmts, nm);
                 if let Some(else_stmts) = else_stmts_opt {
-                    Self::connect_nodes_stmts(ir, else_stmts, refmap);
+                    Self::connect_nodes_stmts(ir, else_stmts, nm);
                 }
                 assert!(Self::is_reference_or_const(cond), "When condition should be a Reference {:?}", cond);
             }
@@ -270,27 +252,27 @@ impl AST2GraphConverter {
                 todo!("Instances not yet handled");
             }
             Stmt::Node(out_name, expr, _info) => {
-                let dst_id = refmap.get(&Reference::Ref(out_name.clone()))
-                    .expect(&format!("Node lhs not found in refmap {:?}", stmt));
+                let dst_id = nm.node_map.get(&Reference::Ref(out_name.clone()))
+                    .expect(&format!("Node lhs {:?} not found in node_map", stmt));
 
                 match expr {
                     Expr::Mux(cond, true_expr, false_expr) => {
-                        Self::connect_dst_to_expr(ir, *dst_id, cond, refmap);
-                        Self::connect_dst_to_expr(ir, *dst_id, &true_expr, refmap);
-                        Self::connect_dst_to_expr(ir, *dst_id, &false_expr, refmap);
+                        Self::connect_dst_to_expr(ir, *dst_id, cond, EdgeType::Default, nm);
+                        Self::connect_dst_to_expr(ir, *dst_id, &true_expr, EdgeType::Default, nm);
+                        Self::connect_dst_to_expr(ir, *dst_id, &false_expr, EdgeType::Default, nm);
                     }
                     Expr::PrimOp2Expr(_, a, b) => {
-                        Self::connect_dst_to_expr(ir, *dst_id, &a, refmap);
-                        Self::connect_dst_to_expr(ir, *dst_id, &b, refmap);
+                        Self::connect_dst_to_expr(ir, *dst_id, &a, EdgeType::Default, nm);
+                        Self::connect_dst_to_expr(ir, *dst_id, &b, EdgeType::Default, nm);
                     }
                     Expr::PrimOp1Expr(_, a) => {
-                        Self::connect_dst_to_expr(ir, *dst_id, &a, refmap);
+                        Self::connect_dst_to_expr(ir, *dst_id, &a, EdgeType::Default, nm);
                     }
                     Expr::PrimOp1Expr1Int(_, a, _) => {
-                        Self::connect_dst_to_expr(ir, *dst_id, &a, refmap);
+                        Self::connect_dst_to_expr(ir, *dst_id, &a, EdgeType::Default, nm);
                     }
                     Expr::PrimOp1Expr2Int(_, a, _, _) => {
-                        Self::connect_dst_to_expr(ir, *dst_id, &a, refmap);
+                        Self::connect_dst_to_expr(ir, *dst_id, &a, EdgeType::Default, nm);
                     }
                     Expr::Reference(_)      |
                         Expr::UIntNoInit(_) |
@@ -299,23 +281,113 @@ impl AST2GraphConverter {
                         Expr::SIntInit(_, _) |
                         Expr::ValidIf(_, _) => {
                             assert!(false, "Node rhs {:?} unhandled type", expr);
-                        }
+                    }
                 }
             }
-            Stmt::Connect(lhs, rhs, _info) => {
-                let dst_id = match lhs {
+            Stmt::Connect(lhs, _rhs, _info) => {
+                let (dst_id, root_name) = match lhs {
                     Expr::Reference(r) => {
-                        refmap.get(r).expect(&format!("Connect lhs not found in refmap {:?}", lhs))
+                        (
+                            nm.node_map.get(r)
+                                .expect(&format!("Connect lhs not found in {:?}", lhs)),
+                            r.root()
+                        )
                     }
                     _ => {
                         panic!("Connect lhs {:?} unhandled type", lhs);
                     }
                 };
-                Self::connect_dst_to_expr(ir, *dst_id, rhs, refmap);
+
+                // If phi node not yet connected, connect now
+                let root_ref = Reference::Ref(root_name);
+                if !nm.phi_connected.contains(&root_ref) {
+                    let phi_id = nm.phi_map.get(&root_ref)
+                        .expect(&format!("Phi node for {:?} doesn't exist", root_ref));
+
+                    ir.graph.add_edge(*phi_id, *dst_id, EdgeType::Default);
+                    nm.phi_connected.insert(root_ref);
+                }
             }
             Stmt::Printf(_clk, _posedge, _msg, _exprs_opt, _info) => {
             }
             Stmt::Assert(_clk, _pred, _cond, _msg, _info) => {
+            }
+        }
+    }
+
+    fn connect_phi_node_input_stmts(ir: &mut RippleIR, stmts: &Stmts, nm: &mut NodeMap) {
+        let mut whentree = WhenTree::new();
+        whentree.from_stmts(stmts);
+        let leaves = whentree.leaf_nodes();
+
+        let mut block_prior_set: IndexSet<u32> = IndexSet::new();
+        for leaf in leaves {
+            let block_prior = leaf.priority;
+
+            if block_prior_set.contains(&block_prior) {
+                panic!("When block prior {} overlaps {:?}", block_prior, block_prior_set);
+            }
+            block_prior_set.insert(block_prior);
+
+            for (stmt_prior, stmt) in leaf.stmts.iter().enumerate() {
+                match stmt.as_ref() {
+                    Stmt::Connect(lhs, rhs, _info) => {
+                        match lhs {
+                            Expr::Reference(r) => {
+                                let root_name = r.root();
+                                let root_ref = Reference::Ref(root_name.clone());
+                                let phi_id = nm.phi_map.get(&root_ref)
+                                    .expect(&format!("phi node for {:?} not found", root_ref));
+
+                                let prior = PhiPriority::new(block_prior, stmt_prior as u32);
+                                let edge = EdgeType::PhiInput(prior, leaf.cond.clone());
+                                Self::connect_dst_to_expr(ir, *phi_id, rhs, edge, nm);
+                            }
+                            _ => {
+                                panic!("Connect lhs {:?} unhandled type", lhs);
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    fn connect_phi_node_sel_id(ir: &mut RippleIR, id: NodeIndex, nm: &mut NodeMap) {
+        let mut sel_exprs: IndexSet<Expr> = IndexSet::new();
+
+        let pedges = ir.graph.edges_directed(id, Incoming);
+        for pedge_ref in pedges {
+            let edge_w = ir.graph.edge_weight(pedge_ref.id()).unwrap();
+            match edge_w {
+                EdgeType::PhiInput(_, cond) => {
+                    let sels = cond.collect_sels();
+                    for sel in sels {
+                        sel_exprs.insert(sel);
+                    }
+                }
+                _ => {
+                    panic!("Unexpected Phi node driver edge {:?}", edge_w);
+                }
+            }
+        }
+
+        for sel in sel_exprs {
+            Self::connect_dst_to_expr(ir, id, &sel, EdgeType::PhiSel(sel.clone()), nm);
+        }
+    }
+
+    fn connect_phi_node_sel_stmts(ir: &mut RippleIR, nm: &mut NodeMap) {
+        for id in ir.graph.node_indices() {
+            let node = ir.graph.node_weight(id).unwrap();
+            match node {
+                NodeType::Phi(_name) => {
+                    Self::connect_phi_node_sel_id(ir, id, nm);
+                }
+                _ => {
+                    continue;
+                }
             }
         }
     }
@@ -450,7 +522,7 @@ mod test {
 
         let irs = AST2GraphConverter::from_circuit(&circuit);
         for ir in irs {
-            let dot = ir.export_graphviz("./test-outputs/GCD.dot.pdf", None)?;
+            let dot = ir.export_graphviz("./test-outputs/GCD.dot.pdf", None, true)?;
             println!("{:#?}", dot);
         }
         Ok(())

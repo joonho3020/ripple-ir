@@ -26,6 +26,7 @@
 //   - node (x, y)
 
 use crate::parser::ast::*;
+use crate::parser::whentree::Condition;
 use crate::parser::Int;
 use crate::common::graphviz::GraphViz;
 use petgraph::graph::{Graph, NodeIndex};
@@ -58,7 +59,7 @@ pub enum NodeType {
     // Port
     Input(Identifier, Type),
     Output(Identifier, Type),
-    Phi,
+    Phi(Identifier),
 }
 
 impl Display for NodeType {
@@ -69,15 +70,35 @@ impl Display for NodeType {
     }
 }
 
+#[derive(Debug, Default, Clone, PartialEq, Hash)]
+pub struct PhiPriority {
+    /// Priority between blocks
+    /// - Smaller number means higher priority
+    pub block: u32,
+
+    /// Priority between statements within the same block
+    /// - Smaller number means higher priority
+    pub stmt: u32,
+}
+
+impl PhiPriority {
+    pub fn new(block: u32, stmt: u32) -> Self {
+        Self { block, stmt }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Hash)]
 pub enum EdgeType {
     Default,
-    Wire(Identifier, Type)
+    PhiInput(PhiPriority, Condition),
+    PhiSel(Expr),
 }
 
 impl Display for EdgeType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self)
+        let original = format!("{:?}", self);
+        let clean_for_dot = original.replace('"', "");
+        write!(f, "{}", clean_for_dot)
     }
 }
 
@@ -115,6 +136,3 @@ impl GraphViz<NodeType, EdgeType> for RippleIR {
         self.graph.edge_weight(id)
     }
 }
-
-
-
