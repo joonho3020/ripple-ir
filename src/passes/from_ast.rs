@@ -692,6 +692,47 @@ mod test {
         run("Hierarchy").expect("Hierarchy");
     }
 
+    use crate::parser::lexer::FIRRTLLexer;
+    use crate::parser::firrtl::CircuitModuleParser;
+
+    /// Check of the AST to graph conversion works for each CircuitModule
+    fn run_check_completion(input_dir: &str) -> Result<(), std::io::Error> {
+        for entry in std::fs::read_dir(input_dir)? {
+            let entry = entry?;
+            let path = entry.path();
+
+            // Check if it's a file (not a directory)
+            if path.is_file() {
+                match std::fs::read_to_string(&path) {
+                    Ok(source) => {
+                        let lexer = FIRRTLLexer::new(&source);
+                        let parser = CircuitModuleParser::new();
+
+                        println!("Parsing file: {:?}", path);
+                        let ast = parser.parse(lexer).expect("TOWORK");
+                        from_circuit_module(&ast);
+                    }
+                    Err(e) => {
+                        eprintln!("Could not read file {}: {}", path.display(), e);
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn rocket_check_completion() {
+        run_check_completion("./test-inputs/rocket-modules/")
+            .expect("rocket conversion failed");
+    }
+
+    #[test]
+    fn boom_check_completion() {
+        run_check_completion("./test-inputs/boom-modules/")
+            .expect("boom conversion failed");
+    }
+
     fn run_check_assumption(input: &str) -> Result<(), std::io::Error> {
         let source = std::fs::read_to_string(input)?;
         let circuit = parse_circuit(&source).expect("firrtl parser");
