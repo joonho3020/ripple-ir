@@ -95,7 +95,14 @@ impl PhiPriority {
 
 #[derive(Debug, Clone, PartialEq, Hash)]
 pub enum EdgeType {
-    Default,
+    Wire(Expr),
+
+    Operand0(Expr),
+    Operand1(Expr),
+
+    MuxCond,
+    MuxTrue(Expr),
+    MuxFalse(Expr),
 
     /// Clock edge
     Clock,
@@ -107,10 +114,13 @@ pub enum EdgeType {
     PhiDontCare,
 
     /// Edge going into the phi node
-    PhiInput(PhiPriority, Condition),
+    PhiInput(PhiPriority, Condition, Reference, Expr),
 
     /// Selection conditions going into the phi node
     PhiSel(Expr),
+
+    /// Edge comming out from phi node
+    PhiOut,
 
     /// Connects the memory to its ports
     MemPortEdge,

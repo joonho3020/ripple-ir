@@ -277,6 +277,10 @@ fn add_graph_edge_from_expr(
 /// - `Node` statements. These perform primitive operations, or muxes (combinational operations)
 /// - `Connect`: phi nodes to their sink
 ///   - This won't connect the input and selection signals going into the phi nodes
+/// - `ChirrtlMemoryPort`
+///    - Connects the memory node with the port nodes
+///    - Connects the port node to the clock node
+///    - Connects the address node to the port node
 fn add_graph_edge_from_stmt(ir: &mut RippleGraph, stmt: &Stmt, nm: &mut NodeMap) {
     match stmt {
         Stmt::When(cond, _info, when_stmts, else_stmts_opt) => {
@@ -306,17 +310,23 @@ fn add_graph_edge_from_stmt(ir: &mut RippleGraph, stmt: &Stmt, nm: &mut NodeMap)
                     let clk_id = nm.node_map.get(clk_ref).expect(&format!("clk {:?} for Reg {:?} not found", clk, name));
                     let rst_id = nm.node_map.get(rst_ref).expect(&format!("rst {:?} for Reg {:?} not found", rst, name));
 
-                    let init_id = if let Expr::UIntInit(w, v) = init {
-                        ir.graph.add_node(NodeType::UIntLiteral(w.clone(), v.clone()))
+                    let (init_id, tpe) = if let Expr::UIntInit(w, v) = init {
+                        (
+                            ir.graph.add_node(NodeType::UIntLiteral(w.clone(), v.clone())),
+                            Type::TypeGround(TypeGround::UInt(Some(w.clone())))
+                        )
                     } else if let Expr::SIntInit(w, v) = init {
-                        ir.graph.add_node(NodeType::SIntLiteral(w.clone(), v.clone()))
+                        (
+                            ir.graph.add_node(NodeType::SIntLiteral(w.clone(), v.clone())),
+                            Type::TypeGround(TypeGround::SInt(Some(w.clone())))
+                        )
                     } else {
                         panic!("No matching init {:?} for reg {:?}", init, name);
                     };
 
                     ir.graph.add_edge(*clk_id, *reg_id, EdgeType::Clock);
                     ir.graph.add_edge(*rst_id, *reg_id, EdgeType::Reset);
-                    ir.graph.add_edge(init_id, *reg_id, EdgeType::Default);
+                    ir.graph.add_edge(init_id, *reg_id, EdgeType::Wire(init.clone()));
                 }
                 _ => {
                     panic!("No matching clk {:?} rst {:?} init {:?} for reg {:?}",
@@ -350,22 +360,30 @@ fn add_graph_edge_from_stmt(ir: &mut RippleGraph, stmt: &Stmt, nm: &mut NodeMap)
 
             match expr {
                 Expr::Mux(cond, true_expr, false_expr) => {
-                    add_graph_edge_from_expr(ir, *dst_id, cond, EdgeType::Default, nm);
-                    add_graph_edge_from_expr(ir, *dst_id, &true_expr, EdgeType::Default, nm);
-                    add_graph_edge_from_expr(ir, *dst_id, &false_expr, EdgeType::Default, nm);
+                    add_graph_edge_from_expr(ir, *dst_id, cond,
+                        EdgeType::MuxCond, nm);
+                    add_graph_edge_from_expr(ir, *dst_id, &true_expr,
+                        EdgeType::MuxTrue(true_expr.as_ref().clone()), nm);
+                    add_graph_edge_from_expr(ir, *dst_id, &false_expr,
+                        EdgeType::MuxFalse(false_expr.as_ref().clone()), nm);
                 }
                 Expr::PrimOp2Expr(_, a, b) => {
-                    add_graph_edge_from_expr(ir, *dst_id, &a, EdgeType::Default, nm);
-                    add_graph_edge_from_expr(ir, *dst_id, &b, EdgeType::Default, nm);
+                    add_graph_edge_from_expr(ir, *dst_id, &a,
+                        EdgeType::Operand0(a.as_ref().clone()), nm);
+                    add_graph_edge_from_expr(ir, *dst_id, &b,
+                        EdgeType::Operand1(b.as_ref().clone()), nm);
                 }
                 Expr::PrimOp1Expr(_, a) => {
-                    add_graph_edge_from_expr(ir, *dst_id, &a, EdgeType::Default, nm);
+                    add_graph_edge_from_expr(ir, *dst_id, &a,
+                        EdgeType::Operand0(a.as_ref().clone()), nm);
                 }
                 Expr::PrimOp1Expr1Int(_, a, _) => {
-                    add_graph_edge_from_expr(ir, *dst_id, &a, EdgeType::Default, nm);
+                    add_graph_edge_from_expr(ir, *dst_id, &a,
+                        EdgeType::Operand0(a.as_ref().clone()), nm);
                 }
                 Expr::PrimOp1Expr2Int(_, a, _, _) => {
-                    add_graph_edge_from_expr(ir, *dst_id, &a, EdgeType::Default, nm);
+                    add_graph_edge_from_expr(ir, *dst_id, &a,
+                        EdgeType::Operand0(a.as_ref().clone()), nm);
                 }
                 Expr::Reference(_)      |
                     Expr::UIntNoInit(_) |
@@ -397,7 +415,7 @@ fn add_graph_edge_from_stmt(ir: &mut RippleGraph, stmt: &Stmt, nm: &mut NodeMap)
                 let phi_id = nm.phi_map.get(&root_ref)
                     .expect(&format!("Phi node for {:?} doesn't exist", root_ref));
 
-                ir.graph.add_edge(*phi_id, *dst_id, EdgeType::Default);
+                ir.graph.add_edge(*phi_id, *dst_id, EdgeType::PhiOut);
                 nm.phi_connected.insert(root_ref);
             }
         }
@@ -448,7 +466,7 @@ fn connect_phi_in_edges_from_stmts(ir: &mut RippleGraph, stmts: &Stmts, nm: &mut
                                 .expect(&format!("phi node for {:?} not found", root_ref));
 
                             let prior = PhiPriority::new(block_prior, stmt_prior as u32);
-                            let edge = EdgeType::PhiInput(prior, leaf.cond.clone());
+                            let edge = EdgeType::PhiInput(prior, leaf.cond.clone(), r.clone(), rhs.clone());
                             add_graph_edge_from_expr(ir, *phi_id, rhs, edge, nm);
                         }
                         _ => {
@@ -471,7 +489,7 @@ fn connect_phi_node_sel_id(ir: &mut RippleGraph, id: NodeIndex, nm: &mut NodeMap
     for pedge_ref in pedges {
         let edge_w = ir.graph.edge_weight(pedge_ref.id()).unwrap();
         match edge_w {
-            EdgeType::PhiInput(_, cond) => {
+            EdgeType::PhiInput(_, cond, _, _) => {
                 let sels = cond.collect_sels();
                 for sel in sels {
                     sel_exprs.insert(sel);
@@ -637,6 +655,7 @@ mod test {
     use super::*;
     use crate::{common::graphviz::GraphViz, parser::parse_circuit};
 
+    /// Run the AST to graph conversion and export the graph form
     fn run(name: &str) -> Result<(), std::io::Error> {
         let source = std::fs::read_to_string(format!("./test-inputs/{}.fir", name))?;
         let circuit = parse_circuit(&source).expect("firrtl parser");
