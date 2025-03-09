@@ -426,23 +426,23 @@ pub enum Stmt {
     Wire(Identifier, Type, Info),
     Reg(Identifier,  Type, Expr, Info),
     RegReset(Identifier, Type, Expr, Expr, Expr, Info),
-// Memory()
     ChirrtlMemory(ChirrtlMemory),
     ChirrtlMemoryPort(ChirrtlMemoryPort),
     Inst(Identifier, Identifier, Info),
     Node(Identifier, Expr, Info),
     Connect(Expr, Expr, Info),
-// Connect(Reference, Read, Expr, Info),
-// Reference <- ???
     Invalidate(Expr, Info),
+    When(Expr, Info, Stmts, Option<Stmts>),
+    Printf(Expr, Expr, String, Option<Exprs>, Info),
+    Assert(Expr, Expr, Expr, String, Info),
+// Memory()
+// Stop(Expr, Expr, u64, Info),
+// Stop(Expr, Expr, u64, Info),
 // Define(Define, Reference, Probe, Info),
 // Define(Define, Reference, Expr, Probe, Info),
 // Attach(References)
-    When(Expr, Info, Stmts, Option<Stmts>),
-// Stop(Expr, Expr, u64, Info),
-// Stop(Expr, Expr, u64, Info),
-    Printf(Expr, Expr, String, Option<Exprs>, Info),
-    Assert(Expr, Expr, Expr, String, Info),
+// Connect(Reference, Read, Expr, Info),
+// Reference <- ???
 }
 
 impl Stmt {

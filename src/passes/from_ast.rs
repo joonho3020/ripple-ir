@@ -740,6 +740,31 @@ mod test {
             .expect("boom conversion failed");
     }
 
+    fn boom_module(name: &str) -> Result<(), std::io::Error> {
+        let source = std::fs::read_to_string(format!("./test-inputs/boom-modules/{}.fir", name))?;
+        let lexer = FIRRTLLexer::new(&source);
+        let parser = CircuitModuleParser::new();
+
+        let ast = parser.parse(lexer).expect("TOWORK");
+        let (_, graph) = from_circuit_module(&ast);
+        let dot = graph.graphviz_string(None)?;
+        println!("{}", dot);
+
+        Ok(())
+    }
+
+    #[test]
+    fn boom_fetch_target_queue() {
+        // Indirect addressing
+        boom_module("FetchTargetQueue").expect("FetchTargetQueue");
+    }
+
+    #[test]
+    fn boom_lsu() {
+        // Indirect addressing
+        boom_module("LSU").expect("LSU");
+    }
+
     fn run_check_assumption(input: &str) -> Result<(), std::io::Error> {
         let source = std::fs::read_to_string(input)?;
         let circuit = parse_circuit(&source).expect("firrtl parser");
