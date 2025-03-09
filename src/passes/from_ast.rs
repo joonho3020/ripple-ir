@@ -32,7 +32,7 @@ pub fn from_circuit(ast: &Circuit) -> RippleIR {
     return ret;
 }
 
-fn from_circuit_module(module: &CircuitModule) -> (&Identifier, RippleGraph) {
+pub fn from_circuit_module(module: &CircuitModule) -> (&Identifier, RippleGraph) {
     let mut nodemap: NodeMap = NodeMap::default();
     match module {
         CircuitModule::Module(m) => {
@@ -310,7 +310,8 @@ fn add_graph_edge_from_stmt(ir: &mut RippleGraph, stmt: &Stmt, nm: &mut NodeMap)
         Stmt::RegReset(name, _tpe, clk, rst, init, _info) => {
             match (clk, rst) {
                 (Expr::Reference(clk_ref), Expr::Reference(rst_ref)) => {
-                    let reg_id = nm.node_map.get(&Reference::Ref(name.clone())).unwrap();
+                    let reg_ref = Reference::Ref(name.clone());
+                    let reg_id = nm.node_map.get(&reg_ref).unwrap();
                     let clk_id = nm.node_map.get(&Reference::Ref(clk_ref.root())).expect(&format!("clk {:?} for Reg {:?} not found", clk, name));
                     let rst_id = nm.node_map.get(&Reference::Ref(rst_ref.root())).expect(&format!("rst {:?} for Reg {:?} not found", rst, name));
 
@@ -333,7 +334,7 @@ fn add_graph_edge_from_stmt(ir: &mut RippleGraph, stmt: &Stmt, nm: &mut NodeMap)
 
                     ir.graph.add_edge(*clk_id, *reg_id, EdgeType::Clock(clk_ref.clone()));
                     ir.graph.add_edge(*rst_id, *reg_id, EdgeType::Reset(rst_ref.clone()));
-                    ir.graph.add_edge(init_id, *reg_id, EdgeType::Wire(init.clone()));
+                    ir.graph.add_edge(init_id, *reg_id, EdgeType::Wire(reg_ref, init.clone()));
                 }
                 _ => {
                     panic!("No matching clk {:?} rst {:?} init {:?} for reg {:?}",
@@ -355,7 +356,7 @@ fn add_graph_edge_from_stmt(ir: &mut RippleGraph, stmt: &Stmt, nm: &mut NodeMap)
                     ir.graph.add_edge(*port_id, *mem_id, EdgeType::MemPortEdge);
                     ir.graph.add_edge(*mem_id, *port_id, EdgeType::MemPortEdge);
                     ir.graph.add_edge(*clk_id, *port_id, EdgeType::Clock(clk.clone()));
-                    add_graph_edge_from_expr(ir, *port_id, addr, EdgeType::MemPortAddr, nm);
+                    add_graph_edge_from_expr(ir, *port_id, addr, EdgeType::MemPortAddr(addr.clone()), nm);
                 }
             }
         }
@@ -435,7 +436,7 @@ fn add_graph_edge_from_stmt(ir: &mut RippleGraph, stmt: &Stmt, nm: &mut NodeMap)
                     .expect(&format!("Phi node for {:?} doesn't exist", root_ref));
 
                 let dont_care_id = ir.graph.add_node(NodeType::DontCare);
-                ir.graph.add_edge(dont_care_id, *phi_id, EdgeType::PhiDontCare);
+                ir.graph.add_edge(dont_care_id, *phi_id, EdgeType::DontCare(r.clone()));
             } else {
                 panic!("Invalidate expr {:?} is not a reference", expr);
             }
@@ -502,7 +503,7 @@ fn connect_phi_node_sel_id(ir: &mut RippleGraph, id: NodeIndex, nm: &mut NodeMap
                     sel_exprs.insert(sel);
                 }
             }
-            EdgeType::PhiDontCare => {
+            EdgeType::DontCare(_) => {
                 continue;
             }
             _ => {
@@ -597,9 +598,9 @@ fn check_stmt_assumption(stmts: &Stmts) {
             }
             Stmt::ChirrtlMemoryPort(mport) => {
                 match mport {
-                    ChirrtlMemoryPort::Write(port, mem, addr, clk, _info) |
-                        ChirrtlMemoryPort::Read (port, mem, addr, clk, _info) |
-                        ChirrtlMemoryPort::Infer(port, mem, addr, clk, _info) => {
+                    ChirrtlMemoryPort::Write(_port, _mem, addr, _clk, _info) |
+                        ChirrtlMemoryPort::Read (_port, _mem, addr, _clk, _info) |
+                        ChirrtlMemoryPort::Infer(_port, _mem, addr, _clk, _info) => {
                         assert!(is_reference_or_const_or_primop1expr(addr), "MemPort addr {:?} is not a Reference", addr);
                     }
                 }

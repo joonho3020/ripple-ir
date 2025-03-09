@@ -95,7 +95,8 @@ impl PhiPriority {
 
 #[derive(Debug, Clone, PartialEq, Hash)]
 pub enum EdgeType {
-    Wire(Expr),
+    /// Reference <- Expr
+    Wire(Reference, Expr),
 
     Operand0(Expr),
     Operand1(Expr),
@@ -110,8 +111,8 @@ pub enum EdgeType {
     /// Reset edge
     Reset(Reference),
 
-    /// Represents don't cares going into phi nodes
-    PhiDontCare,
+    /// Represents don't cares
+    DontCare(Reference),
 
     /// Edge going into the phi node
     PhiInput(PhiPriority, Condition, Reference, Expr),
@@ -126,7 +127,7 @@ pub enum EdgeType {
     MemPortEdge,
 
     /// Connects the address signal to the memory port node
-    MemPortAddr,
+    MemPortAddr(Expr),
 }
 
 impl Display for EdgeType {

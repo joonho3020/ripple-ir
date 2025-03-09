@@ -30,6 +30,18 @@ impl Condition {
         }
         return ret;
     }
+
+    pub fn always_true(&self) -> bool {
+        match self {
+            Self::When(_par, _expr) |
+            Self::Else(_par, _expr) => {
+                false
+            }
+            _ => {
+                true
+            }
+        }
+    }
 }
 
 #[derive(Default, Debug, Clone, PartialEq)]
