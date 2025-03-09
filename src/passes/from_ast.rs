@@ -230,6 +230,37 @@ fn connect_graph_edges_from_stmts(ir: &mut RippleGraph, stmts: &Stmts, nm: &mut 
     }
 }
 
+fn add_graph_edge_from_ref(
+    ir: &mut RippleGraph,
+    dst_id: NodeIndex,
+    reference: &Reference,
+    edge_type: EdgeType,
+    nm: &NodeMap
+) {
+    match reference {
+        Reference::Ref(_) => {
+            let src_id = nm.node_map.get(reference)
+                .expect(&format!("Driver reference {:?} not found in node_map", reference));
+
+            ir.graph.add_edge(*src_id, dst_id, edge_type);
+        }
+        Reference::RefDot(par, _) => {
+            add_graph_edge_from_ref(ir, dst_id, par.as_ref(), edge_type, nm);
+        }
+        Reference::RefIdxInt(par, _) => {
+            add_graph_edge_from_ref(ir, dst_id, par.as_ref(), edge_type, nm);
+        }
+        Reference::RefIdxExpr(par, expr) => {
+            add_graph_edge_from_ref(ir, dst_id, par.as_ref(), edge_type, nm);
+
+            let root_ref = Reference::Ref(par.root());
+            let arr_id = nm.node_map.get(&root_ref)
+                .expect(&format!("Array reference {:?} not found in node_map", par.as_ref()));
+            add_graph_edge_from_expr(ir, *arr_id, &expr, EdgeType::ArrayAddr(expr.as_ref().clone()), nm);
+        }
+    }
+}
+
 /// Given an expression (`rhs`), connect it to the sink node `dst_id` in the IR graph.
 /// Creates constant nodes that weren't created in the `collect_graph_nodes_from_stmts` step
 fn add_graph_edge_from_expr(
@@ -237,13 +268,11 @@ fn add_graph_edge_from_expr(
     dst_id: NodeIndex,
     rhs: &Expr,
     edge_type: EdgeType,
-    nm: &NodeMap) {
+    nm: &NodeMap
+) {
     match rhs {
         Expr::Reference(r) => {
-            let root_name = r.root();
-            let src_id = nm.node_map.get(&Reference::Ref(root_name))
-                .expect(&format!("Connect rhs {:?} not found in node_map", r));
-            ir.graph.add_edge(*src_id, dst_id, edge_type);
+            add_graph_edge_from_ref(ir, dst_id, r, edge_type, nm);
         }
         Expr::UIntInit(w, init) => {
             let src_id = ir.graph.add_node(NodeType::UIntLiteral(*w, init.clone()));
@@ -298,11 +327,9 @@ fn add_graph_edge_from_stmt(ir: &mut RippleGraph, stmt: &Stmt, nm: &mut NodeMap)
             Stmt::Skip(..) => {
         }
         Stmt::Reg(name, _tpe, clk, _info) => {
+            let reg_id = nm.node_map.get(&Reference::Ref(name.clone())).unwrap();
             if let Expr::Reference(clk_ref) = clk {
-                let reg_id = nm.node_map.get(&Reference::Ref(name.clone())).unwrap();
-                let clk_id = nm.node_map.get(clk_ref).expect(&format!("clk {:?} for Reg {:?} not found", clk, name));
-
-                ir.graph.add_edge(*clk_id, *reg_id, EdgeType::Clock(clk_ref.clone()));
+                add_graph_edge_from_expr(ir, *reg_id, clk, EdgeType::Clock(clk_ref.clone()), nm);
             } else {
                 panic!("clk {:?} for reg {:?} is not a reference", clk, name);
             }
@@ -312,29 +339,10 @@ fn add_graph_edge_from_stmt(ir: &mut RippleGraph, stmt: &Stmt, nm: &mut NodeMap)
                 (Expr::Reference(clk_ref), Expr::Reference(rst_ref)) => {
                     let reg_ref = Reference::Ref(name.clone());
                     let reg_id = nm.node_map.get(&reg_ref).unwrap();
-                    let clk_id = nm.node_map.get(&Reference::Ref(clk_ref.root())).expect(&format!("clk {:?} for Reg {:?} not found", clk, name));
-                    let rst_id = nm.node_map.get(&Reference::Ref(rst_ref.root())).expect(&format!("rst {:?} for Reg {:?} not found", rst, name));
 
-                    let init_id = match init {
-                        Expr::UIntInit(w, v) => {
-                            let nt = NodeType::UIntLiteral(w.clone(), v.clone());
-                            ir.graph.add_node(nt)
-                        }
-                        Expr::SIntInit(w, v) => {
-                            let nt = NodeType::SIntLiteral(w.clone(), v.clone());
-                            ir.graph.add_node(nt)
-                        }
-                        Expr::Reference(r) => {
-                            *nm.node_map.get(&Reference::Ref(r.root())).unwrap()
-                        }
-                        _ => {
-                            panic!("No matching init {:?} for reg {:?}", init, name);
-                        }
-                    };
-
-                    ir.graph.add_edge(*clk_id, *reg_id, EdgeType::Clock(clk_ref.clone()));
-                    ir.graph.add_edge(*rst_id, *reg_id, EdgeType::Reset(rst_ref.clone()));
-                    ir.graph.add_edge(init_id, *reg_id, EdgeType::Wire(reg_ref, init.clone()));
+                    add_graph_edge_from_expr(ir, *reg_id, clk,  EdgeType::Clock(clk_ref.clone()), nm);
+                    add_graph_edge_from_expr(ir, *reg_id, rst,  EdgeType::Clock(rst_ref.clone()), nm);
+                    add_graph_edge_from_expr(ir, *reg_id, init, EdgeType::Wire(reg_ref, init.clone()), nm);
                 }
                 _ => {
                     panic!("No matching clk {:?} rst {:?} init {:?} for reg {:?}",
@@ -349,13 +357,19 @@ fn add_graph_edge_from_stmt(ir: &mut RippleGraph, stmt: &Stmt, nm: &mut NodeMap)
                 ChirrtlMemoryPort::Write(port, mem, addr, clk, _info) |
                 ChirrtlMemoryPort::Read (port, mem, addr, clk, _info) |
                 ChirrtlMemoryPort::Infer(port, mem, addr, clk, _info) => {
-                    let port_id = nm.node_map.get(&Reference::Ref(port.clone())).unwrap();
-                    let mem_id  = nm.node_map.get(&Reference::Ref(mem.clone())).unwrap();
-                    let clk_id = nm.node_map.get(clk).expect(&format!("clk {:?} for MemPort {:?} not found", clk, port));
+                    let port_ref = Reference::Ref(port.clone());
+                    let mem_ref  = Reference::Ref(mem.clone());
 
-                    ir.graph.add_edge(*port_id, *mem_id, EdgeType::MemPortEdge);
-                    ir.graph.add_edge(*mem_id, *port_id, EdgeType::MemPortEdge);
-                    ir.graph.add_edge(*clk_id, *port_id, EdgeType::Clock(clk.clone()));
+                    let port_id = nm.node_map.get(&port_ref).unwrap();
+                    let mem_id  = nm.node_map.get(&mem_ref).unwrap();
+
+                    let port_expr = Expr::Reference(port_ref);
+                    let mem_expr  = Expr::Reference(mem_ref);
+                    let clk_expr  = Expr::Reference(clk.clone());
+
+                    add_graph_edge_from_expr(ir, *mem_id,  &port_expr, EdgeType::MemPortEdge, nm);
+                    add_graph_edge_from_expr(ir, *port_id, &mem_expr,  EdgeType::MemPortEdge, nm);
+                    add_graph_edge_from_expr(ir, *port_id, &clk_expr,  EdgeType::Clock(clk.clone()), nm);
                     add_graph_edge_from_expr(ir, *port_id, addr, EdgeType::MemPortAddr(addr.clone()), nm);
                 }
             }
@@ -691,6 +705,11 @@ mod test {
     }
 
     #[test]
+    fn nestedindex() {
+        run("NestedIndex").expect("NestedIndex");
+    }
+
+    #[test]
     fn singleport_sram() {
         run("SinglePortSRAM").expect("SinglePortSRAM");
     }
@@ -749,7 +768,7 @@ mod test {
         let ast = parser.parse(lexer).expect("TOWORK");
         let (_, graph) = from_circuit_module(&ast);
         let dot = graph.graphviz_string(None)?;
-        println!("{}", dot);
+// println!("{}", dot);
 
         Ok(())
     }

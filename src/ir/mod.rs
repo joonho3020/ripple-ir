@@ -128,6 +128,9 @@ pub enum EdgeType {
 
     /// Connects the address signal to the memory port node
     MemPortAddr(Expr),
+
+    /// For array types, there is an edge comming as the address
+    ArrayAddr(Expr),
 }
 
 impl Display for EdgeType {
