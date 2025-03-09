@@ -105,10 +105,10 @@ pub enum EdgeType {
     MuxFalse(Expr),
 
     /// Clock edge
-    Clock,
+    Clock(Reference),
 
     /// Reset edge
-    Reset,
+    Reset(Reference),
 
     /// Represents don't cares going into phi nodes
     PhiDontCare,

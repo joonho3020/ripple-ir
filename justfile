@@ -25,7 +25,7 @@ test_debug: uncompress make_output_dir
 
 [group: 'test']
 test_only name:
-  cargo nextest run {{name}} --nocapture
+  cargo nextest run --release {{name}} --nocapture
 
 [group: 'test']
 list:
