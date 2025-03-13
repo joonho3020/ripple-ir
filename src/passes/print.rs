@@ -1,4 +1,4 @@
-use crate::parser::ast::*;
+use chirrtl_parser::ast::*;
 
 /// Can be used to stringify a FIRRTL AST:
 /// ```rust
@@ -113,7 +113,7 @@ impl Printer {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::parser::parse_circuit;
+    use chirrtl_parser::parse_circuit;
 
     #[test]
     fn nested_whens() {

@@ -1,11 +1,10 @@
 [package]
-name = "chirrtl-parser"
+name = "ripple-ir"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-logos = "0.12"
-lalrpop-util = { version = "0.21.0", features = ["lexer", "unicode"] }
+chirrtl-parser = { git = "ssh://git@github.com/joonho3020/chirrtl-parser.git", branch = "main"}
 serde_json = "1.0.139"
 num-bigint = "0.4.6"
 num-traits = "0.2.19"
@@ -15,6 +14,3 @@ indextree = "4.7.3"
 indextree-macros = "0.1.2"
 graphviz-rust = "0.9.3"
 indexmap = "2.7.1"
-
-[build-dependencies]
-lalrpop = "0.22.1"

@@ -1,4 +1,4 @@
-use crate::parser::{ast::*, Int};
+use chirrtl_parser::ast::*;
 use indextree::{Arena, NodeId};
 use std::{collections::VecDeque, fmt::Debug};
 
@@ -116,11 +116,8 @@ impl TypeTree {
         }
         return ret;
     }
-}
 
-impl Type {
     fn create_node_and_add_to_parent(
-        &self,
         type_ground: Option<TypeGround>,
         name: Identifier,
         dir: Direction,
@@ -141,19 +138,19 @@ impl Type {
     }
 
     fn construct_tree_recursive(
-        &self,
+        cur_tpe: &Type,
         name: Identifier,
         dir: Direction,
         parent_opt: Option<NodeId>,
         tree: &mut TypeTree
     ) {
-        match self {
+        match cur_tpe {
             Type::TypeGround(tg) => {
-                self.create_node_and_add_to_parent(
+                Self::create_node_and_add_to_parent(
                     Some(tg.clone()), name, dir, parent_opt, tree);
             }
             Type::TypeAggregate(ta) => {
-                let node_id = self.create_node_and_add_to_parent(
+                let node_id = Self::create_node_and_add_to_parent(
                     None, name, dir, parent_opt, tree);
 
                 match ta.as_ref() {
@@ -161,33 +158,33 @@ impl Type {
                         for field in fields.iter() {
                             match field.as_ref() {
                                 Field::Straight(name, tpe) => {
-                                    tpe.construct_tree_recursive(
-                                        name.clone(), dir, Some(node_id), tree);
+                                    Self::construct_tree_recursive(
+                                        tpe, name.clone(), dir, Some(node_id), tree);
                                 }
                                 Field::Flipped(name, tpe) => {
-                                    tpe.construct_tree_recursive(
-                                        name.clone(), dir.flip(), Some(node_id), tree);
+                                    Self::construct_tree_recursive(
+                                        tpe, name.clone(), dir.flip(), Some(node_id), tree);
                                 }
                             }
                         }
                     }
                     TypeAggregate::Array(tpe, len) => {
                         for id in 0..len.to_u32() {
-                            tpe.construct_tree_recursive(
-                                Identifier::ID(Int::from(id)), dir, Some(node_id), tree);
+                            Self::construct_tree_recursive(
+                                tpe, Identifier::ID(Int::from(id)), dir, Some(node_id), tree);
                         }
                     }
                 }
             }
             _ => {
-                panic!("Unrecognized type while constructing type tree {:?}", self);
+                panic!("Unrecognized type while constructing type tree {:?}", cur_tpe);
             }
         }
     }
 
-    pub fn construct_tree(&self, name: Identifier, dir: Direction) -> TypeTree {
+    pub fn construct_tree(tpe: &Type, name: Identifier, dir: Direction) -> TypeTree {
         let mut ret = TypeTree::new();
-        self.construct_tree_recursive(name, dir, None, &mut ret);
+        Self::construct_tree_recursive(tpe, name, dir, None, &mut ret);
         return ret;
     }
 }
@@ -195,7 +192,7 @@ impl Type {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::parser::parse_circuit;
+    use chirrtl_parser::parse_circuit;
 
     #[test]
     fn print_type_tree() -> Result<(), std::io::Error> {
@@ -208,10 +205,10 @@ mod test {
                     for port in m.ports.iter() {
                         let port_type_tree = match port.as_ref() {
                             Port::Input(name, tpe, _info) => {
-                                tpe.construct_tree(name.clone(), Direction::Input)
+                                TypeTree::construct_tree(tpe, name.clone(), Direction::Input)
                             }
                             Port::Output(name, tpe, _info) => {
-                                tpe.construct_tree(name.clone(), Direction::Output)
+                                TypeTree::construct_tree(tpe, name.clone(), Direction::Output)
                             }
                         };
                         port_type_tree.print_tree();

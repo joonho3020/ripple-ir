@@ -1,7 +1,9 @@
-use crate::parser::ast::*;
-use crate::parser::whentree::Condition;
-use crate::parser::Int;
+pub mod typetree;
+pub mod whentree;
+
+use crate::ir::whentree::Condition;
 use crate::common::graphviz::GraphViz;
+use chirrtl_parser::ast::*;
 use indexmap::IndexMap;
 use petgraph::graph::{Graph, NodeIndex, EdgeIndex};
 use std::{collections::VecDeque, fmt::Display};

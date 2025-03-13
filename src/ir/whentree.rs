@@ -1,4 +1,4 @@
-use crate::parser::ast::*;
+use chirrtl_parser::ast::*;
 use indextree::{Arena, NodeId};
 
 
@@ -216,7 +216,7 @@ impl WhenTree {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::parser::parse_circuit;
+    use chirrtl_parser::parse_circuit;
 
     fn run(path: &str) -> Result<(), std::io::Error> {
         let source = std::fs::read_to_string(path)?;

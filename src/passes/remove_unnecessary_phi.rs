@@ -104,9 +104,9 @@ mod test {
     use super::*;
     use crate::{
         common::graphviz::GraphViz,
-        parser::parse_circuit,
         passes::from_ast::{from_circuit, from_circuit_module}
     };
+    use chirrtl_parser::parse_circuit;
 
     /// Run the AST to graph conversion and export the graph form
     fn run(name: &str) -> Result<(), std::io::Error> {
@@ -146,8 +146,8 @@ mod test {
         run("Hierarchy").expect("Hierarchy");
     }
 
-    use crate::parser::lexer::FIRRTLLexer;
-    use crate::parser::firrtl::CircuitModuleParser;
+    use chirrtl_parser::lexer::FIRRTLLexer;
+    use chirrtl_parser::firrtl::CircuitModuleParser;
 
     /// Check of the AST to graph conversion works for each CircuitModule
     fn run_check_completion(input_dir: &str) -> Result<(), std::io::Error> {

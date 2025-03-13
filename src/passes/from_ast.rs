@@ -1,6 +1,7 @@
-use crate::parser::whentree::WhenTree;
-use crate::{ir::*, parser::ast::*};
-use crate::parser::typetree::Direction;
+use crate::ir::whentree::WhenTree;
+use crate::ir::typetree::{Direction, TypeTree};
+use crate::ir::*;
+use chirrtl_parser::ast::*;
 use petgraph::graph::NodeIndex;
 use indexmap::{IndexMap, IndexSet};
 use petgraph::visit::EdgeRef;
@@ -65,7 +66,7 @@ fn from_ext_module(module: &ExtModule, nm: &mut NodeMap) -> RippleGraph {
 /// - io: { a: UInt<1>, b: { c: UInt<1>, d: UInt<1> } }
 /// - The above will return: io, io.a, io.b, io.b.c, io.b.c.d
 fn all_references(tpe: &Type, name: &Identifier, dir: Option<Direction>) -> Vec<Reference> {
-    let typetree = tpe.construct_tree(name.clone(), dir.unwrap_or(Direction::Output));
+    let typetree = TypeTree::construct_tree(tpe, name.clone(), dir.unwrap_or(Direction::Output));
     typetree.all_possible_references()
 }
 
@@ -677,7 +678,8 @@ fn check_stmt_assumption(stmts: &Stmts) {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::{common::graphviz::GraphViz, parser::parse_circuit};
+    use crate::common::graphviz::GraphViz;
+    use chirrtl_parser::parse_circuit;
 
     /// Run the AST to graph conversion and export the graph form
     fn run(name: &str) -> Result<(), std::io::Error> {
@@ -721,8 +723,8 @@ mod test {
         run("Hierarchy").expect("Hierarchy");
     }
 
-    use crate::parser::lexer::FIRRTLLexer;
-    use crate::parser::firrtl::CircuitModuleParser;
+    use chirrtl_parser::lexer::FIRRTLLexer;
+    use chirrtl_parser::firrtl::CircuitModuleParser;
 
     /// Check of the AST to graph conversion works for each CircuitModule
     fn run_check_completion(input_dir: &str) -> Result<(), std::io::Error> {
