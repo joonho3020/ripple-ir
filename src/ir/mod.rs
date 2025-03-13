@@ -1,37 +1,10 @@
-// Nodes
-// - Primops:
-//   - PrimOp2Expr
-//   - PrimOp1Expr
-//   - PrimOp1Expr1Int
-//   - PrimOp1Expr2Int
-// - Stmt:
-//   - Reg
-//   - RegReset
-//   - ChirrtlMemory
-//   - Inst
-//   - Node
-//   - Printf
-//   - Assert
-// - Port
-// - Expr:
-//  - UIntNoInit
-//  - UIntInit
-//  - SIntInit
-//  - SInt
-//
-// Edges
-//
-// - Stmt
-//   - connect (x, y)
-//   - node (x, y)
-
 use crate::parser::ast::*;
 use crate::parser::whentree::Condition;
 use crate::parser::Int;
 use crate::common::graphviz::GraphViz;
 use indexmap::IndexMap;
-use petgraph::graph::{Graph, NodeIndex};
-use std::fmt::Display;
+use petgraph::graph::{Graph, NodeIndex, EdgeIndex};
+use std::{collections::VecDeque, fmt::Display};
 
 #[derive(Debug, Default, Clone, PartialEq, Hash)]
 pub enum NodeType {
@@ -148,9 +121,21 @@ pub struct RippleGraph {
     pub graph: IRGraph,
 }
 
+type FlatViewGraph = Graph<NodeIndex, EdgeIndex>;
+
 impl RippleGraph {
     pub fn new() -> Self {
         Self { graph: IRGraph::new() }
+    }
+
+    fn get_flat_view(&self) -> FlatViewGraph {
+        let mut ret = FlatViewGraph::new();
+
+        let mut hier2flat: IndexMap<NodeIndex, NodeIndex> = IndexMap::new();
+
+        let mut q: VecDeque<NodeIndex> = VecDeque::new();
+
+        return ret;
     }
 }
 

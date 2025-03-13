@@ -230,6 +230,8 @@ fn connect_graph_edges_from_stmts(ir: &mut RippleGraph, stmts: &Stmts, nm: &mut 
     }
 }
 
+/// Recursively traverse the Reference in cases an Expr has been used to
+/// index into an array reference
 fn add_graph_edge_from_ref(
     ir: &mut RippleGraph,
     dst_id: NodeIndex,
