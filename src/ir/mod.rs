@@ -1,30 +1,3 @@
-// Nodes
-// - Primops:
-//   - PrimOp2Expr
-//   - PrimOp1Expr
-//   - PrimOp1Expr1Int
-//   - PrimOp1Expr2Int
-// - Stmt:
-//   - Reg
-//   - RegReset
-//   - ChirrtlMemory
-//   - Inst
-//   - Node
-//   - Printf
-//   - Assert
-// - Port
-// - Expr:
-//  - UIntNoInit
-//  - UIntInit
-//  - SIntInit
-//  - SInt
-//
-// Edges
-//
-// - Stmt
-//   - connect (x, y)
-//   - node (x, y)
-
 use crate::parser::ast::*;
 use crate::parser::whentree::Condition;
 use crate::common::graphviz::GraphViz;
@@ -142,46 +115,44 @@ impl Display for EdgeType {
 
 pub type IRGraph = Graph<NodeType, EdgeType>;
 
-#[derive(Debug, Clone)]
-pub struct RippleGraph {
+#[salsa::tracked]
+pub struct RippleGraph<'db> {
     pub graph: IRGraph,
 }
 
-impl RippleGraph {
-    pub fn new() -> Self {
-        Self { graph: IRGraph::new() }
-    }
+// impl RippleGraph {
+// pub fn new() -> Self {
+// Self { graph: IRGraph::new() }
+// }
+// }
+
+#[salsa::tracked]
+pub struct RippleIR<'db> {
+    #[tracked]
+    pub graphs: Vec<RippleGraph<'db>>
 }
 
-#[derive(Debug, Default, Clone)]
-pub struct RippleIR {
-    pub graphs: IndexMap<Identifier, RippleGraph>
+impl<'db> RippleIR<'db> {
 }
 
-impl RippleIR {
-    pub fn new() -> Self {
-        Self { graphs: IndexMap::new() }
-    }
-}
+// impl GraphViz<NodeType, EdgeType> for RippleGraph {
+// fn node_indices(self: &Self) -> petgraph::graph::NodeIndices {
+// self.graph.node_indices()
+// }
 
-impl GraphViz<NodeType, EdgeType> for RippleGraph {
-    fn node_indices(self: &Self) -> petgraph::graph::NodeIndices {
-        self.graph.node_indices()
-    }
+// fn node_weight(self: &Self, id: NodeIndex) -> Option<&NodeType> {
+// self.graph.node_weight(id)
+// }
 
-    fn node_weight(self: &Self, id: NodeIndex) -> Option<&NodeType> {
-        self.graph.node_weight(id)
-    }
+// fn edge_indices(self: &Self) -> petgraph::graph::EdgeIndices {
+// self.graph.edge_indices()
+// }
 
-    fn edge_indices(self: &Self) -> petgraph::graph::EdgeIndices {
-        self.graph.edge_indices()
-    }
+// fn edge_endpoints(self: &Self, id: petgraph::prelude::EdgeIndex) -> Option<(NodeIndex, NodeIndex)> {
+// self.graph.edge_endpoints(id)
+// }
 
-    fn edge_endpoints(self: &Self, id: petgraph::prelude::EdgeIndex) -> Option<(NodeIndex, NodeIndex)> {
-        self.graph.edge_endpoints(id)
-    }
-
-    fn edge_weight(self: &Self, id: petgraph::prelude::EdgeIndex) -> Option<&EdgeType> {
-        self.graph.edge_weight(id)
-    }
-}
+// fn edge_weight(self: &Self, id: petgraph::prelude::EdgeIndex) -> Option<&EdgeType> {
+// self.graph.edge_weight(id)
+// }
+// }

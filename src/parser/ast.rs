@@ -685,3 +685,9 @@ impl Circuit {
         Self { version, name, annos, modules }
     }
 }
+
+/// Input to salsa, incrementalism starts here
+#[salsa::input]
+pub struct CircuitDB {
+    pub circuit: Circuit
+}
