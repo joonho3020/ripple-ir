@@ -1,6 +1,5 @@
 pub mod typetree;
 pub mod whentree;
-pub mod flatview;
 
 use crate::ir::whentree::Condition;
 use crate::common::graphviz::GraphViz;
