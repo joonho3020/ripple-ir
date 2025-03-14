@@ -1,5 +1,43 @@
 use std::fmt::Display;
-use crate::parser::Int;
+use num_bigint::{BigInt, ParseBigIntError};
+use num_traits::{FromPrimitive, Num};
+use std::str::FromStr;
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct Int(BigInt);
+
+impl Int {
+    pub fn to_u32(&self) -> u32 {
+      let (_, digits_u32) = self.0.to_u32_digits();
+      assert!(digits_u32.len() <= 1,
+          "to_u32 should only be called on small bigints that can be represented by a u32 len {}",
+          digits_u32.len());
+      *digits_u32.get(0).unwrap_or(&0)
+    }
+
+    pub fn from_str_radix(num: &str, radix: u32) -> Result<Self, ParseBigIntError>  {
+        let bigint = BigInt::from_str_radix(num, radix)?;
+        Ok(Self {
+            0: bigint
+        })
+    }
+
+    pub fn from_str(num: &str) -> Result<Self, ParseBigIntError> {
+        let bigint = BigInt::from_str(num)?;
+        Ok(Self {
+            0: bigint
+        })
+    }
+}
+
+impl From<u32> for Int {
+    fn from(value: u32) -> Self {
+        Self {
+            0: BigInt::from_u32(value)
+                .expect(&format!("BigInt from_u32 {}", value))
+        }
+    }
+}
 
 #[derive(Debug, Default, Clone, PartialEq, Hash)]
 pub struct Info(pub String);
@@ -633,7 +671,8 @@ impl Display for Version {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+// #[salsa::input]
+#[derive(Debug, Clone, PartialEq, Hash)]
 pub struct Circuit {
     pub version: Version,
     pub name: Identifier,

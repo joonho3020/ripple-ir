@@ -1,4 +1,4 @@
-use crate::parser::{ast::*, Int};
+use crate::parser::ast::*;
 use indextree::{Arena, NodeId};
 use std::{collections::VecDeque, fmt::Debug};
 

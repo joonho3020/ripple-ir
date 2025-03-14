@@ -27,7 +27,6 @@
 
 use crate::parser::ast::*;
 use crate::parser::whentree::Condition;
-use crate::parser::Int;
 use crate::common::graphviz::GraphViz;
 use indexmap::IndexMap;
 use petgraph::graph::{Graph, NodeIndex};

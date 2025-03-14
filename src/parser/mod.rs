@@ -7,47 +7,8 @@ use crate::parser::ast::Circuit;
 use crate::parser::firrtl::*;
 use crate::parser::lexer::{FIRRTLLexer, Token, LexicalError};
 use lalrpop_util::{lalrpop_mod, ParseError};
-use num_bigint::{BigInt, ParseBigIntError};
-use num_traits::{FromPrimitive, Num};
-use std::str::FromStr;
 
 lalrpop_mod!(pub firrtl);
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct Int(BigInt);
-
-impl Int {
-    fn to_u32(&self) -> u32 {
-      let (_, digits_u32) = self.0.to_u32_digits();
-      assert!(digits_u32.len() <= 1,
-          "to_u32 should only be called on small bigints that can be represented by a u32 len {}",
-          digits_u32.len());
-      *digits_u32.get(0).unwrap_or(&0)
-    }
-
-    fn from_str_radix(num: &str, radix: u32) -> Result<Self, ParseBigIntError>  {
-        let bigint = BigInt::from_str_radix(num, radix)?;
-        Ok(Self {
-            0: bigint
-        })
-    }
-
-    fn from_str(num: &str) -> Result<Self, ParseBigIntError> {
-        let bigint = BigInt::from_str(num)?;
-        Ok(Self {
-            0: bigint
-        })
-    }
-}
-
-impl From<u32> for Int {
-    fn from(value: u32) -> Self {
-        Self {
-            0: BigInt::from_u32(value)
-                .expect(&format!("BigInt from_u32 {}", value))
-        }
-    }
-}
 
 pub type FIRRTLParserError = ParseError<usize, Token, LexicalError>;
 

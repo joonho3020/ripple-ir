@@ -15,6 +15,7 @@ indextree = "4.7.3"
 indextree-macros = "0.1.2"
 graphviz-rust = "0.9.3"
 indexmap = "2.7.1"
+salsa = "0.19.0"
 
 [build-dependencies]
 lalrpop = "0.22.1"
