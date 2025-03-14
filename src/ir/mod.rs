@@ -1,12 +1,13 @@
 pub mod typetree;
 pub mod whentree;
+pub mod flatview;
 
 use crate::ir::whentree::Condition;
 use crate::common::graphviz::GraphViz;
 use chirrtl_parser::ast::*;
 use indexmap::IndexMap;
-use petgraph::graph::{Graph, NodeIndex, EdgeIndex};
-use std::{collections::VecDeque, fmt::Display};
+use petgraph::graph::{Graph, NodeIndex};
+use std::fmt::Display;
 
 #[derive(Debug, Default, Clone, PartialEq, Hash)]
 pub enum NodeType {
@@ -70,13 +71,13 @@ impl PhiPriority {
 
 #[derive(Debug, Clone, PartialEq, Hash)]
 pub enum EdgeType {
-    /// Reference <- Expr
+    /// `Reference <- Expr`
     Wire(Reference, Expr),
 
     Operand0(Expr),
     Operand1(Expr),
 
-    MuxCond,
+    MuxCond(Expr),
     MuxTrue(Expr),
     MuxFalse(Expr),
 
@@ -90,13 +91,14 @@ pub enum EdgeType {
     DontCare(Reference),
 
     /// Edge going into the phi node
+    /// Reference <- Expr
     PhiInput(PhiPriority, Condition, Reference, Expr),
 
     /// Selection conditions going into the phi node
     PhiSel(Expr),
 
     /// Edge comming out from phi node
-    PhiOut,
+    PhiOut(Reference),
 
     /// Connects the memory to its ports
     MemPortEdge,
@@ -123,21 +125,9 @@ pub struct RippleGraph {
     pub graph: IRGraph,
 }
 
-type FlatViewGraph = Graph<NodeIndex, EdgeIndex>;
-
 impl RippleGraph {
     pub fn new() -> Self {
         Self { graph: IRGraph::new() }
-    }
-
-    fn get_flat_view(&self) -> FlatViewGraph {
-        let mut ret = FlatViewGraph::new();
-
-        let mut hier2flat: IndexMap<NodeIndex, NodeIndex> = IndexMap::new();
-
-        let mut q: VecDeque<NodeIndex> = VecDeque::new();
-
-        return ret;
     }
 }
 

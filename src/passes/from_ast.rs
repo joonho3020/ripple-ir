@@ -344,7 +344,7 @@ fn add_graph_edge_from_stmt(ir: &mut RippleGraph, stmt: &Stmt, nm: &mut NodeMap)
                     let reg_id = nm.node_map.get(&reg_ref).unwrap();
 
                     add_graph_edge_from_expr(ir, *reg_id, clk,  EdgeType::Clock(clk_ref.clone()), nm);
-                    add_graph_edge_from_expr(ir, *reg_id, rst,  EdgeType::Clock(rst_ref.clone()), nm);
+                    add_graph_edge_from_expr(ir, *reg_id, rst,  EdgeType::Reset(rst_ref.clone()), nm);
                     add_graph_edge_from_expr(ir, *reg_id, init, EdgeType::Wire(reg_ref, init.clone()), nm);
                 }
                 _ => {
@@ -367,11 +367,9 @@ fn add_graph_edge_from_stmt(ir: &mut RippleGraph, stmt: &Stmt, nm: &mut NodeMap)
                     let mem_id  = nm.node_map.get(&mem_ref).unwrap();
 
                     let port_expr = Expr::Reference(port_ref);
-                    let mem_expr  = Expr::Reference(mem_ref);
                     let clk_expr  = Expr::Reference(clk.clone());
 
                     add_graph_edge_from_expr(ir, *mem_id,  &port_expr, EdgeType::MemPortEdge, nm);
-                    add_graph_edge_from_expr(ir, *port_id, &mem_expr,  EdgeType::MemPortEdge, nm);
                     add_graph_edge_from_expr(ir, *port_id, &clk_expr,  EdgeType::Clock(clk.clone()), nm);
                     add_graph_edge_from_expr(ir, *port_id, addr, EdgeType::MemPortAddr(addr.clone()), nm);
                 }
@@ -386,7 +384,7 @@ fn add_graph_edge_from_stmt(ir: &mut RippleGraph, stmt: &Stmt, nm: &mut NodeMap)
             match expr {
                 Expr::Mux(cond, true_expr, false_expr) => {
                     add_graph_edge_from_expr(ir, *dst_id, cond,
-                        EdgeType::MuxCond, nm);
+                        EdgeType::MuxCond(cond.as_ref().clone()), nm);
                     add_graph_edge_from_expr(ir, *dst_id, &true_expr,
                         EdgeType::MuxTrue(true_expr.as_ref().clone()), nm);
                     add_graph_edge_from_expr(ir, *dst_id, &false_expr,
@@ -440,7 +438,7 @@ fn add_graph_edge_from_stmt(ir: &mut RippleGraph, stmt: &Stmt, nm: &mut NodeMap)
                 let phi_id = nm.phi_map.get(&root_ref)
                     .expect(&format!("Phi node for {:?} doesn't exist", root_ref));
 
-                ir.graph.add_edge(*phi_id, *dst_id, EdgeType::PhiOut);
+                ir.graph.add_edge(*phi_id, *dst_id, EdgeType::PhiOut(root_ref.clone()));
                 nm.phi_connected.insert(root_ref);
             }
         }
