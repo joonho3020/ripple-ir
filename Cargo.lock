@@ -694,6 +694,7 @@ version = "0.1.0"
 dependencies = [
  "chirrtl-parser",
  "derivative",
+ "either",
  "graphviz-rust",
  "indexmap",
  "indextree",

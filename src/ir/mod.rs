@@ -29,7 +29,7 @@ impl PhiPriority {
 
 
 // TODO: fill in the ttree field after graph construction has been finished
-#[derive(Derivative, Clone, PartialEq)]
+#[derive(Derivative, Clone)]
 #[derivative(Debug)]
 pub struct RippleNode {
     pub name: Option<Identifier>,

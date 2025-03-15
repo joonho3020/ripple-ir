@@ -1,6 +1,7 @@
 use chirrtl_parser::ast::*;
-use indextree::{Arena, NodeId};
-use std::{collections::VecDeque, fmt::Debug};
+use std::fmt::Debug;
+use std::collections::VecDeque;
+use petgraph::{graph::{Graph, NodeIndex}, Direction::Outgoing};
 
 #[derive(Default, Debug, Clone, Copy, PartialEq, Hash)]
 pub enum Direction {
@@ -19,40 +20,141 @@ impl Direction {
 }
 
 #[derive(Debug, Clone, PartialEq, Hash)]
+pub enum TypeTreeNodeType {
+    Ground,
+    Fields,
+    Array,
+}
+
+#[derive(Debug, Clone, PartialEq, Hash)]
 pub struct TypeTreeNode {
     pub name: Identifier,
     pub dir: Direction,
-    pub tpe: Option<TypeGround>,
+    pub tpe: TypeTreeNodeType,
 }
 
 impl TypeTreeNode {
-    pub fn new(name: Identifier, dir: Direction, tpe: Option<TypeGround>) -> Self {
+    pub fn new(name: Identifier, dir: Direction, tpe: TypeTreeNodeType) -> Self {
         Self { name, dir, tpe }
     }
 }
 
-#[derive(Debug, Clone, PartialEq)] pub struct TypeTree {
-    pub arena: Arena<TypeTreeNode>,
-    pub root: Option<NodeId>
+type Tree = Graph<TypeTreeNode, ()>;
+
+#[derive(Debug, Default, Clone)]
+pub struct TypeTree {
+    pub graph: Tree,
+    pub root: Option<NodeIndex>
 }
 
 impl TypeTree {
-    pub fn new() -> Self {
-        Self { arena: Arena::new(), root: None }
+    pub fn construct_tree(tpe: &Type, name: Identifier, dir: Direction) -> Self {
+        let mut ret = Self::default();
+        Self::construct_tree_recursive(tpe, name, dir, None, &mut ret);
+        return ret;
     }
 
-    pub fn get(&self, id: NodeId) -> &TypeTreeNode {
-        self.arena[id].get()
+    fn create_node_and_add_to_parent(
+        node_tpe: TypeTreeNodeType,
+        name: Identifier,
+        dir: Direction,
+        parent_opt: Option<NodeIndex>,
+        tree: &mut TypeTree
+    ) -> NodeIndex {
+        let child = tree.graph.add_node(TypeTreeNode::new(name, dir, node_tpe));
+        match parent_opt {
+            Some(parent) => {
+                tree.graph.add_edge(parent, child, ());
+            }
+            None => {
+                tree.root = Some(child);
+                // No parent, must have been root node
+            }
+        }
+        child
     }
 
-    pub fn get_mut(&mut self, id: NodeId) -> &mut TypeTreeNode {
-        self.arena[id].get_mut()
+    fn construct_tree_recursive(
+        cur_tpe: &Type,
+        name: Identifier,
+        dir: Direction,
+        parent_opt: Option<NodeIndex>,
+        tree: &mut Self
+    ) {
+        match cur_tpe {
+            Type::TypeGround(_) => {
+                Self::create_node_and_add_to_parent(
+                    TypeTreeNodeType::Ground, name, dir, parent_opt, tree);
+            }
+            Type::TypeAggregate(ta) => {
+                match ta.as_ref() {
+                    TypeAggregate::Fields(fields) => {
+                        let node_id = Self::create_node_and_add_to_parent(
+                            TypeTreeNodeType::Fields, name, dir, parent_opt, tree);
+
+                        for field in fields.iter() {
+                            match field.as_ref() {
+                                Field::Straight(name, tpe) => {
+                                    Self::construct_tree_recursive(
+                                        tpe, name.clone(), dir, Some(node_id), tree);
+                                }
+                                Field::Flipped(name, tpe) => {
+                                    Self::construct_tree_recursive(
+                                        tpe, name.clone(), dir.flip(), Some(node_id), tree);
+                                }
+                            }
+                        }
+                    }
+                    TypeAggregate::Array(tpe, len) => {
+                        let node_id = Self::create_node_and_add_to_parent(
+                            TypeTreeNodeType::Array, name, dir, parent_opt, tree);
+
+                        for id in 0..len.to_u32() {
+                            Self::construct_tree_recursive(
+                                tpe, Identifier::ID(Int::from(id)), dir, Some(node_id), tree);
+                        }
+                    }
+                }
+            }
+            _ => {
+                panic!("Unrecognized Type {:?}", cur_tpe);
+            }
+        }
     }
 
-    fn print_tree_recursive(&self, node: NodeId, depth: usize) {
-        println!("{}{:?}", "  ".repeat(depth), self.arena[node].get());
+    pub fn all_possible_references(&self) -> Vec<Reference> {
+        let mut ret = vec![];
+        let mut q: VecDeque<(NodeIndex, Reference)> = VecDeque::new();
+        if let Some(root_id) = self.root {
+            let root = self.graph.node_weight(root_id).unwrap();
+            q.push_back((root_id, Reference::Ref(root.name.clone())));
+        }
+        while !q.is_empty() {
+            let (id, cur_ref) = q.pop_front().unwrap();
+            ret.push(cur_ref.clone());
 
-        for child in node.children(&self.arena) {
+            let childs = self.graph.neighbors_directed(id, Outgoing);
+            for child_id in childs {
+                let child = self.graph.node_weight(child_id).unwrap();
+                let child_ref = match &child.name {
+                    Identifier::ID(id) => {
+                        Reference::RefIdxInt(Box::new(cur_ref.clone()), id.clone())
+                    }
+                    Identifier::Name(_) => {
+                        Reference::RefDot(Box::new(cur_ref.clone()), child.name.clone())
+                    }
+                };
+                q.push_back((child_id, child_ref));
+            }
+        }
+        return ret;
+    }
+
+    fn print_tree_recursive(&self, id: NodeIndex, depth: usize) {
+        println!("{}{:?}", "  ".repeat(depth), self.graph.node_weight(id).unwrap());
+
+        let childs = self.graph.neighbors_directed(id, Outgoing);
+        for child in childs {
             self.print_tree_recursive(child, depth + 1);
         }
     }
@@ -68,122 +170,100 @@ impl TypeTree {
         }
     }
 
-    fn collect_leaf_nodes_recursive(&self, node: NodeId, leaf_nodes: &mut Vec<NodeId>) {
-        if node.children(&self.arena).next().is_none() {
-            leaf_nodes.push(node);
-        } else {
-            for child in node.children(&self.arena) {
-                self.collect_leaf_nodes_recursive(child, leaf_nodes);
+    fn ref_identifier_chain_recursive(reference: &Reference, chain: &mut VecDeque<Identifier>) {
+        match reference {
+            Reference::Ref(name) => {
+                chain.push_back(name.clone());
+            }
+            Reference::RefDot(parent, child) => {
+                Self::ref_identifier_chain_recursive(parent, chain);
+                chain.push_back(child.clone());
+            }
+            Reference::RefIdxInt(parent, id) => {
+                Self::ref_identifier_chain_recursive(parent, chain);
+                chain.push_back(Identifier::ID(id.clone()));
+            }
+            Reference::RefIdxExpr(_parent, _addr) => {
+                panic!("Reference identifier chain got recursive addressing {:?}", reference);
             }
         }
     }
 
-    pub fn collect_leaf_nodes(&self) -> Vec<NodeId> {
-        let mut leaf_nodes = Vec::new();
-        match self.root {
-            Some(rid) => {
-                self.collect_leaf_nodes_recursive(rid, &mut leaf_nodes);
-            }
-            _ => { }
-        }
-        leaf_nodes
-    }
-
-    pub fn all_possible_references(&self) -> Vec<Reference> {
-        let mut ret = vec![];
-        let mut q: VecDeque<(NodeId, Reference)> = VecDeque::new();
-        if let Some(root_id) = self.root {
-            let root = self.get(root_id);
-            q.push_back((root_id, Reference::Ref(root.name.clone())));
-        }
-        while !q.is_empty() {
-            let (id, cur_ref) = q.pop_front().unwrap();
-            ret.push(cur_ref.clone());
-
-            for child_id in id.children(&self.arena) {
-                let child = self.get(child_id);
-                let child_ref = match &child.name {
-                    Identifier::ID(id) => {
-                        Reference::RefIdxInt(Box::new(cur_ref.clone()), id.clone())
-                    }
-                    Identifier::Name(_) => {
-                        Reference::RefDot(Box::new(cur_ref.clone()), child.name.clone())
-                    }
-                };
-                q.push_back((child_id, child_ref));
-            }
-        }
+    pub fn ref_identifier_chain(reference: &Reference) -> VecDeque<Identifier> {
+        let mut ret = VecDeque::new();
+        Self::ref_identifier_chain_recursive(reference, &mut ret);
         return ret;
     }
 
-    fn create_node_and_add_to_parent(
-        type_ground: Option<TypeGround>,
-        name: Identifier,
-        dir: Direction,
-        parent_opt: Option<NodeId>,
-        tree: &mut TypeTree
-    ) -> NodeId {
-        let child = tree.arena.new_node(TypeTreeNode::new(name, dir, type_ground));
-        match parent_opt {
-            Some(parent) => {
-                parent.append(child, &mut tree.arena);
-            }
-            None => {
-                tree.root = Some(child);
-                // No parent, must have been root node
-            }
+
+    pub fn subtree_root(&self, reference: &Reference) -> Option<NodeIndex> {
+        let mut chain = Self::ref_identifier_chain(reference);
+        let mut q: VecDeque<NodeIndex> = VecDeque::new();
+        if let Some(root_id) = self.root {
+            q.push_back(root_id);
         }
-        child
-    }
 
-    fn construct_tree_recursive(
-        cur_tpe: &Type,
-        name: Identifier,
-        dir: Direction,
-        parent_opt: Option<NodeId>,
-        tree: &mut TypeTree
-    ) {
-        match cur_tpe {
-            Type::TypeGround(tg) => {
-                Self::create_node_and_add_to_parent(
-                    Some(tg.clone()), name, dir, parent_opt, tree);
+        let mut subtree_root_opt: Option<NodeIndex> = None;
+        while !q.is_empty() && !chain.is_empty() {
+            let id = q.pop_front().unwrap();
+            subtree_root_opt = Some(id);
+
+            let node = self.graph.node_weight(id).unwrap();
+            let ref_name = chain.pop_front().unwrap();
+            if node.name != ref_name {
+                self.print_tree();
+                panic!("Reference {:?} not inclusive in type tree", reference);
             }
-            Type::TypeAggregate(ta) => {
-                let node_id = Self::create_node_and_add_to_parent(
-                    None, name, dir, parent_opt, tree);
 
-                match ta.as_ref() {
-                    TypeAggregate::Fields(fields) => {
-                        for field in fields.iter() {
-                            match field.as_ref() {
-                                Field::Straight(name, tpe) => {
-                                    Self::construct_tree_recursive(
-                                        tpe, name.clone(), dir, Some(node_id), tree);
-                                }
-                                Field::Flipped(name, tpe) => {
-                                    Self::construct_tree_recursive(
-                                        tpe, name.clone(), dir.flip(), Some(node_id), tree);
-                                }
-                            }
-                        }
-                    }
-                    TypeAggregate::Array(tpe, len) => {
-                        for id in 0..len.to_u32() {
-                            Self::construct_tree_recursive(
-                                tpe, Identifier::ID(Int::from(id)), dir, Some(node_id), tree);
-                        }
+            let childs = self.graph.neighbors_directed(id, Outgoing);
+            for cid in childs {
+                let child = self.graph.node_weight(cid).unwrap();
+                if let Some(ref_name) = chain.front() {
+                    if child.name == *ref_name {
+                        q.push_back(cid);
                     }
                 }
             }
-            _ => {
-                panic!("Unrecognized type while constructing type tree {:?}", cur_tpe);
-            }
         }
+
+        assert!(chain.is_empty(), "Reference {:?} is not inclusive in type tree", reference);
+        assert!(q.is_empty(),     "Queue {:?} still contains elements after finding subtree", q);
+
+        return subtree_root_opt;
+
     }
 
-    pub fn construct_tree(tpe: &Type, name: Identifier, dir: Direction) -> TypeTree {
-        let mut ret = TypeTree::new();
-        Self::construct_tree_recursive(tpe, name, dir, None, &mut ret);
+    /// Given a `reference`, returns all the subtree leaf nodes
+    /// ```
+    ///       o
+    ///     /  \
+    ///    o   x
+    ///   / \ / \
+    ///   $ $ x x
+    /// ```
+    /// - If the matching reference path is `o`-`o`, return leaves marked `$`
+    pub fn subtree_leaves(&self, reference: &Reference) -> Vec<NodeIndex> {
+        let mut ret = vec![];
+        let mut q: VecDeque<NodeIndex> = VecDeque::new();
+
+        let subtree_root_opt = self.subtree_root(reference);
+        if let Some(subtree_root) = subtree_root_opt {
+            q.push_back(subtree_root);
+        }
+
+        while !q.is_empty() {
+            let id = q.pop_front().unwrap();
+            let childs = self.graph.neighbors_directed(id, Outgoing);
+            let mut num_childs = 0;
+            for cid in childs {
+                num_childs += 1;
+                q.push_back(cid);
+            }
+            if num_childs == 0 {
+                ret.push(id);
+            }
+        }
+
         return ret;
     }
 }
