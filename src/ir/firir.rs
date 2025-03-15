@@ -8,7 +8,6 @@ use crate::ir::typetree::TypeTree;
 use crate::ir::whentree::Condition;
 use crate::ir::PhiPriority;
 
-// TODO: fill in the ttree field after graph construction has been finished
 #[derive(Derivative, Clone)]
 #[derivative(Debug)]
 pub struct FirNode {
