@@ -1,6 +1,7 @@
 use crate::ir::whentree::WhenTree;
 use crate::ir::typetree::{Direction, TypeTree};
-use crate::ir::*;
+use crate::ir::firir::*;
+use crate::ir::PhiPriority;
 use chirrtl_parser::ast::*;
 use petgraph::graph::NodeIndex;
 use indexmap::{IndexMap, IndexSet};
@@ -24,8 +25,8 @@ struct NodeMap {
 }
 
 /// Create a graph based IR from the FIRRTL AST
-pub fn from_circuit(ast: &Circuit) -> RippleIR {
-    let mut ret = RippleIR::default();
+pub fn from_circuit(ast: &Circuit) -> FirIR {
+    let mut ret = FirIR::default();
     for module in ast.modules.iter() {
         let (name, ripple_graph) = from_circuit_module(module);
         ret.graphs.insert(name.clone(), ripple_graph);
@@ -33,7 +34,7 @@ pub fn from_circuit(ast: &Circuit) -> RippleIR {
     return ret;
 }
 
-pub fn from_circuit_module(module: &CircuitModule) -> (&Identifier, RippleGraph) {
+pub fn from_circuit_module(module: &CircuitModule) -> (&Identifier, FirGraph) {
     let mut nodemap: NodeMap = NodeMap::default();
     match module {
         CircuitModule::Module(m) => {
@@ -45,8 +46,8 @@ pub fn from_circuit_module(module: &CircuitModule) -> (&Identifier, RippleGraph)
     }
 }
 
-fn from_module(module: &Module, nm: &mut NodeMap) -> RippleGraph {
-    let mut ret = RippleGraph::new();
+fn from_module(module: &Module, nm: &mut NodeMap) -> FirGraph {
+    let mut ret = FirGraph::new();
 
     collect_graph_nodes_from_ports(&mut ret, &module.ports, nm);
     collect_graph_nodes_from_stmts(&mut ret, &module.stmts, nm);
@@ -57,41 +58,41 @@ fn from_module(module: &Module, nm: &mut NodeMap) -> RippleGraph {
     return ret;
 }
 
-fn from_ext_module(module: &ExtModule, nm: &mut NodeMap) -> RippleGraph {
-    let ret = RippleGraph::new();
+fn from_ext_module(module: &ExtModule, nm: &mut NodeMap) -> FirGraph {
+    let ret = FirGraph::new();
     return ret;
 }
 
 /// Create graph nodes from the ports of this module
-fn collect_graph_nodes_from_ports(ir: &mut RippleGraph, ports: &Ports, nm: &mut NodeMap) {
+fn collect_graph_nodes_from_ports(ir: &mut FirGraph, ports: &Ports, nm: &mut NodeMap) {
     for port in ports.iter() {
         match port.as_ref() {
             Port::Input(name, tpe, _info) => {
                 let typetree = TypeTree::construct_tree(tpe, name.clone(), Direction::Input);
+                let all_refs = typetree.all_possible_references();
                 let id = ir.graph.add_node(
-                    RippleNode::new(
+                    FirNode::new(
                         Some(name.clone()),
-                        RippleNodeType::Input,
-                        Some(typetree.clone())
+                        FirNodeType::Input,
+                        Some(typetree)
                     ));
 
                 // Add all possible references in the `TypeTree` as downstream
                 // references can use a subset of a AggregateType
-                let all_refs = typetree.all_possible_references();
                 for reference in all_refs {
                     nm.node_map.insert(reference, id);
                 }
             }
             Port::Output(name, tpe, _info) => {
                 let typetree = TypeTree::construct_tree(tpe, name.clone(), Direction::Output);
+                let all_refs = typetree.all_possible_references();
                 let id = ir.graph.add_node(
-                    RippleNode::new(
+                    FirNode::new(
                         Some(name.clone()),
-                        RippleNodeType::Input,
-                        Some(typetree.clone())
+                        FirNodeType::Input,
+                        Some(typetree)
                     ));
 
-                let all_refs = typetree.all_possible_references();
                 for reference in all_refs {
                     nm.node_map.insert(reference, id);
                 }
@@ -101,38 +102,38 @@ fn collect_graph_nodes_from_ports(ir: &mut RippleGraph, ports: &Ports, nm: &mut 
 }
 
 /// Create graph nodes from the module statements
-fn collect_graph_nodes_from_stmts(ir: &mut RippleGraph, stmts: &Stmts, nm: &mut NodeMap) {
+fn collect_graph_nodes_from_stmts(ir: &mut FirGraph, stmts: &Stmts, nm: &mut NodeMap) {
     for stmt in stmts {
         add_graph_node_from_stmt(ir, stmt.as_ref(), nm);
     }
 }
 
 fn add_node_with_typetree(
-    ir: &mut RippleGraph,
+    ir: &mut FirGraph,
     tpe: &Type,
     name: Identifier,
     dir: Direction,
-    nt: RippleNodeType
+    nt: FirNodeType
 ) -> NodeIndex {
     let typetree = TypeTree::construct_tree(tpe, name.clone(), dir);
-    return ir.graph.add_node(RippleNode::new(Some(name.clone()), nt, Some(typetree)));
+    return ir.graph.add_node(FirNode::new(Some(name.clone()), nt, Some(typetree)));
 }
 
 fn add_node(
-    ir: &mut RippleGraph,
+    ir: &mut FirGraph,
     tpe_opt: Option<&Type>,
     name_opt: Option<Identifier>,
     dir: Direction,
-    nt: RippleNodeType) -> NodeIndex {
+    nt: FirNodeType) -> NodeIndex {
     let typetree_opt = match tpe_opt {
         Some(tpe) => Some(TypeTree::construct_tree(tpe, name_opt.clone().unwrap(), dir)),
         None => None,
     };
-    return ir.graph.add_node(RippleNode::new(name_opt, nt, typetree_opt));
+    return ir.graph.add_node(FirNode::new(name_opt, nt, typetree_opt));
 }
 
 /// Create a graph node for a statement
-fn add_graph_node_from_stmt(ir: &mut RippleGraph, stmt: &Stmt, nm: &mut NodeMap) {
+fn add_graph_node_from_stmt(ir: &mut FirGraph, stmt: &Stmt, nm: &mut NodeMap) {
     match stmt {
         Stmt::When(_cond, _info, when_stmts, else_stmts_opt) => {
             collect_graph_nodes_from_stmts(ir, when_stmts, nm);
@@ -141,25 +142,25 @@ fn add_graph_node_from_stmt(ir: &mut RippleGraph, stmt: &Stmt, nm: &mut NodeMap)
             }
         }
         Stmt::Wire(name, tpe, _info) => {
-            let id = add_node(ir, Some(tpe), Some(name.clone()), Direction::Output, RippleNodeType::Wire);
+            let id = add_node(ir, Some(tpe), Some(name.clone()), Direction::Output, FirNodeType::Wire);
             nm.node_map.insert(Reference::Ref(name.clone()), id);
         }
         Stmt::Reg(name, tpe, _clk, _info) => {
-            let id = add_node(ir, Some(tpe), Some(name.clone()), Direction::Output, RippleNodeType::Reg);
+            let id = add_node(ir, Some(tpe), Some(name.clone()), Direction::Output, FirNodeType::Reg);
             nm.node_map.insert(Reference::Ref(name.clone()), id);
         }
         Stmt::RegReset(name, tpe, _clk, _rst, _init, _info) => {
-            let id = add_node(ir, Some(tpe), Some(name.clone()), Direction::Output, RippleNodeType::RegReset);
+            let id = add_node(ir, Some(tpe), Some(name.clone()), Direction::Output, FirNodeType::RegReset);
             nm.node_map.insert(Reference::Ref(name.clone()), id);
         }
         Stmt::ChirrtlMemory(mem) => {
             match mem {
                 ChirrtlMemory::SMem(name, tpe, ruw_opt, _info) => {
-                    let id = add_node(ir, Some(tpe), Some(name.clone()), Direction::Output, RippleNodeType::SMem(ruw_opt.clone()));
+                    let id = add_node(ir, Some(tpe), Some(name.clone()), Direction::Output, FirNodeType::SMem(ruw_opt.clone()));
                     nm.node_map.insert(Reference::Ref(name.clone()), id);
                 }
                 ChirrtlMemory::CMem(name, tpe, _info) => {
-                    let id = add_node(ir, Some(tpe), Some(name.clone()), Direction::Output, RippleNodeType::CMem);
+                    let id = add_node(ir, Some(tpe), Some(name.clone()), Direction::Output, FirNodeType::CMem);
                     nm.node_map.insert(Reference::Ref(name.clone()), id);
                 }
             }
@@ -167,22 +168,22 @@ fn add_graph_node_from_stmt(ir: &mut RippleGraph, stmt: &Stmt, nm: &mut NodeMap)
         Stmt::ChirrtlMemoryPort(mport) => {
             let (name, id) = match mport {
                 ChirrtlMemoryPort::Write(port, _mem, _addr, _clk, _info) => {
-                    let id = add_node(ir, None, Some(port.clone()), Direction::Output, RippleNodeType::WriteMemPort);
+                    let id = add_node(ir, None, Some(port.clone()), Direction::Output, FirNodeType::WriteMemPort);
                     (port, id)
                 }
                 ChirrtlMemoryPort::Read(port, _mem, _addr, _clk, _info) => {
-                    let id = add_node(ir, None, Some(port.clone()), Direction::Output, RippleNodeType::ReadMemPort);
+                    let id = add_node(ir, None, Some(port.clone()), Direction::Output, FirNodeType::ReadMemPort);
                     (port, id)
                 }
                 ChirrtlMemoryPort::Infer(port, _mem, _addr, _clk, _info) => {
-                    let id = add_node(ir, None, Some(port.clone()), Direction::Output, RippleNodeType::InferMemPort);
+                    let id = add_node(ir, None, Some(port.clone()), Direction::Output, FirNodeType::InferMemPort);
                     (port, id)
                 }
             };
             nm.node_map.insert(Reference::Ref(name.clone()), id);
         }
         Stmt::Inst(inst_name, mod_name, _info) => {
-            let id = add_node(ir, None, Some(inst_name.clone()), Direction::Output, RippleNodeType::Inst(mod_name.clone()));
+            let id = add_node(ir, None, Some(inst_name.clone()), Direction::Output, FirNodeType::Inst(mod_name.clone()));
             nm.node_map.insert(Reference::Ref(inst_name.clone()), id);
         }
         Stmt::Node(out_name, expr, _info) => {
@@ -191,23 +192,23 @@ fn add_graph_node_from_stmt(ir: &mut RippleGraph, stmt: &Stmt, nm: &mut NodeMap)
             // in `nm.node_map`
             match expr {
                 Expr::Mux(_, _, _) => {
-                    let id = add_node(ir, None, None, Direction::Output, RippleNodeType::Mux);
+                    let id = add_node(ir, None, None, Direction::Output, FirNodeType::Mux);
                     nm.node_map.insert(Reference::Ref(out_name.clone()), id);
                 }
                 Expr::PrimOp2Expr(op, _, _) => {
-                    let id = add_node(ir, None, Some(out_name.clone()), Direction::Output, RippleNodeType::PrimOp2Expr(*op));
+                    let id = add_node(ir, None, Some(out_name.clone()), Direction::Output, FirNodeType::PrimOp2Expr(*op));
                     nm.node_map.insert(Reference::Ref(out_name.clone()), id);
                 }
                 Expr::PrimOp1Expr(op, _) => {
-                    let id = add_node(ir, None, Some(out_name.clone()), Direction::Output, RippleNodeType::PrimOp1Expr(*op));
+                    let id = add_node(ir, None, Some(out_name.clone()), Direction::Output, FirNodeType::PrimOp1Expr(*op));
                     nm.node_map.insert(Reference::Ref(out_name.clone()), id);
                 }
                 Expr::PrimOp1Expr1Int(op, _, x) => {
-                    let id = add_node(ir, None, Some(out_name.clone()), Direction::Output, RippleNodeType::PrimOp1Expr1Int(*op, x.clone()));
+                    let id = add_node(ir, None, Some(out_name.clone()), Direction::Output, FirNodeType::PrimOp1Expr1Int(*op, x.clone()));
                     nm.node_map.insert(Reference::Ref(out_name.clone()), id);
                 }
                 Expr::PrimOp1Expr2Int(op, _, x, y) => {
-                    let id = add_node(ir, None, Some(out_name.clone()), Direction::Output, RippleNodeType::PrimOp1Expr2Int(*op, x.clone(), y.clone()));
+                    let id = add_node(ir, None, Some(out_name.clone()), Direction::Output, FirNodeType::PrimOp1Expr2Int(*op, x.clone(), y.clone()));
                     nm.node_map.insert(Reference::Ref(out_name.clone()), id);
                 }
                 Expr::Reference(_)      |
@@ -229,7 +230,7 @@ fn add_graph_node_from_stmt(ir: &mut RippleGraph, stmt: &Stmt, nm: &mut NodeMap)
                     let root_name = r.root();
                     let root_ref = Reference::Ref(root_name.clone());
                     if !nm.phi_map.contains_key(&root_ref) {
-                        let id = add_node(ir, None, Some(root_name.clone()), Direction::Output, RippleNodeType::Phi);
+                        let id = add_node(ir, None, Some(root_name.clone()), Direction::Output, FirNodeType::Phi);
                         nm.phi_map.insert(root_ref, id);
                     }
                 }
@@ -248,7 +249,7 @@ fn add_graph_node_from_stmt(ir: &mut RippleGraph, stmt: &Stmt, nm: &mut NodeMap)
 }
 
 /// Create graph edges from statements
-fn connect_graph_edges_from_stmts(ir: &mut RippleGraph, stmts: &Stmts, nm: &mut NodeMap) {
+fn connect_graph_edges_from_stmts(ir: &mut FirGraph, stmts: &Stmts, nm: &mut NodeMap) {
     for stmt in stmts {
         add_graph_edge_from_stmt(ir, stmt.as_ref(), nm);
     }
@@ -257,10 +258,10 @@ fn connect_graph_edges_from_stmts(ir: &mut RippleGraph, stmts: &Stmts, nm: &mut 
 /// Recursively traverse the Reference in cases an Expr has been used to
 /// index into an array reference
 fn add_graph_edge_from_ref(
-    ir: &mut RippleGraph,
+    ir: &mut FirGraph,
     dst_id: NodeIndex,
     reference: &Reference,
-    edge_type: RippleEdge,
+    edge_type: FirEdge,
     nm: &NodeMap
 ) {
     match reference {
@@ -283,7 +284,7 @@ fn add_graph_edge_from_ref(
             let arr_id = nm.node_map.get(&root_ref)
                 .expect(&format!("Array reference {:?} not found in node_map", par.as_ref()));
 
-            let arr_addr_edge = RippleEdge::new(expr.as_ref().clone(), None, RippleEdgeType::ArrayAddr);
+            let arr_addr_edge = FirEdge::new(expr.as_ref().clone(), None, FirEdgeType::ArrayAddr);
             add_graph_edge_from_expr(ir, *arr_id, &expr, arr_addr_edge, nm);
         }
     }
@@ -292,10 +293,10 @@ fn add_graph_edge_from_ref(
 /// Given an expression (`rhs`), connect it to the sink node `dst_id` in the IR graph.
 /// Creates constant nodes that weren't created in the `collect_graph_nodes_from_stmts` step
 fn add_graph_edge_from_expr(
-    ir: &mut RippleGraph,
+    ir: &mut FirGraph,
     dst_id: NodeIndex,
     rhs: &Expr,
-    edge_type: RippleEdge,
+    edge_type: FirEdge,
     nm: &NodeMap
 ) {
     match rhs {
@@ -303,21 +304,21 @@ fn add_graph_edge_from_expr(
             add_graph_edge_from_ref(ir, dst_id, r, edge_type, nm);
         }
         Expr::UIntInit(w, init) => {
-            let src_id = add_node(ir, None, None, Direction::Output, RippleNodeType::UIntLiteral(*w, init.clone()));
+            let src_id = add_node(ir, None, None, Direction::Output, FirNodeType::UIntLiteral(*w, init.clone()));
             ir.graph.add_edge(src_id, dst_id, edge_type);
         }
         Expr::SIntInit(w, init) => {
-            let src_id = add_node(ir, None, None, Direction::Output, RippleNodeType::SIntLiteral(*w, init.clone()));
+            let src_id = add_node(ir, None, None, Direction::Output, FirNodeType::SIntLiteral(*w, init.clone()));
             ir.graph.add_edge(src_id, dst_id, edge_type);
         }
         Expr::PrimOp1Expr(op, expr) => {
-            let op_id = add_node(ir, None, None, Direction::Output, RippleNodeType::PrimOp1Expr(*op));
+            let op_id = add_node(ir, None, None, Direction::Output, FirNodeType::PrimOp1Expr(*op));
             let src_id = match expr.as_ref() {
                 Expr::UIntInit(w, init) => {
-                    add_node(ir, None, None, Direction::Output, RippleNodeType::UIntLiteral(*w, init.clone()))
+                    add_node(ir, None, None, Direction::Output, FirNodeType::UIntLiteral(*w, init.clone()))
                 },
                 Expr::SIntInit(w, init) => {
-                    add_node(ir, None, None, Direction::Output, RippleNodeType::SIntLiteral(*w, init.clone()))
+                    add_node(ir, None, None, Direction::Output, FirNodeType::SIntLiteral(*w, init.clone()))
                 }
                 _ => {
                     panic!("Connect rhs PrimOp1Expr expr not a const {:?}", rhs);
@@ -342,7 +343,7 @@ fn add_graph_edge_from_expr(
 ///    - Connects the memory node with the port nodes
 ///    - Connects the port node to the clock node
 ///    - Connects the address node to the port node
-fn add_graph_edge_from_stmt(ir: &mut RippleGraph, stmt: &Stmt, nm: &mut NodeMap) {
+fn add_graph_edge_from_stmt(ir: &mut FirGraph, stmt: &Stmt, nm: &mut NodeMap) {
     match stmt {
         Stmt::When(cond, _info, when_stmts, else_stmts_opt) => {
             connect_graph_edges_from_stmts(ir, when_stmts, nm);
@@ -357,7 +358,7 @@ fn add_graph_edge_from_stmt(ir: &mut RippleGraph, stmt: &Stmt, nm: &mut NodeMap)
         Stmt::Reg(name, _tpe, clk, _info) => {
             let reg_id = nm.node_map.get(&Reference::Ref(name.clone())).unwrap();
             if let Expr::Reference(_clk_ref) = clk {
-                let edge = RippleEdge::new(clk.clone(), None, RippleEdgeType::Clock);
+                let edge = FirEdge::new(clk.clone(), None, FirEdgeType::Clock);
                 add_graph_edge_from_expr(ir, *reg_id, clk, edge, nm);
             } else {
                 panic!("clk {:?} for reg {:?} is not a reference", clk, name);
@@ -369,9 +370,9 @@ fn add_graph_edge_from_stmt(ir: &mut RippleGraph, stmt: &Stmt, nm: &mut NodeMap)
                     let reg_ref = Reference::Ref(name.clone());
                     let reg_id = nm.node_map.get(&reg_ref).unwrap();
 
-                    let clk_edge = RippleEdge::new(clk.clone(), None, RippleEdgeType::Clock);
-                    let rst_edge = RippleEdge::new(rst.clone(), None, RippleEdgeType::Reset);
-                    let init_edge = RippleEdge::new(init.clone(), None, RippleEdgeType::Wire);
+                    let clk_edge = FirEdge::new(clk.clone(), None, FirEdgeType::Clock);
+                    let rst_edge = FirEdge::new(rst.clone(), None, FirEdgeType::Reset);
+                    let init_edge = FirEdge::new(init.clone(), None, FirEdgeType::Wire);
 
                     add_graph_edge_from_expr(ir, *reg_id, clk,  clk_edge, nm);
                     add_graph_edge_from_expr(ir, *reg_id, rst,  rst_edge, nm);
@@ -399,9 +400,9 @@ fn add_graph_edge_from_stmt(ir: &mut RippleGraph, stmt: &Stmt, nm: &mut NodeMap)
                     let port_expr = Expr::Reference(port_ref);
                     let clk_expr  = Expr::Reference(clk.clone());
 
-                    let port_edge = RippleEdge::new(port_expr.clone(), None, RippleEdgeType::MemPortEdge);
-                    let clk_edge  = RippleEdge::new(clk_expr.clone(),  None, RippleEdgeType::Clock);
-                    let addr_edge = RippleEdge::new(addr.clone(),      None, RippleEdgeType::MemPortAddr);
+                    let port_edge = FirEdge::new(port_expr.clone(), None, FirEdgeType::MemPortEdge);
+                    let clk_edge  = FirEdge::new(clk_expr.clone(),  None, FirEdgeType::Clock);
+                    let addr_edge = FirEdge::new(addr.clone(),      None, FirEdgeType::MemPortAddr);
 
                     add_graph_edge_from_expr(ir, *mem_id,  &port_expr, port_edge, nm);
                     add_graph_edge_from_expr(ir, *port_id, &clk_expr,  clk_edge, nm);
@@ -417,23 +418,23 @@ fn add_graph_edge_from_stmt(ir: &mut RippleGraph, stmt: &Stmt, nm: &mut NodeMap)
 
             match expr {
                 Expr::Mux(cond, true_expr, false_expr) => {
-                    let cond_edge = RippleEdge::new(cond.as_ref().clone(), None, RippleEdgeType::MuxCond);
-                    let true_edge = RippleEdge::new(true_expr.as_ref().clone(), None, RippleEdgeType::MuxTrue);
-                    let false_edge = RippleEdge::new(false_expr.as_ref().clone(), None, RippleEdgeType::MuxFalse);
+                    let cond_edge = FirEdge::new(cond.as_ref().clone(), None, FirEdgeType::MuxCond);
+                    let true_edge = FirEdge::new(true_expr.as_ref().clone(), None, FirEdgeType::MuxTrue);
+                    let false_edge = FirEdge::new(false_expr.as_ref().clone(), None, FirEdgeType::MuxFalse);
                     add_graph_edge_from_expr(ir, *dst_id, cond, cond_edge, nm);
                     add_graph_edge_from_expr(ir, *dst_id, &true_expr, true_edge, nm);
                     add_graph_edge_from_expr(ir, *dst_id, &false_expr, false_edge, nm);
                 }
                 Expr::PrimOp2Expr(_, a, b) => {
-                    let op0_edge = RippleEdge::new(a.as_ref().clone(), None, RippleEdgeType::Operand0);
-                    let op1_edge = RippleEdge::new(b.as_ref().clone(), None, RippleEdgeType::Operand1);
+                    let op0_edge = FirEdge::new(a.as_ref().clone(), None, FirEdgeType::Operand0);
+                    let op1_edge = FirEdge::new(b.as_ref().clone(), None, FirEdgeType::Operand1);
                     add_graph_edge_from_expr(ir, *dst_id, &a, op0_edge, nm);
                     add_graph_edge_from_expr(ir, *dst_id, &b, op1_edge, nm);
                 }
                 Expr::PrimOp1Expr(_, a)            |
                     Expr::PrimOp1Expr1Int(_, a, _) |
                     Expr::PrimOp1Expr2Int(_, a, _, _) => {
-                    let op0_edge = RippleEdge::new(a.as_ref().clone(), None, RippleEdgeType::Operand0);
+                    let op0_edge = FirEdge::new(a.as_ref().clone(), None, FirEdgeType::Operand0);
                     add_graph_edge_from_expr(ir, *dst_id, &a, op0_edge, nm);
                 }
                 Expr::Reference(_)      |
@@ -467,7 +468,7 @@ fn add_graph_edge_from_stmt(ir: &mut RippleGraph, stmt: &Stmt, nm: &mut NodeMap)
                     .expect(&format!("Phi node for {:?} doesn't exist", root_ref));
 
                 let root_expr = Expr::Reference(root_ref.clone());
-                let phiout_edge = RippleEdge::new(root_expr, None, RippleEdgeType::PhiSel);
+                let phiout_edge = FirEdge::new(root_expr, None, FirEdgeType::PhiOut);
                 ir.graph.add_edge(*phi_id, *dst_id, phiout_edge);
                 nm.phi_connected.insert(root_ref);
             }
@@ -480,8 +481,8 @@ fn add_graph_edge_from_stmt(ir: &mut RippleGraph, stmt: &Stmt, nm: &mut NodeMap)
                 let phi_id = nm.phi_map.get(&root_ref)
                     .expect(&format!("Phi node for {:?} doesn't exist", root_ref));
 
-                let dont_care_id = add_node(ir, None, None, Direction::Output, RippleNodeType::DontCare);
-                let dont_care_edge = RippleEdge::new(expr.clone(), None, RippleEdgeType::DontCare);
+                let dont_care_id = add_node(ir, None, None, Direction::Output, FirNodeType::DontCare);
+                let dont_care_edge = FirEdge::new(expr.clone(), None, FirEdgeType::DontCare);
                 ir.graph.add_edge(dont_care_id, *phi_id, dont_care_edge);
             } else {
                 panic!("Invalidate expr {:?} is not a reference", expr);
@@ -495,7 +496,7 @@ fn add_graph_edge_from_stmt(ir: &mut RippleGraph, stmt: &Stmt, nm: &mut NodeMap)
 }
 
 /// Connect input signals going into the phi node
-fn connect_phi_in_edges_from_stmts(ir: &mut RippleGraph, stmts: &Stmts, nm: &mut NodeMap) {
+fn connect_phi_in_edges_from_stmts(ir: &mut FirGraph, stmts: &Stmts, nm: &mut NodeMap) {
     let mut whentree = WhenTree::new();
     whentree.from_stmts(stmts);
     let leaves = whentree.leaf_nodes();
@@ -520,7 +521,7 @@ fn connect_phi_in_edges_from_stmts(ir: &mut RippleGraph, stmts: &Stmts, nm: &mut
                                 .expect(&format!("phi node for {:?} not found", root_ref));
 
                             let prior = PhiPriority::new(block_prior, stmt_prior as u32);
-                            let edge = RippleEdge::new(rhs.clone(), Some(r.clone()), RippleEdgeType::PhiInput(prior, leaf.cond.clone()));
+                            let edge = FirEdge::new(rhs.clone(), Some(r.clone()), FirEdgeType::PhiInput(prior, leaf.cond.clone()));
                             add_graph_edge_from_expr(ir, *phi_id, rhs, edge, nm);
                         }
                         _ => {
@@ -536,20 +537,20 @@ fn connect_phi_in_edges_from_stmts(ir: &mut RippleGraph, stmts: &Stmts, nm: &mut
 
 /// Given a phi node with `id`, collect all the select signals used by
 /// the phi node inputs, and connect all these signals to the node.
-fn connect_phi_node_sel_id(ir: &mut RippleGraph, id: NodeIndex, nm: &mut NodeMap) {
+fn connect_phi_node_sel_id(ir: &mut FirGraph, id: NodeIndex, nm: &mut NodeMap) {
     let mut sel_exprs: IndexSet<Expr> = IndexSet::new();
 
     let pedges = ir.graph.edges_directed(id, Incoming);
     for pedge_ref in pedges {
         let edge_w = ir.graph.edge_weight(pedge_ref.id()).unwrap();
         match &edge_w.et {
-            RippleEdgeType::PhiInput(_, cond) => {
+            FirEdgeType::PhiInput(_, cond) => {
                 let sels = cond.collect_sels();
                 for sel in sels {
                     sel_exprs.insert(sel);
                 }
             }
-            RippleEdgeType::DontCare => {
+            FirEdgeType::DontCare => {
                 continue;
             }
             _ => {
@@ -559,17 +560,17 @@ fn connect_phi_node_sel_id(ir: &mut RippleGraph, id: NodeIndex, nm: &mut NodeMap
     }
 
     for sel in sel_exprs {
-        let sel_edge = RippleEdge::new(sel.clone(), None, RippleEdgeType::PhiSel);
+        let sel_edge = FirEdge::new(sel.clone(), None, FirEdgeType::PhiSel);
         add_graph_edge_from_expr(ir, id, &sel, sel_edge, nm);
     }
 }
 
 /// Connect the selection signals going into the phi nodes
-fn connect_phi_node_sels(ir: &mut RippleGraph, nm: &mut NodeMap) {
+fn connect_phi_node_sels(ir: &mut FirGraph, nm: &mut NodeMap) {
     for id in ir.graph.node_indices() {
         let node = ir.graph.node_weight(id).unwrap();
         match node.nt {
-            RippleNodeType::Phi => {
+            FirNodeType::Phi => {
                 connect_phi_node_sel_id(ir, id, nm);
             }
             _ => {

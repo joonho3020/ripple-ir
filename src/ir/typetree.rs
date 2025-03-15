@@ -344,7 +344,7 @@ mod test {
                         match port.as_ref() {
                             Port::Output(name, tpe, _info) => {
                                 let typetree = TypeTree::construct_tree(tpe, name.clone(), Direction::Output);
-// let _ = typetree.export_graphviz("./test-outputs/NestedBundle.typetree.pdf", None, false);
+                                // let _ = typetree.export_graphviz("./test-outputs/NestedBundle.typetree.pdf", None, false);
 
                                 let root = Reference::Ref(Identifier::Name("io".to_string()));
                                 let subtree_root = typetree.subtree_root(&root);

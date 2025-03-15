@@ -1,18 +1,18 @@
-use crate::ir::*;
+use crate::ir::firir::*;
 use petgraph::{graph::{NodeIndex, EdgeIndex}, visit::EdgeRef, Direction::{Incoming, Outgoing}};
 
-pub fn remove_unnecessary_phi(ir: &mut RippleIR) {
+pub fn remove_unnecessary_phi(ir: &mut FirIR) {
     for (_id, rg) in ir.graphs.iter_mut() {
         remove_unnecessary_phi_in_ripple_graph(rg);
     }
 }
 
-fn remove_unnecessary_phi_in_ripple_graph(rg: &mut RippleGraph) {
+fn remove_unnecessary_phi_in_ripple_graph(rg: &mut FirGraph) {
     let mut remove_nodes: Vec<NodeIndex> = vec![];
     for id in rg.graph.node_indices() {
         let node = rg.graph.node_weight(id).unwrap();
         match node.nt {
-            RippleNodeType::Phi => {
+            FirNodeType::Phi => {
                 if is_removable(rg, id) {
                     connect_phi_parent_to_child(rg, id);
                     remove_nodes.push(id);
@@ -32,7 +32,7 @@ fn remove_unnecessary_phi_in_ripple_graph(rg: &mut RippleGraph) {
 /// Remove phi nodes when
 /// - There is no selection signal
 /// - The selection signal is always true
-fn is_removable(rg: &RippleGraph, id: NodeIndex) -> bool {
+fn is_removable(rg: &FirGraph, id: NodeIndex) -> bool {
     let mut has_sel = false;
     let mut has_non_trivial_sel = false;
 
@@ -40,15 +40,15 @@ fn is_removable(rg: &RippleGraph, id: NodeIndex) -> bool {
     for pedge in pedges {
         let edge = rg.graph.edge_weight(pedge.id()).unwrap();
         match &edge.et {
-            RippleEdgeType::PhiSel => {
+            FirEdgeType::PhiSel => {
                 has_sel = true;
             }
-            RippleEdgeType::PhiInput(_prior, cond) => {
+            FirEdgeType::PhiInput(_prior, cond) => {
                 if !has_non_trivial_sel {
                     has_non_trivial_sel = !cond.always_true()
                 }
             }
-            RippleEdgeType::DontCare => {
+            FirEdgeType::DontCare => {
             }
             _ => {
                 panic!("Unrecognized driving edge {:?} for phi node", edge);
@@ -72,7 +72,7 @@ fn is_removable(rg: &RippleGraph, id: NodeIndex) -> bool {
     }
 }
 
-fn connect_phi_parent_to_child(rg: &mut RippleGraph, id: NodeIndex) {
+fn connect_phi_parent_to_child(rg: &mut FirGraph, id: NodeIndex) {
     let childs: Vec<NodeIndex> = rg.graph.neighbors_directed(id, Outgoing).into_iter().collect();
     if childs.len() == 0 {
         return;
@@ -86,11 +86,11 @@ fn connect_phi_parent_to_child(rg: &mut RippleGraph, id: NodeIndex) {
         let ep = rg.graph.edge_endpoints(*peid).unwrap();
         let src = ep.0;
         match ew.et {
-            RippleEdgeType::PhiInput(_, _) => {
-                let edge = RippleEdge::new(ew.src.clone(), ew.dst.clone(), RippleEdgeType::Wire);
+            FirEdgeType::PhiInput(_, _) => {
+                let edge = FirEdge::new(ew.src.clone(), ew.dst.clone(), FirEdgeType::Wire);
                 rg.graph.add_edge(src, childs[0], edge);
             }
-            RippleEdgeType::DontCare => {
+            FirEdgeType::DontCare => {
                 rg.graph.add_edge(src, childs[0], ew.clone());
             }
             _ => {
