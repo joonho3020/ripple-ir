@@ -7,7 +7,7 @@ use std::fmt::Display;
 use indexmap::IndexMap;
 use petgraph::graph::{Graph, NodeIndex};
 use crate::common::graphviz::GraphViz;
-use crate::ir::typetree::{TypeTree, Direction};
+use crate::ir::typetree::TypeTree;
 use crate::ir::whentree::Condition;
 
 #[derive(Debug, Default, Clone, PartialEq, Hash)]

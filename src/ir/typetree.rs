@@ -1,7 +1,8 @@
 use chirrtl_parser::ast::*;
-use std::fmt::Debug;
+use std::fmt::{Debug, Display};
 use std::collections::VecDeque;
 use petgraph::{graph::{Graph, NodeIndex}, Direction::Outgoing};
+use crate::common::graphviz::GraphViz;
 
 #[derive(Default, Debug, Clone, Copy, PartialEq, Hash)]
 pub enum Direction {
@@ -39,7 +40,15 @@ impl TypeTreeNode {
     }
 }
 
-type Tree = Graph<TypeTreeNode, ()>;
+impl Display for TypeTreeNode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let original = format!("{:?}", self);
+        let clean_for_dot = original.replace('"', "");
+        write!(f, "{}", clean_for_dot)
+    }
+}
+
+type Tree = Graph<TypeTreeNode, u32>;
 
 #[derive(Debug, Default, Clone)]
 pub struct TypeTree {
@@ -64,7 +73,7 @@ impl TypeTree {
         let child = tree.graph.add_node(TypeTreeNode::new(name, dir, node_tpe));
         match parent_opt {
             Some(parent) => {
-                tree.graph.add_edge(parent, child, ());
+                tree.graph.add_edge(parent, child, 0);
             }
             None => {
                 tree.root = Some(child);
@@ -268,6 +277,28 @@ impl TypeTree {
     }
 }
 
+impl GraphViz<TypeTreeNode, u32> for TypeTree {
+    fn node_indices(self: &Self) -> petgraph::graph::NodeIndices {
+        self.graph.node_indices()
+    }
+
+    fn node_weight(self: &Self, id: NodeIndex) -> Option<&TypeTreeNode> {
+        self.graph.node_weight(id)
+    }
+
+    fn edge_indices(self: &Self) -> petgraph::graph::EdgeIndices {
+        self.graph.edge_indices()
+    }
+
+    fn edge_endpoints(self: &Self, id: petgraph::prelude::EdgeIndex) -> Option<(NodeIndex, NodeIndex)> {
+        self.graph.edge_endpoints(id)
+    }
+
+    fn edge_weight(self: &Self, id: petgraph::prelude::EdgeIndex) -> Option<&u32> {
+        self.graph.edge_weight(id)
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -291,6 +322,52 @@ mod test {
                             }
                         };
                         port_type_tree.print_tree();
+                    }
+
+                }
+                CircuitModule::ExtModule(_e) => {
+                }
+            }
+        }
+        return Ok(());
+    }
+
+    #[test]
+    fn check_subtree_root() -> Result<(), std::io::Error> {
+        let source = std::fs::read_to_string("./test-inputs/NestedBundle.fir")?;
+        let circuit = parse_circuit(&source).expect("firrtl parser");
+
+        for module in circuit.modules.iter() {
+            match module.as_ref() {
+                CircuitModule::Module(m) => {
+                    for port in m.ports.iter() {
+                        match port.as_ref() {
+                            Port::Output(name, tpe, _info) => {
+                                let typetree = TypeTree::construct_tree(tpe, name.clone(), Direction::Output);
+// let _ = typetree.export_graphviz("./test-outputs/NestedBundle.typetree.pdf", None, false);
+
+                                let root = Reference::Ref(Identifier::Name("io".to_string()));
+                                let subtree_root = typetree.subtree_root(&root);
+                                assert_eq!(subtree_root, Some(NodeIndex::from(0)));
+
+                                let g = Reference::RefDot(Box::new(root), Identifier::Name("g".to_string()));
+                                let subtree_root = typetree.subtree_root(&g);
+                                assert_eq!(subtree_root, Some(NodeIndex::from(1)));
+
+                                let g1 = Reference::RefIdxInt(Box::new(g), Int::from(1));
+                                let subtree_root = typetree.subtree_root(&g1);
+                                assert_eq!(subtree_root, Some(NodeIndex::from(24)));
+
+                                let g1f = Reference::RefDot(Box::new(g1), Identifier::Name("f".to_string()));
+                                let subtree_root = typetree.subtree_root(&g1f);
+                                assert_eq!(subtree_root, Some(NodeIndex::from(42)));
+
+                                let subtree_leaves = typetree.subtree_leaves(&g1f);
+                                assert_eq!(subtree_leaves, vec![NodeIndex::from(45), NodeIndex::from(44), NodeIndex::from(43)]);
+                            }
+                            _ => {
+                            }
+                        };
                     }
 
                 }
