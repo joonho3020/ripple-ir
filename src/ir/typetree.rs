@@ -2,8 +2,6 @@ use chirrtl_parser::ast::*;
 use indextree::{Arena, NodeId};
 use std::{collections::VecDeque, fmt::Debug};
 
-use crate::ir::NodeType;
-
 #[derive(Default, Debug, Clone, Copy, PartialEq, Hash)]
 pub enum Direction {
     #[default]
@@ -16,16 +14,6 @@ impl Direction {
         match self {
             Self::Input => Self::Output,
             Self::Output => Self::Input,
-        }
-    }
-}
-
-impl From<&NodeType> for Direction {
-    fn from(value: &NodeType) -> Self {
-        match value {
-            NodeType::Input(..) => Self::Input,
-            // Default direction is output
-            _ => Self::Output
         }
     }
 }

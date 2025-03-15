@@ -1,55 +1,14 @@
 pub mod typetree;
 pub mod whentree;
 
-use crate::ir::whentree::Condition;
-use crate::common::graphviz::GraphViz;
 use chirrtl_parser::ast::*;
+use derivative::Derivative;
+use std::fmt::Display;
 use indexmap::IndexMap;
 use petgraph::graph::{Graph, NodeIndex};
-use std::fmt::Display;
-
-#[derive(Debug, Default, Clone, PartialEq, Hash)]
-pub enum NodeType {
-    #[default]
-    Invalid,
-
-    DontCare,
-
-    UIntLiteral(Width, Int),
-    SIntLiteral(Width, Int),
-
-    Mux,
-    PrimOp2Expr(PrimOp2Expr),
-    PrimOp1Expr(PrimOp1Expr),
-    PrimOp1Expr1Int(PrimOp1Expr1Int, Int),
-    PrimOp1Expr2Int(PrimOp1Expr2Int, Int, Int),
-
-    // Stmt
-    Wire(Identifier, Type),
-    Reg(Identifier, Type, Expr),
-    RegReset(Identifier, Type, Expr, Expr, Expr),
-    SMem(Identifier, Type, Option<ChirrtlMemoryReadUnderWrite>),
-    CMem(Identifier, Type),
-    WriteMemPort(Identifier),
-    ReadMemPort(Identifier),
-    InferMemPort(Identifier),
-    Inst(Identifier, Identifier),
-
-    // TODO: deal with printfs
-
-    // Port
-    Input(Identifier, Type),
-    Output(Identifier, Type),
-    Phi(Identifier),
-}
-
-impl Display for NodeType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let original = format!("{:?}", self);
-        let clean_for_dot = original.replace('"', "");
-        write!(f, "{}", clean_for_dot)
-    }
-}
+use crate::common::graphviz::GraphViz;
+use crate::ir::typetree::{TypeTree, Direction};
+use crate::ir::whentree::Condition;
 
 #[derive(Debug, Default, Clone, PartialEq, Hash)]
 pub struct PhiPriority {
@@ -68,48 +27,59 @@ impl PhiPriority {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Hash)]
-pub enum EdgeType {
-    /// `Reference <- Expr`
-    Wire(Reference, Expr),
 
-    Operand0(Expr),
-    Operand1(Expr),
+// TODO: fill in the ttree field after graph construction has been finished
+#[derive(Derivative, Clone, PartialEq)]
+#[derivative(Debug)]
+pub struct RippleNode {
+    pub name: Option<Identifier>,
 
-    MuxCond(Expr),
-    MuxTrue(Expr),
-    MuxFalse(Expr),
+    pub nt: RippleNodeType,
 
-    /// Clock edge
-    Clock(Reference),
-
-    /// Reset edge
-    Reset(Reference),
-
-    /// Represents don't cares
-    DontCare(Reference),
-
-    /// Edge going into the phi node
-    /// Reference <- Expr
-    PhiInput(PhiPriority, Condition, Reference, Expr),
-
-    /// Selection conditions going into the phi node
-    PhiSel(Expr),
-
-    /// Edge comming out from phi node
-    PhiOut(Reference),
-
-    /// Connects the memory to its ports
-    MemPortEdge,
-
-    /// Connects the address signal to the memory port node
-    MemPortAddr(Expr),
-
-    /// For array types, there is an edge comming as the address
-    ArrayAddr(Expr),
+    #[derivative(Debug="ignore")]
+    pub ttree: Option<TypeTree>,
 }
 
-impl Display for EdgeType {
+impl RippleNode {
+    pub fn new(name: Option<Identifier>, nt: RippleNodeType, ttree: Option<TypeTree>) -> Self {
+        Self { name, nt, ttree }
+    }
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Hash)]
+pub enum RippleNodeType {
+    #[default]
+    Invalid,
+
+    DontCare,
+
+    UIntLiteral(Width, Int),
+    SIntLiteral(Width, Int),
+
+    Mux,
+    PrimOp2Expr(PrimOp2Expr),
+    PrimOp1Expr(PrimOp1Expr),
+    PrimOp1Expr1Int(PrimOp1Expr1Int, Int),
+    PrimOp1Expr2Int(PrimOp1Expr2Int, Int, Int),
+
+    // Stmt
+    Wire,
+    Reg,
+    RegReset,
+    SMem(Option<ChirrtlMemoryReadUnderWrite>),
+    CMem,
+    WriteMemPort,
+    ReadMemPort,
+    InferMemPort,
+    Inst(Identifier),
+
+    // Port
+    Input,
+    Output,
+    Phi,
+}
+
+impl Display for RippleNode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let original = format!("{:?}", self);
         let clean_for_dot = original.replace('"', "");
@@ -117,7 +87,53 @@ impl Display for EdgeType {
     }
 }
 
-pub type IRGraph = Graph<NodeType, EdgeType>;
+#[derive(Debug, Clone, PartialEq)]
+pub struct RippleEdge {
+    pub src: Expr,
+    pub dst: Option<Reference>,
+    pub et: RippleEdgeType
+}
+
+#[derive(Debug, Clone, PartialEq, Hash)]
+pub enum RippleEdgeType {
+    Wire,
+
+    Operand0,
+    Operand1,
+
+    MuxCond,
+    MuxTrue,
+    MuxFalse,
+
+    Clock,
+    Reset,
+    DontCare,
+
+    PhiInput(PhiPriority, Condition),
+    PhiSel,
+    PhiOut,
+
+    MemPortEdge,
+    MemPortAddr,
+
+    ArrayAddr,
+}
+
+impl Display for RippleEdge {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let original = format!("{:?}", self);
+        let clean_for_dot = original.replace('"', "");
+        write!(f, "{}", clean_for_dot)
+    }
+}
+
+impl RippleEdge {
+    pub fn new(src: Expr, dst: Option<Reference>, et: RippleEdgeType) -> Self {
+        Self { src, et, dst }
+    }
+}
+
+type IRGraph = Graph<RippleNode, RippleEdge>;
 
 #[derive(Debug, Clone)]
 pub struct RippleGraph {
@@ -141,12 +157,12 @@ impl RippleIR {
     }
 }
 
-impl GraphViz<NodeType, EdgeType> for RippleGraph {
+impl GraphViz<RippleNode, RippleEdge> for RippleGraph {
     fn node_indices(self: &Self) -> petgraph::graph::NodeIndices {
         self.graph.node_indices()
     }
 
-    fn node_weight(self: &Self, id: NodeIndex) -> Option<&NodeType> {
+    fn node_weight(self: &Self, id: NodeIndex) -> Option<&RippleNode> {
         self.graph.node_weight(id)
     }
 
@@ -158,7 +174,7 @@ impl GraphViz<NodeType, EdgeType> for RippleGraph {
         self.graph.edge_endpoints(id)
     }
 
-    fn edge_weight(self: &Self, id: petgraph::prelude::EdgeIndex) -> Option<&EdgeType> {
+    fn edge_weight(self: &Self, id: petgraph::prelude::EdgeIndex) -> Option<&RippleEdge> {
         self.graph.edge_weight(id)
     }
 }

@@ -62,31 +62,36 @@ fn from_ext_module(module: &ExtModule, nm: &mut NodeMap) -> RippleGraph {
     return ret;
 }
 
-/// Returns all possible references of an `AggregateType`
-/// - io: { a: UInt<1>, b: { c: UInt<1>, d: UInt<1> } }
-/// - The above will return: io, io.a, io.b, io.b.c, io.b.c.d
-fn all_references(tpe: &Type, name: &Identifier, dir: Option<Direction>) -> Vec<Reference> {
-    let typetree = TypeTree::construct_tree(tpe, name.clone(), dir.unwrap_or(Direction::Output));
-    typetree.all_possible_references()
-}
-
 /// Create graph nodes from the ports of this module
 fn collect_graph_nodes_from_ports(ir: &mut RippleGraph, ports: &Ports, nm: &mut NodeMap) {
     for port in ports.iter() {
         match port.as_ref() {
             Port::Input(name, tpe, _info) => {
-                let id = ir.graph.add_node(NodeType::Input(name.clone(), tpe.clone()));
+                let typetree = TypeTree::construct_tree(tpe, name.clone(), Direction::Input);
+                let id = ir.graph.add_node(
+                    RippleNode::new(
+                        Some(name.clone()),
+                        RippleNodeType::Input,
+                        Some(typetree.clone())
+                    ));
 
                 // Add all possible references in the `TypeTree` as downstream
                 // references can use a subset of a AggregateType
-                let all_refs = all_references(tpe, name, Some(Direction::Input));
+                let all_refs = typetree.all_possible_references();
                 for reference in all_refs {
                     nm.node_map.insert(reference, id);
                 }
             }
             Port::Output(name, tpe, _info) => {
-                let id = ir.graph.add_node(NodeType::Output(name.clone(), tpe.clone()));
-                let all_refs = all_references(tpe, name, Some(Direction::Output));
+                let typetree = TypeTree::construct_tree(tpe, name.clone(), Direction::Output);
+                let id = ir.graph.add_node(
+                    RippleNode::new(
+                        Some(name.clone()),
+                        RippleNodeType::Input,
+                        Some(typetree.clone())
+                    ));
+
+                let all_refs = typetree.all_possible_references();
                 for reference in all_refs {
                     nm.node_map.insert(reference, id);
                 }
@@ -102,6 +107,30 @@ fn collect_graph_nodes_from_stmts(ir: &mut RippleGraph, stmts: &Stmts, nm: &mut 
     }
 }
 
+fn add_node_with_typetree(
+    ir: &mut RippleGraph,
+    tpe: &Type,
+    name: Identifier,
+    dir: Direction,
+    nt: RippleNodeType
+) -> NodeIndex {
+    let typetree = TypeTree::construct_tree(tpe, name.clone(), dir);
+    return ir.graph.add_node(RippleNode::new(Some(name.clone()), nt, Some(typetree)));
+}
+
+fn add_node(
+    ir: &mut RippleGraph,
+    tpe_opt: Option<&Type>,
+    name_opt: Option<Identifier>,
+    dir: Direction,
+    nt: RippleNodeType) -> NodeIndex {
+    let typetree_opt = match tpe_opt {
+        Some(tpe) => Some(TypeTree::construct_tree(tpe, name_opt.clone().unwrap(), dir)),
+        None => None,
+    };
+    return ir.graph.add_node(RippleNode::new(name_opt, nt, typetree_opt));
+}
+
 /// Create a graph node for a statement
 fn add_graph_node_from_stmt(ir: &mut RippleGraph, stmt: &Stmt, nm: &mut NodeMap) {
     match stmt {
@@ -112,30 +141,25 @@ fn add_graph_node_from_stmt(ir: &mut RippleGraph, stmt: &Stmt, nm: &mut NodeMap)
             }
         }
         Stmt::Wire(name, tpe, _info) => {
-            let id = ir.graph.add_node(NodeType::Wire(name.clone(), tpe.clone()));
+            let id = add_node(ir, Some(tpe), Some(name.clone()), Direction::Output, RippleNodeType::Wire);
             nm.node_map.insert(Reference::Ref(name.clone()), id);
         }
-        Stmt::Reg(name, tpe, clk, _info) => {
-            let nt = NodeType::Reg(name.clone(), tpe.clone(), clk.clone());
-            let id = ir.graph.add_node(nt);
+        Stmt::Reg(name, tpe, _clk, _info) => {
+            let id = add_node(ir, Some(tpe), Some(name.clone()), Direction::Output, RippleNodeType::Reg);
             nm.node_map.insert(Reference::Ref(name.clone()), id);
         }
-        Stmt::RegReset(name, tpe, clk, rst, init, _info) => {
-            let nt = NodeType::RegReset(
-                name.clone(), tpe.clone(), clk.clone(), rst.clone(), init.clone());
-            let id = ir.graph.add_node(nt);
+        Stmt::RegReset(name, tpe, _clk, _rst, _init, _info) => {
+            let id = add_node(ir, Some(tpe), Some(name.clone()), Direction::Output, RippleNodeType::RegReset);
             nm.node_map.insert(Reference::Ref(name.clone()), id);
         }
         Stmt::ChirrtlMemory(mem) => {
             match mem {
                 ChirrtlMemory::SMem(name, tpe, ruw_opt, _info) => {
-                    let nt = NodeType::SMem(name.clone(), tpe.clone(), ruw_opt.clone());
-                    let id = ir.graph.add_node(nt);
+                    let id = add_node(ir, Some(tpe), Some(name.clone()), Direction::Output, RippleNodeType::SMem(ruw_opt.clone()));
                     nm.node_map.insert(Reference::Ref(name.clone()), id);
                 }
                 ChirrtlMemory::CMem(name, tpe, _info) => {
-                    let nt = NodeType::CMem(name.clone(), tpe.clone());
-                    let id = ir.graph.add_node(nt);
+                    let id = add_node(ir, Some(tpe), Some(name.clone()), Direction::Output, RippleNodeType::CMem);
                     nm.node_map.insert(Reference::Ref(name.clone()), id);
                 }
             }
@@ -143,23 +167,22 @@ fn add_graph_node_from_stmt(ir: &mut RippleGraph, stmt: &Stmt, nm: &mut NodeMap)
         Stmt::ChirrtlMemoryPort(mport) => {
             let (name, id) = match mport {
                 ChirrtlMemoryPort::Write(port, _mem, _addr, _clk, _info) => {
-                    let id = ir.graph.add_node(NodeType::WriteMemPort(port.clone()));
+                    let id = add_node(ir, None, Some(port.clone()), Direction::Output, RippleNodeType::WriteMemPort);
                     (port, id)
                 }
                 ChirrtlMemoryPort::Read(port, _mem, _addr, _clk, _info) => {
-                    let id = ir.graph.add_node(NodeType::ReadMemPort(port.clone()));
+                    let id = add_node(ir, None, Some(port.clone()), Direction::Output, RippleNodeType::ReadMemPort);
                     (port, id)
                 }
                 ChirrtlMemoryPort::Infer(port, _mem, _addr, _clk, _info) => {
-                    let id = ir.graph.add_node(NodeType::InferMemPort(port.clone()));
+                    let id = add_node(ir, None, Some(port.clone()), Direction::Output, RippleNodeType::InferMemPort);
                     (port, id)
                 }
             };
             nm.node_map.insert(Reference::Ref(name.clone()), id);
         }
         Stmt::Inst(inst_name, mod_name, _info) => {
-            let nt = NodeType::Inst(inst_name.clone(), mod_name.clone());
-            let id = ir.graph.add_node(nt);
+            let id = add_node(ir, None, Some(inst_name.clone()), Direction::Output, RippleNodeType::Inst(mod_name.clone()));
             nm.node_map.insert(Reference::Ref(inst_name.clone()), id);
         }
         Stmt::Node(out_name, expr, _info) => {
@@ -168,23 +191,23 @@ fn add_graph_node_from_stmt(ir: &mut RippleGraph, stmt: &Stmt, nm: &mut NodeMap)
             // in `nm.node_map`
             match expr {
                 Expr::Mux(_, _, _) => {
-                    let id = ir.graph.add_node(NodeType::Mux);
+                    let id = add_node(ir, None, None, Direction::Output, RippleNodeType::Mux);
                     nm.node_map.insert(Reference::Ref(out_name.clone()), id);
                 }
                 Expr::PrimOp2Expr(op, _, _) => {
-                    let id = ir.graph.add_node(NodeType::PrimOp2Expr(*op));
+                    let id = add_node(ir, None, Some(out_name.clone()), Direction::Output, RippleNodeType::PrimOp2Expr(*op));
                     nm.node_map.insert(Reference::Ref(out_name.clone()), id);
                 }
                 Expr::PrimOp1Expr(op, _) => {
-                    let id = ir.graph.add_node(NodeType::PrimOp1Expr(*op));
+                    let id = add_node(ir, None, Some(out_name.clone()), Direction::Output, RippleNodeType::PrimOp1Expr(*op));
                     nm.node_map.insert(Reference::Ref(out_name.clone()), id);
                 }
                 Expr::PrimOp1Expr1Int(op, _, x) => {
-                    let id = ir.graph.add_node(NodeType::PrimOp1Expr1Int(*op, x.clone()));
+                    let id = add_node(ir, None, Some(out_name.clone()), Direction::Output, RippleNodeType::PrimOp1Expr1Int(*op, x.clone()));
                     nm.node_map.insert(Reference::Ref(out_name.clone()), id);
                 }
                 Expr::PrimOp1Expr2Int(op, _, x, y) => {
-                    let id = ir.graph.add_node(NodeType::PrimOp1Expr2Int(*op, x.clone(), y.clone()));
+                    let id = add_node(ir, None, Some(out_name.clone()), Direction::Output, RippleNodeType::PrimOp1Expr2Int(*op, x.clone(), y.clone()));
                     nm.node_map.insert(Reference::Ref(out_name.clone()), id);
                 }
                 Expr::Reference(_)      |
@@ -206,7 +229,7 @@ fn add_graph_node_from_stmt(ir: &mut RippleGraph, stmt: &Stmt, nm: &mut NodeMap)
                     let root_name = r.root();
                     let root_ref = Reference::Ref(root_name.clone());
                     if !nm.phi_map.contains_key(&root_ref) {
-                        let id = ir.graph.add_node(NodeType::Phi(root_name.clone()));
+                        let id = add_node(ir, None, Some(root_name.clone()), Direction::Output, RippleNodeType::Phi);
                         nm.phi_map.insert(root_ref, id);
                     }
                 }
@@ -237,7 +260,7 @@ fn add_graph_edge_from_ref(
     ir: &mut RippleGraph,
     dst_id: NodeIndex,
     reference: &Reference,
-    edge_type: EdgeType,
+    edge_type: RippleEdge,
     nm: &NodeMap
 ) {
     match reference {
@@ -259,7 +282,9 @@ fn add_graph_edge_from_ref(
             let root_ref = Reference::Ref(par.root());
             let arr_id = nm.node_map.get(&root_ref)
                 .expect(&format!("Array reference {:?} not found in node_map", par.as_ref()));
-            add_graph_edge_from_expr(ir, *arr_id, &expr, EdgeType::ArrayAddr(expr.as_ref().clone()), nm);
+
+            let arr_addr_edge = RippleEdge::new(expr.as_ref().clone(), None, RippleEdgeType::ArrayAddr);
+            add_graph_edge_from_expr(ir, *arr_id, &expr, arr_addr_edge, nm);
         }
     }
 }
@@ -270,7 +295,7 @@ fn add_graph_edge_from_expr(
     ir: &mut RippleGraph,
     dst_id: NodeIndex,
     rhs: &Expr,
-    edge_type: EdgeType,
+    edge_type: RippleEdge,
     nm: &NodeMap
 ) {
     match rhs {
@@ -278,21 +303,21 @@ fn add_graph_edge_from_expr(
             add_graph_edge_from_ref(ir, dst_id, r, edge_type, nm);
         }
         Expr::UIntInit(w, init) => {
-            let src_id = ir.graph.add_node(NodeType::UIntLiteral(*w, init.clone()));
+            let src_id = add_node(ir, None, None, Direction::Output, RippleNodeType::UIntLiteral(*w, init.clone()));
             ir.graph.add_edge(src_id, dst_id, edge_type);
         }
         Expr::SIntInit(w, init) => {
-            let src_id = ir.graph.add_node(NodeType::SIntLiteral(*w, init.clone()));
+            let src_id = add_node(ir, None, None, Direction::Output, RippleNodeType::SIntLiteral(*w, init.clone()));
             ir.graph.add_edge(src_id, dst_id, edge_type);
         }
         Expr::PrimOp1Expr(op, expr) => {
-            let op_id = ir.graph.add_node(NodeType::PrimOp1Expr(*op));
+            let op_id = add_node(ir, None, None, Direction::Output, RippleNodeType::PrimOp1Expr(*op));
             let src_id = match expr.as_ref() {
                 Expr::UIntInit(w, init) => {
-                    ir.graph.add_node(NodeType::UIntLiteral(*w, init.clone()))
+                    add_node(ir, None, None, Direction::Output, RippleNodeType::UIntLiteral(*w, init.clone()))
                 },
                 Expr::SIntInit(w, init) => {
-                    ir.graph.add_node(NodeType::SIntLiteral(*w, init.clone()))
+                    add_node(ir, None, None, Direction::Output, RippleNodeType::SIntLiteral(*w, init.clone()))
                 }
                 _ => {
                     panic!("Connect rhs PrimOp1Expr expr not a const {:?}", rhs);
@@ -331,21 +356,26 @@ fn add_graph_edge_from_stmt(ir: &mut RippleGraph, stmt: &Stmt, nm: &mut NodeMap)
         }
         Stmt::Reg(name, _tpe, clk, _info) => {
             let reg_id = nm.node_map.get(&Reference::Ref(name.clone())).unwrap();
-            if let Expr::Reference(clk_ref) = clk {
-                add_graph_edge_from_expr(ir, *reg_id, clk, EdgeType::Clock(clk_ref.clone()), nm);
+            if let Expr::Reference(_clk_ref) = clk {
+                let edge = RippleEdge::new(clk.clone(), None, RippleEdgeType::Clock);
+                add_graph_edge_from_expr(ir, *reg_id, clk, edge, nm);
             } else {
                 panic!("clk {:?} for reg {:?} is not a reference", clk, name);
             }
         }
         Stmt::RegReset(name, _tpe, clk, rst, init, _info) => {
             match (clk, rst) {
-                (Expr::Reference(clk_ref), Expr::Reference(rst_ref)) => {
+                (Expr::Reference(_clk_ref), Expr::Reference(_rst_ref)) => {
                     let reg_ref = Reference::Ref(name.clone());
                     let reg_id = nm.node_map.get(&reg_ref).unwrap();
 
-                    add_graph_edge_from_expr(ir, *reg_id, clk,  EdgeType::Clock(clk_ref.clone()), nm);
-                    add_graph_edge_from_expr(ir, *reg_id, rst,  EdgeType::Reset(rst_ref.clone()), nm);
-                    add_graph_edge_from_expr(ir, *reg_id, init, EdgeType::Wire(reg_ref, init.clone()), nm);
+                    let clk_edge = RippleEdge::new(clk.clone(), None, RippleEdgeType::Clock);
+                    let rst_edge = RippleEdge::new(rst.clone(), None, RippleEdgeType::Reset);
+                    let init_edge = RippleEdge::new(init.clone(), None, RippleEdgeType::Wire);
+
+                    add_graph_edge_from_expr(ir, *reg_id, clk,  clk_edge, nm);
+                    add_graph_edge_from_expr(ir, *reg_id, rst,  rst_edge, nm);
+                    add_graph_edge_from_expr(ir, *reg_id, init, init_edge, nm);
                 }
                 _ => {
                     panic!("No matching clk {:?} rst {:?} init {:?} for reg {:?}",
@@ -369,9 +399,13 @@ fn add_graph_edge_from_stmt(ir: &mut RippleGraph, stmt: &Stmt, nm: &mut NodeMap)
                     let port_expr = Expr::Reference(port_ref);
                     let clk_expr  = Expr::Reference(clk.clone());
 
-                    add_graph_edge_from_expr(ir, *mem_id,  &port_expr, EdgeType::MemPortEdge, nm);
-                    add_graph_edge_from_expr(ir, *port_id, &clk_expr,  EdgeType::Clock(clk.clone()), nm);
-                    add_graph_edge_from_expr(ir, *port_id, addr, EdgeType::MemPortAddr(addr.clone()), nm);
+                    let port_edge = RippleEdge::new(port_expr.clone(), None, RippleEdgeType::MemPortEdge);
+                    let clk_edge  = RippleEdge::new(clk_expr.clone(),  None, RippleEdgeType::Clock);
+                    let addr_edge = RippleEdge::new(addr.clone(),      None, RippleEdgeType::MemPortAddr);
+
+                    add_graph_edge_from_expr(ir, *mem_id,  &port_expr, port_edge, nm);
+                    add_graph_edge_from_expr(ir, *port_id, &clk_expr,  clk_edge, nm);
+                    add_graph_edge_from_expr(ir, *port_id, addr, addr_edge, nm);
                 }
             }
         }
@@ -383,30 +417,24 @@ fn add_graph_edge_from_stmt(ir: &mut RippleGraph, stmt: &Stmt, nm: &mut NodeMap)
 
             match expr {
                 Expr::Mux(cond, true_expr, false_expr) => {
-                    add_graph_edge_from_expr(ir, *dst_id, cond,
-                        EdgeType::MuxCond(cond.as_ref().clone()), nm);
-                    add_graph_edge_from_expr(ir, *dst_id, &true_expr,
-                        EdgeType::MuxTrue(true_expr.as_ref().clone()), nm);
-                    add_graph_edge_from_expr(ir, *dst_id, &false_expr,
-                        EdgeType::MuxFalse(false_expr.as_ref().clone()), nm);
+                    let cond_edge = RippleEdge::new(cond.as_ref().clone(), None, RippleEdgeType::MuxCond);
+                    let true_edge = RippleEdge::new(true_expr.as_ref().clone(), None, RippleEdgeType::MuxTrue);
+                    let false_edge = RippleEdge::new(false_expr.as_ref().clone(), None, RippleEdgeType::MuxFalse);
+                    add_graph_edge_from_expr(ir, *dst_id, cond, cond_edge, nm);
+                    add_graph_edge_from_expr(ir, *dst_id, &true_expr, true_edge, nm);
+                    add_graph_edge_from_expr(ir, *dst_id, &false_expr, false_edge, nm);
                 }
                 Expr::PrimOp2Expr(_, a, b) => {
-                    add_graph_edge_from_expr(ir, *dst_id, &a,
-                        EdgeType::Operand0(a.as_ref().clone()), nm);
-                    add_graph_edge_from_expr(ir, *dst_id, &b,
-                        EdgeType::Operand1(b.as_ref().clone()), nm);
+                    let op0_edge = RippleEdge::new(a.as_ref().clone(), None, RippleEdgeType::Operand0);
+                    let op1_edge = RippleEdge::new(b.as_ref().clone(), None, RippleEdgeType::Operand1);
+                    add_graph_edge_from_expr(ir, *dst_id, &a, op0_edge, nm);
+                    add_graph_edge_from_expr(ir, *dst_id, &b, op1_edge, nm);
                 }
-                Expr::PrimOp1Expr(_, a) => {
-                    add_graph_edge_from_expr(ir, *dst_id, &a,
-                        EdgeType::Operand0(a.as_ref().clone()), nm);
-                }
-                Expr::PrimOp1Expr1Int(_, a, _) => {
-                    add_graph_edge_from_expr(ir, *dst_id, &a,
-                        EdgeType::Operand0(a.as_ref().clone()), nm);
-                }
-                Expr::PrimOp1Expr2Int(_, a, _, _) => {
-                    add_graph_edge_from_expr(ir, *dst_id, &a,
-                        EdgeType::Operand0(a.as_ref().clone()), nm);
+                Expr::PrimOp1Expr(_, a)            |
+                    Expr::PrimOp1Expr1Int(_, a, _) |
+                    Expr::PrimOp1Expr2Int(_, a, _, _) => {
+                    let op0_edge = RippleEdge::new(a.as_ref().clone(), None, RippleEdgeType::Operand0);
+                    add_graph_edge_from_expr(ir, *dst_id, &a, op0_edge, nm);
                 }
                 Expr::Reference(_)      |
                     Expr::UIntNoInit(_) |
@@ -438,7 +466,9 @@ fn add_graph_edge_from_stmt(ir: &mut RippleGraph, stmt: &Stmt, nm: &mut NodeMap)
                 let phi_id = nm.phi_map.get(&root_ref)
                     .expect(&format!("Phi node for {:?} doesn't exist", root_ref));
 
-                ir.graph.add_edge(*phi_id, *dst_id, EdgeType::PhiOut(root_ref.clone()));
+                let root_expr = Expr::Reference(root_ref.clone());
+                let phiout_edge = RippleEdge::new(root_expr, None, RippleEdgeType::PhiSel);
+                ir.graph.add_edge(*phi_id, *dst_id, phiout_edge);
                 nm.phi_connected.insert(root_ref);
             }
         }
@@ -450,8 +480,9 @@ fn add_graph_edge_from_stmt(ir: &mut RippleGraph, stmt: &Stmt, nm: &mut NodeMap)
                 let phi_id = nm.phi_map.get(&root_ref)
                     .expect(&format!("Phi node for {:?} doesn't exist", root_ref));
 
-                let dont_care_id = ir.graph.add_node(NodeType::DontCare);
-                ir.graph.add_edge(dont_care_id, *phi_id, EdgeType::DontCare(r.clone()));
+                let dont_care_id = add_node(ir, None, None, Direction::Output, RippleNodeType::DontCare);
+                let dont_care_edge = RippleEdge::new(expr.clone(), None, RippleEdgeType::DontCare);
+                ir.graph.add_edge(dont_care_id, *phi_id, dont_care_edge);
             } else {
                 panic!("Invalidate expr {:?} is not a reference", expr);
             }
@@ -489,7 +520,7 @@ fn connect_phi_in_edges_from_stmts(ir: &mut RippleGraph, stmts: &Stmts, nm: &mut
                                 .expect(&format!("phi node for {:?} not found", root_ref));
 
                             let prior = PhiPriority::new(block_prior, stmt_prior as u32);
-                            let edge = EdgeType::PhiInput(prior, leaf.cond.clone(), r.clone(), rhs.clone());
+                            let edge = RippleEdge::new(rhs.clone(), Some(r.clone()), RippleEdgeType::PhiInput(prior, leaf.cond.clone()));
                             add_graph_edge_from_expr(ir, *phi_id, rhs, edge, nm);
                         }
                         _ => {
@@ -511,14 +542,14 @@ fn connect_phi_node_sel_id(ir: &mut RippleGraph, id: NodeIndex, nm: &mut NodeMap
     let pedges = ir.graph.edges_directed(id, Incoming);
     for pedge_ref in pedges {
         let edge_w = ir.graph.edge_weight(pedge_ref.id()).unwrap();
-        match edge_w {
-            EdgeType::PhiInput(_, cond, _, _) => {
+        match &edge_w.et {
+            RippleEdgeType::PhiInput(_, cond) => {
                 let sels = cond.collect_sels();
                 for sel in sels {
                     sel_exprs.insert(sel);
                 }
             }
-            EdgeType::DontCare(_) => {
+            RippleEdgeType::DontCare => {
                 continue;
             }
             _ => {
@@ -528,7 +559,8 @@ fn connect_phi_node_sel_id(ir: &mut RippleGraph, id: NodeIndex, nm: &mut NodeMap
     }
 
     for sel in sel_exprs {
-        add_graph_edge_from_expr(ir, id, &sel, EdgeType::PhiSel(sel.clone()), nm);
+        let sel_edge = RippleEdge::new(sel.clone(), None, RippleEdgeType::PhiSel);
+        add_graph_edge_from_expr(ir, id, &sel, sel_edge, nm);
     }
 }
 
@@ -536,8 +568,8 @@ fn connect_phi_node_sel_id(ir: &mut RippleGraph, id: NodeIndex, nm: &mut NodeMap
 fn connect_phi_node_sels(ir: &mut RippleGraph, nm: &mut NodeMap) {
     for id in ir.graph.node_indices() {
         let node = ir.graph.node_weight(id).unwrap();
-        match node {
-            NodeType::Phi(_name) => {
+        match node.nt {
+            RippleNodeType::Phi => {
                 connect_phi_node_sel_id(ir, id, nm);
             }
             _ => {

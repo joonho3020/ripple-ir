@@ -11,8 +11,8 @@ fn remove_unnecessary_phi_in_ripple_graph(rg: &mut RippleGraph) {
     let mut remove_nodes: Vec<NodeIndex> = vec![];
     for id in rg.graph.node_indices() {
         let node = rg.graph.node_weight(id).unwrap();
-        match node {
-            NodeType::Phi(_) => {
+        match node.nt {
+            RippleNodeType::Phi => {
                 if is_removable(rg, id) {
                     connect_phi_parent_to_child(rg, id);
                     remove_nodes.push(id);
@@ -39,16 +39,16 @@ fn is_removable(rg: &RippleGraph, id: NodeIndex) -> bool {
     let pedges = rg.graph.edges_directed(id, Incoming);
     for pedge in pedges {
         let edge = rg.graph.edge_weight(pedge.id()).unwrap();
-        match edge {
-            EdgeType::PhiSel(_sel) => {
+        match &edge.et {
+            RippleEdgeType::PhiSel => {
                 has_sel = true;
             }
-            EdgeType::PhiInput(_prior, cond, _sink, _source) => {
+            RippleEdgeType::PhiInput(_prior, cond) => {
                 if !has_non_trivial_sel {
                     has_non_trivial_sel = !cond.always_true()
                 }
             }
-            EdgeType::DontCare(_) => {
+            RippleEdgeType::DontCare => {
             }
             _ => {
                 panic!("Unrecognized driving edge {:?} for phi node", edge);
@@ -85,11 +85,12 @@ fn connect_phi_parent_to_child(rg: &mut RippleGraph, id: NodeIndex) {
         let ew = rg.graph.edge_weight(*peid).unwrap();
         let ep = rg.graph.edge_endpoints(*peid).unwrap();
         let src = ep.0;
-        match ew {
-            EdgeType::PhiInput(_, _, r, e) => {
-                rg.graph.add_edge(src, childs[0], EdgeType::Wire(r.clone(), e.clone()));
+        match ew.et {
+            RippleEdgeType::PhiInput(_, _) => {
+                let edge = RippleEdge::new(ew.src.clone(), ew.dst.clone(), RippleEdgeType::Wire);
+                rg.graph.add_edge(src, childs[0], edge);
             }
-            EdgeType::DontCare(_) => {
+            RippleEdgeType::DontCare => {
                 rg.graph.add_edge(src, childs[0], ew.clone());
             }
             _ => {
