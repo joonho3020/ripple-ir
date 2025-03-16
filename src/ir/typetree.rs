@@ -1,7 +1,6 @@
 use chirrtl_parser::ast::*;
 use std::fmt::{Debug, Display};
 use std::collections::VecDeque;
-use std::process::Output;
 use petgraph::{graph::{Graph, NodeIndex}, Direction::Outgoing};
 use indexmap::IndexMap;
 use crate::common::graphviz::GraphViz;
@@ -386,7 +385,6 @@ impl TypeTree {
                 ret.insert(nirc.1, nirc.0);
             }
         }
-
         return ret;
     }
 
@@ -541,6 +539,63 @@ mod test {
 
                                 let subtree_leaves = typetree.subtree_leaves(&g1f);
                                 assert_eq!(subtree_leaves, vec![NodeIndex::from(45), NodeIndex::from(44), NodeIndex::from(43)]);
+                            }
+                            _ => {
+                            }
+                        };
+                    }
+
+                }
+                CircuitModule::ExtModule(_e) => {
+                }
+            }
+        }
+        return Ok(());
+    }
+
+    #[test]
+    fn check_subtree_leaves_with_path() -> Result<(), std::io::Error> {
+        let source = std::fs::read_to_string("./test-inputs/NestedBundle.fir")?;
+        let circuit = parse_circuit(&source).expect("firrtl parser");
+
+        for module in circuit.modules.iter() {
+            match module.as_ref() {
+                CircuitModule::Module(m) => {
+                    for port in m.ports.iter() {
+                        match port.as_ref() {
+                            Port::Output(_name, tpe, _info) => {
+                                let typetree = TypeTree::construct_tree(tpe, Direction::Output);
+
+                                let _ = typetree.export_graphviz("./test-outputs/NestedBundle.typetree.pdf", None, false);
+
+                                let root = Reference::Ref(Identifier::Name("io".to_string()));
+                                let g = Reference::RefDot(Box::new(root), Identifier::Name("g".to_string()));
+                                let g1 = Reference::RefIdxInt(Box::new(g), Int::from(1));
+                                let g1f = Reference::RefDot(Box::new(g1.clone()), Identifier::Name("f".to_string()));
+                                let leaves_with_path = typetree.subtree_leaves_with_path(&g1f);
+
+                                let mut expect: IndexMap<TypeTreeNodePath, NodeIndex> = IndexMap::new();
+                                expect.insert(
+                                    TypeTreeNodePath::new(
+                                        Direction::Output,
+                                        TypeTreeNodeType::Ground(GroundType::UInt),
+                                        Some(Reference::Ref(Identifier::ID(Int::from(2))))),
+                                    NodeIndex::from(45));
+
+                                expect.insert(
+                                    TypeTreeNodePath::new(
+                                        Direction::Output,
+                                        TypeTreeNodeType::Ground(GroundType::UInt),
+                                        Some(Reference::Ref(Identifier::ID(Int::from(1))))),
+                                    NodeIndex::from(44));
+
+                                expect.insert(
+                                    TypeTreeNodePath::new(
+                                        Direction::Output,
+                                        TypeTreeNodeType::Ground(GroundType::UInt),
+                                        Some(Reference::Ref(Identifier::ID(Int::from(0))))),
+                                    NodeIndex::from(43));
+                                assert_eq!(leaves_with_path, expect);
                             }
                             _ => {
                             }

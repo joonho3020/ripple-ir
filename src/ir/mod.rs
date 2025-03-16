@@ -135,6 +135,12 @@ pub struct TypeTreeIdx {
     tree_id: TreeIdx,
 }
 
+impl TypeTreeIdx {
+    pub fn new(leaf_id: NodeIndex, tree_id: TreeIdx) -> Self {
+        Self { leaf_id, tree_id }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct RippleGraph {
     pub graph: IRGraph,
@@ -175,7 +181,7 @@ impl RippleGraph {
             let rg_id = self.add_node(rgnode);
 
             // Add this node to the ttree_idx_map
-            self.ttree_idx_map.insert(rg_id, TypeTreeIdx { leaf_id, tree_id: ttree_id });
+            self.ttree_idx_map.insert(rg_id, TypeTreeIdx::new(leaf_id, ttree_id));
 
             // Update ttree to point to this node
             ttree.graph.node_weight_mut(leaf_id).unwrap().id = Some(rg_id);
@@ -225,6 +231,8 @@ impl RippleGraph {
                 }
             }
         }
+
+        // TODO: Test for partial connections?
 
         for edge in edges {
             self.add_edge(edge.0, edge.1, edge.2);

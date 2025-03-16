@@ -48,13 +48,11 @@ pub fn from_circuit_module(module: &CircuitModule) -> (&Identifier, FirGraph) {
 
 fn from_module(module: &Module, nm: &mut NodeMap) -> FirGraph {
     let mut ret = FirGraph::new();
-
     collect_graph_nodes_from_ports(&mut ret, &module.ports, nm);
     collect_graph_nodes_from_stmts(&mut ret, &module.stmts, nm);
     connect_graph_edges_from_stmts(&mut ret, &module.stmts, nm);
     connect_phi_in_edges_from_stmts(&mut ret, &module.stmts, nm);
     connect_phi_node_sels(&mut ret, nm);
-
     return ret;
 }
 
