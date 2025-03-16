@@ -73,7 +73,8 @@ pub struct FirEdge {
     pub et: FirEdgeType
 }
 
-#[derive(Debug, Clone, PartialEq, Hash)]
+#[derive(Derivative, Clone, PartialEq, Hash)]
+#[derivative(Debug)]
 pub enum FirEdgeType {
     Wire,
 
@@ -88,7 +89,7 @@ pub enum FirEdgeType {
     Reset,
     DontCare,
 
-    PhiInput(PhiPriority, Condition),
+    PhiInput(PhiPriority, #[derivative(Debug="ignore")] Condition),
     PhiSel,
     PhiOut,
 
