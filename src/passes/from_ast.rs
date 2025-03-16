@@ -396,13 +396,14 @@ fn add_graph_edge_from_stmt(ir: &mut FirGraph, stmt: &Stmt, nm: &mut NodeMap) {
                     let mem_id  = nm.node_map.get(&mem_ref).unwrap();
 
                     let port_expr = Expr::Reference(port_ref);
+                    let mem_expr = Expr::Reference(mem_ref);
                     let clk_expr  = Expr::Reference(clk.clone());
 
                     let port_edge = FirEdge::new(port_expr.clone(), None, FirEdgeType::MemPortEdge);
                     let clk_edge  = FirEdge::new(clk_expr.clone(),  None, FirEdgeType::Clock);
                     let addr_edge = FirEdge::new(addr.clone(),      None, FirEdgeType::MemPortAddr);
 
-                    add_graph_edge_from_expr(ir, *mem_id,  &port_expr, port_edge, nm);
+                    add_graph_edge_from_expr(ir, *port_id,  &mem_expr, port_edge, nm);
                     add_graph_edge_from_expr(ir, *port_id, &clk_expr,  clk_edge, nm);
                     add_graph_edge_from_expr(ir, *port_id, addr, addr_edge, nm);
                 }
