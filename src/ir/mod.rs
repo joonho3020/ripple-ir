@@ -5,11 +5,11 @@ pub mod firir;
 use chirrtl_parser::ast::*;
 use derivative::Derivative;
 use std::fmt::Display;
-use indexmap::{IndexMap, IndexSet};
-use petgraph::graph::{EdgeIndex, EdgeReference, Graph, NodeIndex};
-use petgraph::visit::EdgeRef;
+use indexmap::IndexMap;
+use petgraph::graph::{Graph, NodeIndex, EdgeIndex};
 use crate::common::graphviz::GraphViz;
 use crate::ir::whentree::Condition;
+use crate::ir::typetree::*;
 
 #[derive(Debug, Default, Clone, PartialEq, Eq, Hash)]
 pub struct PhiPriority {
@@ -28,33 +28,18 @@ impl PhiPriority {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct Pin(Reference);
-
-#[derive(Debug, Clone)]
-pub struct PinMap {
-    pub map: Graph<Pin, ()>,
-    pub ipins: IndexMap<Pin, NodeIndex>,
-    pub opins: IndexMap<Pin, NodeIndex>,
-}
-
-impl PinMap {
-    pub fn connected_pins(&self, pin: &Pin, dir: petgraph::Direction) -> Vec<&Pin> {
-        let pin_id = self.ipins.get(pin).unwrap();
-        let conn_pins = self.map.neighbors_directed(*pin_id, dir);
-        conn_pins.map(|id| self.map.node_weight(id).unwrap()).collect()
-    }
-}
-
 #[derive(Derivative, Clone)]
 #[derivative(Debug)]
 pub struct RippleNode {
     pub name: Option<Identifier>,
-
     pub tpe: RippleNodeType,
+    pub tg: TypeGround
+}
 
-    #[derivative(Debug="ignore")]
-    pub pinmap: PinMap,
+impl RippleNode {
+    pub fn new(name: Option<Identifier>, tpe: RippleNodeType, tg: TypeGround) -> Self {
+        Self { name, tpe, tg }
+    }
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Hash)]
@@ -64,20 +49,17 @@ pub enum RippleNodeType {
 
     DontCare,
 
-    UIntLiteral(Width, Int),
-    SIntLiteral(Width, Int),
+    UIntLiteral(Int),
+    SIntLiteral(Int),
 
     Mux,
-    PrimOp2Expr(PrimOp2Expr),
-    PrimOp1Expr(PrimOp1Expr),
-    PrimOp1Expr1Int(PrimOp1Expr1Int, Int),
-    PrimOp1Expr2Int(PrimOp1Expr2Int, Int, Int),
+    Op,
 
     // Stmt
     Wire,
     Reg,
     RegReset,
-    SMem(Option<ChirrtlMemoryReadUnderWrite>),
+    SMem,
     CMem,
     WriteMemPort,
     ReadMemPort,
@@ -100,9 +82,14 @@ impl Display for RippleNode {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct RippleEdge {
-    pub src: Pin,
-    pub dst: Pin,
+    pub width: Option<Width>,
     pub et: RippleEdgeType
+}
+
+impl RippleEdge {
+    pub fn new(width: Option<Width>, et: RippleEdgeType) -> Self {
+        Self { width, et }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -140,27 +127,108 @@ impl Display for RippleEdge {
 
 type IRGraph = Graph<RippleNode, RippleEdge>;
 
+pub type TreeIdx = u32;
+
+#[derive(Debug, Clone)]
+pub struct TypeTreeIdx {
+    leaf_id: NodeIndex,
+    tree_id: TreeIdx,
+}
+
 #[derive(Debug, Clone)]
 pub struct RippleGraph {
     pub graph: IRGraph,
+    pub ttree_idx_map: IndexMap<NodeIndex, TypeTreeIdx>,
+    pub root_ref_ttree_idx_map: IndexMap<Identifier, TreeIdx>,
+    pub ttrees: Vec<TypeTree>,
 }
 
 impl RippleGraph {
     pub fn new() -> Self {
-        Self { graph: IRGraph::new() }
+        Self {
+            graph: IRGraph::new(),
+            ttree_idx_map: IndexMap::new(),
+            root_ref_ttree_idx_map: IndexMap::new(),
+            ttrees: vec![],
+        }
     }
 
-    /// Given an `id` of the graph node, the `pin` that we are looking at, and the direction,
-    /// returns a reference of edges that are connected to this `pin`
-    pub fn neighbor_pins_directed(&self, id: NodeIndex, pin: &Pin, dir: petgraph::Direction) -> Vec<EdgeReference<RippleEdge>> {
-        let node = self.graph.node_weight(id).unwrap();
-        let opins = node.pinmap.connected_pins(pin, dir);
-        let opins_set: IndexSet<&Pin> = IndexSet::from_iter(opins);
+    pub fn add_node(&mut self, node: RippleNode) -> NodeIndex {
+        self.graph.add_node(node)
+    }
 
-        self.graph.edges_directed(id, dir).filter(|x| {
-            let e = self.graph.edge_weight(x.id()).unwrap();
-            opins_set.contains(&e.src)
-        }).collect()
+    pub fn add_aggregate_node(&mut self, name: Identifier, tpe: &Type, nt: RippleNodeType) {
+        let mut ttree = TypeTree::construct_tree(tpe, name.clone(), Direction::Output);
+        let ttree_id = self.ttrees.len() as u32;
+        let leaves = ttree.all_leaves();
+
+        // Add all the leaf nodes
+        for leaf_id in leaves {
+            let leaf = ttree.graph.node_weight(leaf_id).unwrap();
+            let tg = match &leaf.tpe {
+                TypeTreeNodeType::Ground(x) => x,
+                _ => panic!("Type tree leaves doesn't have Ground, got {:?}", leaf)
+            };
+
+            // Insert new graph node
+            let rgnode = RippleNode::new(Some(leaf.name.clone()), nt.clone(), tg.clone());
+            let rg_id = self.add_node(rgnode);
+
+            // Add this node to the ttree_idx_map
+            self.ttree_idx_map.insert(rg_id, TypeTreeIdx { leaf_id, tree_id: ttree_id });
+
+            // Update ttree to point to this node
+            ttree.graph.node_weight_mut(leaf_id).unwrap().id = Some(rg_id);
+        }
+
+        // Add the type tree
+        self.ttrees.push(ttree);
+        self.root_ref_ttree_idx_map.insert(name, ttree_id);
+    }
+
+    pub fn add_edge(&mut self, src: NodeIndex, dst: NodeIndex, edge: RippleEdge) -> EdgeIndex {
+        self.graph.add_edge(src, dst, edge)
+    }
+
+    pub fn add_aggregate_edge(
+        &mut self,
+        src_name: Identifier,
+        src_ref: &Reference,
+        dst_name: Identifier,
+        dst_ref: &Reference,
+        et: RippleEdgeType
+    ) {
+        let src_ttree_id = self.root_ref_ttree_idx_map.get(&src_name).expect("to exist");
+        let src_ttree = self.ttrees.get(*src_ttree_id as usize).expect("to exist");
+        let src_leaves = src_ttree.subtree_leaves_with_path(src_ref);
+
+        let dst_ttree_id = self.root_ref_ttree_idx_map.get(&dst_name).expect("to exist");
+        let dst_ttree = self.ttrees.get(*dst_ttree_id as usize).expect("to exist");
+        let dst_leaves = dst_ttree.subtree_leaves_with_path(dst_ref);
+
+        let mut edges: Vec<(NodeIndex, NodeIndex, RippleEdge)> = vec![];
+        for (src_path_key, src_ttree_leaf_id) in src_leaves {
+            let src_ttree_leaf = src_ttree.graph.node_weight(src_ttree_leaf_id).unwrap();
+            if dst_leaves.contains_key(&src_path_key) {
+                let dst_ttree_leaf_id = dst_leaves.get(&src_path_key).unwrap();
+                let dst_ttree_leaf = dst_ttree.graph.node_weight(*dst_ttree_leaf_id).unwrap();
+                if src_ttree_leaf.dir == Direction::Output {
+                    edges.push((
+                        src_ttree_leaf.id.unwrap(),
+                        dst_ttree_leaf.id.unwrap(),
+                        RippleEdge::new(None, et.clone())));
+                } else {
+                    edges.push((
+                        dst_ttree_leaf.id.unwrap(),
+                        src_ttree_leaf.id.unwrap(),
+                        RippleEdge::new(None, et.clone())));
+                }
+            }
+        }
+
+        for edge in edges {
+            self.add_edge(edge.0, edge.1, edge.2);
+        }
     }
 }
 

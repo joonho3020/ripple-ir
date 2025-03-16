@@ -2,9 +2,10 @@ use chirrtl_parser::ast::*;
 use std::fmt::{Debug, Display};
 use std::collections::VecDeque;
 use petgraph::{graph::{Graph, NodeIndex}, Direction::Outgoing};
+use indexmap::IndexMap;
 use crate::common::graphviz::GraphViz;
 
-#[derive(Default, Debug, Clone, Copy, PartialEq, Hash)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Direction {
     #[default]
     Output,
@@ -20,9 +21,9 @@ impl Direction {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum TypeTreeNodeType {
-    Ground,
+    Ground(TypeGround),
     Fields,
     Array,
 }
@@ -32,11 +33,12 @@ pub struct TypeTreeNode {
     pub name: Identifier,
     pub dir: Direction,
     pub tpe: TypeTreeNodeType,
+    pub id: Option<NodeIndex>
 }
 
 impl TypeTreeNode {
     pub fn new(name: Identifier, dir: Direction, tpe: TypeTreeNodeType) -> Self {
-        Self { name, dir, tpe }
+        Self { name, dir, tpe, id: None, }
     }
 }
 
@@ -45,6 +47,41 @@ impl Display for TypeTreeNode {
         let original = format!("{:?}", self);
         let clean_for_dot = original.replace('"', "");
         write!(f, "{}", clean_for_dot)
+    }
+}
+
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+pub struct TypeTreeNodePath {
+    dir: Direction,
+    tpe: TypeTreeNodeType,
+    rc:  Option<Reference>,
+}
+
+impl TypeTreeNodePath {
+    pub fn new(dir: Direction, tpe: TypeTreeNodeType, rc: Option<Reference>) -> Self {
+        Self { dir, tpe, rc }
+    }
+
+    pub fn append(&mut self, child: &TypeTreeNode) {
+        self.dir = child.dir;
+        self.rc = match &self.rc {
+            None => Some(Reference::Ref(child.name.clone())),
+            Some(par) => {
+                match self.tpe {
+                    TypeTreeNodeType::Ground(_) => Some(Reference::Ref(child.name.clone())),
+                    TypeTreeNodeType::Fields    => Some(Reference::RefDot(Box::new(par.clone()), child.name.clone())),
+                    TypeTreeNodeType::Array     => {
+                        let id = match &child.name {
+                            Identifier::ID(i) => i,
+                            _ => panic!("Array type should have ID as child, got {:?}", child.name)
+                        };
+                        Some(Reference::RefIdxInt(Box::new(par.clone()), id.clone()))
+                    }
+                }
+            }
+        };
+        self.tpe = child.tpe.clone();
     }
 }
 
@@ -91,9 +128,9 @@ impl TypeTree {
         tree: &mut Self
     ) {
         match cur_tpe {
-            Type::TypeGround(_) => {
+            Type::TypeGround(x) => {
                 Self::create_node_and_add_to_parent(
-                    TypeTreeNodeType::Ground, name, dir, parent_opt, tree);
+                    TypeTreeNodeType::Ground(x.clone()), name, dir, parent_opt, tree);
             }
             Type::TypeAggregate(ta) => {
                 match ta.as_ref() {
@@ -258,6 +295,62 @@ impl TypeTree {
         let subtree_root_opt = self.subtree_root(reference);
         if let Some(subtree_root) = subtree_root_opt {
             q.push_back(subtree_root);
+        }
+
+        while !q.is_empty() {
+            let id = q.pop_front().unwrap();
+            let childs = self.graph.neighbors_directed(id, Outgoing);
+            let mut num_childs = 0;
+            for cid in childs {
+                num_childs += 1;
+                q.push_back(cid);
+            }
+            if num_childs == 0 {
+                ret.push(id);
+            }
+        }
+
+        return ret;
+    }
+
+    pub fn subtree_leaves_with_path(&self, reference: &Reference) -> IndexMap<TypeTreeNodePath, NodeIndex> {
+        let mut ret = IndexMap::new();
+
+        let mut q: VecDeque<(NodeIndex, TypeTreeNodePath)> = VecDeque::new();
+        let subtree_root_opt = self.subtree_root(reference);
+        if let Some(subtree_root) = subtree_root_opt {
+            let n = self.graph.node_weight(subtree_root).unwrap();
+            q.push_back((subtree_root, TypeTreeNodePath::new(n.dir, n.tpe.clone(), None)));
+        }
+
+        while !q.is_empty() {
+            let nirc = q.pop_front().unwrap();
+            let childs = self.graph.neighbors_directed(nirc.0, Outgoing);
+
+            let mut num_childs = 0;
+            for cid in childs {
+                let cnode = self.graph.node_weight(cid).unwrap();
+                num_childs += 1;
+
+                let mut path = nirc.1.clone();
+                path.append(cnode);
+                q.push_back((cid, path));
+            }
+
+            if num_childs == 0 {
+                ret.insert(nirc.1, nirc.0);
+            }
+        }
+
+        return ret;
+    }
+
+    pub fn all_leaves(&self) -> Vec<NodeIndex> {
+        let mut ret = vec![];
+        let mut q: VecDeque<NodeIndex> = VecDeque::new();
+
+        if let Some(root) = self.root {
+            q.push_back(root);
         }
 
         while !q.is_empty() {
