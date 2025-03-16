@@ -164,7 +164,7 @@ impl RippleGraph {
     }
 
     pub fn add_aggregate_node(&mut self, name: Identifier, tpe: &Type, nt: RippleNodeType) {
-        let mut ttree = TypeTree::construct_tree(tpe, Direction::Output);
+        let mut ttree = TypeTree::build_from_type(tpe, Direction::Output);
         let ttree_id = self.ttrees.len() as u32;
         let leaves = ttree.all_leaves();
 

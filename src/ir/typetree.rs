@@ -2,6 +2,7 @@ use chirrtl_parser::ast::*;
 use std::fmt::{Debug, Display};
 use std::collections::VecDeque;
 use petgraph::{graph::{Graph, NodeIndex}, Direction::Outgoing};
+use petgraph::algo::is_isomorphic;
 use indexmap::IndexMap;
 use crate::common::graphviz::GraphViz;
 
@@ -128,7 +129,7 @@ pub struct TypeTree {
 }
 
 impl TypeTree {
-    pub fn construct_tree_from_ground_type(gt: GroundType) -> Self {
+    pub fn build_from_ground_type(gt: GroundType) -> Self {
         let mut ret = Self::default();
         let node = TypeTreeNode::new(None, Direction::Output, TypeTreeNodeType::Ground(gt));
         let root = ret.graph.add_node(node);
@@ -136,70 +137,70 @@ impl TypeTree {
         return ret;
     }
 
-    pub fn construct_tree(tpe: &Type, dir: Direction) -> Self {
+    pub fn build_from_type(tpe: &Type, dir: Direction) -> Self {
         let mut ret = Self::default();
-        Self::construct_tree_recursive(tpe, None, dir, None, &mut ret);
+        ret.build_recursive(tpe, None, dir, None);
         return ret;
     }
 
     fn create_node_and_add_to_parent(
+        &mut self,
         node_tpe: TypeTreeNodeType,
         name: Option<Identifier>,
         dir: Direction,
         parent_opt: Option<NodeIndex>,
-        tree: &mut TypeTree
     ) -> NodeIndex {
-        let child = tree.graph.add_node(TypeTreeNode::new(name, dir, node_tpe));
+        let child = self.graph.add_node(TypeTreeNode::new(name, dir, node_tpe));
         match parent_opt {
             Some(parent) => {
-                tree.graph.add_edge(parent, child, TypeTreeEdge::default());
+                self.graph.add_edge(parent, child, TypeTreeEdge::default());
             }
             None => {
-                tree.root = Some(child);
+                self.root = Some(child);
                 // No parent, must have been root node
             }
         }
         child
     }
 
-    fn construct_tree_recursive(
+    fn build_recursive(
+        &mut self,
         cur_tpe: &Type,
         name: Option<Identifier>,
         dir: Direction,
-        parent_opt: Option<NodeIndex>,
-        tree: &mut Self
+        parent_opt: Option<NodeIndex>
     ) {
         match cur_tpe {
             Type::TypeGround(x) => {
-                Self::create_node_and_add_to_parent(
-                    TypeTreeNodeType::Ground(GroundType::from(x)), name, dir, parent_opt, tree);
+                self.create_node_and_add_to_parent(
+                    TypeTreeNodeType::Ground(GroundType::from(x)), name, dir, parent_opt);
             }
             Type::TypeAggregate(ta) => {
                 match ta.as_ref() {
                     TypeAggregate::Fields(fields) => {
-                        let node_id = Self::create_node_and_add_to_parent(
-                            TypeTreeNodeType::Fields, name, dir, parent_opt, tree);
+                        let node_id = self.create_node_and_add_to_parent(
+                            TypeTreeNodeType::Fields, name, dir, parent_opt);
 
                         for field in fields.iter() {
                             match field.as_ref() {
                                 Field::Straight(name, tpe) => {
-                                    Self::construct_tree_recursive(
-                                        tpe, Some(name.clone()), dir, Some(node_id), tree);
+                                    self.build_recursive(
+                                        tpe, Some(name.clone()), dir, Some(node_id));
                                 }
                                 Field::Flipped(name, tpe) => {
-                                    Self::construct_tree_recursive(
-                                        tpe, Some(name.clone()), dir.flip(), Some(node_id), tree);
+                                    self.build_recursive(
+                                        tpe, Some(name.clone()), dir.flip(), Some(node_id));
                                 }
                             }
                         }
                     }
                     TypeAggregate::Array(tpe, len) => {
-                        let node_id = Self::create_node_and_add_to_parent(
-                            TypeTreeNodeType::Array, name, dir, parent_opt, tree);
+                        let node_id = self.create_node_and_add_to_parent(
+                            TypeTreeNodeType::Array, name, dir, parent_opt);
 
                         for id in 0..len.to_u32() {
-                            Self::construct_tree_recursive(
-                                tpe, Some(Identifier::ID(Int::from(id))), dir, Some(node_id), tree);
+                            self.build_recursive(
+                                tpe, Some(Identifier::ID(Int::from(id))), dir, Some(node_id));
                         }
                     }
                 }
@@ -450,6 +451,10 @@ impl TypeTree {
         }
         return ret;
     }
+
+    pub fn eq(&self, other: &Self) -> bool {
+        is_isomorphic(&self.graph, &other.graph)
+    }
 }
 
 impl GraphViz<TypeTreeNode, TypeTreeEdge> for TypeTree {
@@ -490,10 +495,10 @@ mod test {
                     for port in m.ports.iter() {
                         let port_type_tree = match port.as_ref() {
                             Port::Input(_name, tpe, _info) => {
-                                TypeTree::construct_tree(tpe, Direction::Input)
+                                TypeTree::build_from_type(tpe, Direction::Input)
                             }
                             Port::Output(_name, tpe, _info) => {
-                                TypeTree::construct_tree(tpe, Direction::Output)
+                                TypeTree::build_from_type(tpe, Direction::Output)
                             }
                         };
                         port_type_tree.print_tree();
@@ -518,7 +523,7 @@ mod test {
                     for port in m.ports.iter() {
                         match port.as_ref() {
                             Port::Output(_name, tpe, _info) => {
-                                let typetree = TypeTree::construct_tree(tpe, Direction::Output);
+                                let typetree = TypeTree::build_from_type(tpe, Direction::Output);
                                 // let _ = typetree.export_graphviz("./test-outputs/NestedBundle.typetree.pdf", None, false);
 
                                 let root = Reference::Ref(Identifier::Name("io".to_string()));
@@ -564,7 +569,7 @@ mod test {
                     for port in m.ports.iter() {
                         match port.as_ref() {
                             Port::Output(_name, tpe, _info) => {
-                                let typetree = TypeTree::construct_tree(tpe, Direction::Output);
+                                let typetree = TypeTree::build_from_type(tpe, Direction::Output);
 
                                 let _ = typetree.export_graphviz("./test-outputs/NestedBundle.typetree.pdf", None, false);
 

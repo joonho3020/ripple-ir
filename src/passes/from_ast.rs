@@ -2,6 +2,7 @@ use crate::ir::whentree::WhenTree;
 use crate::ir::typetree::{Direction, TypeTree};
 use crate::ir::firir::*;
 use crate::ir::PhiPriority;
+use crate::passes::check_ast_assumption::*;
 use chirrtl_parser::ast::*;
 use petgraph::graph::NodeIndex;
 use indexmap::{IndexMap, IndexSet};
@@ -66,7 +67,7 @@ fn collect_graph_nodes_from_ports(ir: &mut FirGraph, ports: &Ports, nm: &mut Nod
     for port in ports.iter() {
         match port.as_ref() {
             Port::Input(name, tpe, _info) => {
-                let typetree = TypeTree::construct_tree(tpe, Direction::Input);
+                let typetree = TypeTree::build_from_type(tpe, Direction::Input);
                 let all_refs = typetree.all_possible_references(name.clone());
                 let id = ir.graph.add_node(
                     FirNode::new(
@@ -82,7 +83,7 @@ fn collect_graph_nodes_from_ports(ir: &mut FirGraph, ports: &Ports, nm: &mut Nod
                 }
             }
             Port::Output(name, tpe, _info) => {
-                let typetree = TypeTree::construct_tree(tpe, Direction::Output);
+                let typetree = TypeTree::build_from_type(tpe, Direction::Output);
                 let all_refs = typetree.all_possible_references(name.clone());
                 let id = ir.graph.add_node(
                     FirNode::new(
@@ -106,25 +107,15 @@ fn collect_graph_nodes_from_stmts(ir: &mut FirGraph, stmts: &Stmts, nm: &mut Nod
     }
 }
 
-fn add_node_with_typetree(
-    ir: &mut FirGraph,
-    tpe: &Type,
-    name: Identifier,
-    dir: Direction,
-    nt: FirNodeType
-) -> NodeIndex {
-    let typetree = TypeTree::construct_tree(tpe, dir);
-    return ir.graph.add_node(FirNode::new(Some(name.clone()), nt, Some(typetree)));
-}
-
 fn add_node(
     ir: &mut FirGraph,
     tpe_opt: Option<&Type>,
     name_opt: Option<Identifier>,
     dir: Direction,
-    nt: FirNodeType) -> NodeIndex {
+    nt: FirNodeType
+) -> NodeIndex {
     let typetree_opt = match tpe_opt {
-        Some(tpe) => Some(TypeTree::construct_tree(tpe, dir)),
+        Some(tpe) => Some(TypeTree::build_from_type(tpe, dir)),
         None => None,
     };
     return ir.graph.add_node(FirNode::new(name_opt, nt, typetree_opt));
@@ -579,132 +570,6 @@ fn connect_phi_node_sels(ir: &mut FirGraph, nm: &mut NodeMap) {
     }
 }
 
-fn is_reference(expr: &Expr) -> bool {
-    match expr {
-        Expr::Reference(_) => true,
-        _ => false,
-    }
-}
-fn is_reference_or_const(expr: &Expr) -> bool {
-    match expr {
-        Expr::Reference(_) => true,
-        Expr::UIntInit(_, _) |
-            Expr::SIntInit(_, _) => true,
-        _ => false,
-    }
-}
-
-fn is_reference_or_const_or_primop1expr(expr: &Expr) -> bool {
-    match expr {
-        Expr::Reference(_) => true,
-        Expr::UIntInit(_, _) => true,
-        Expr::SIntInit(_, _) => true,
-        Expr::PrimOp1Expr(_, iexpr) => {
-            match iexpr.as_ref() {
-                Expr::UIntInit(_, _) => true,
-                Expr::SIntInit(_, _) => true,
-                _ => false,
-            }
-        },
-        _ => false,
-    }
-}
-
-/// While converting the AST into graph form, we want to make sure
-/// certain assumptions about the AST hold to make the conversion pass
-/// scoped
-pub fn check_ast_assumption(ast: &Circuit) {
-    for cm in ast.modules.iter() {
-        match cm.as_ref() {
-            CircuitModule::Module(m) => {
-                check_stmt_assumption(&m.stmts);
-            }
-            _ => { }
-        }
-    }
-}
-
-fn check_stmt_assumption(stmts: &Stmts) {
-    for stmt in stmts {
-        match stmt.as_ref() {
-            Stmt::When(cond, _info, when_stmts, else_stmts_opt) => {
-                check_stmt_assumption(when_stmts);
-                if let Some(else_stmts) = else_stmts_opt {
-                    check_stmt_assumption(else_stmts);
-                }
-                assert!(is_reference_or_const(cond), "When condition should be a Reference {:?}", cond);
-            }
-            Stmt::Wire(_name, _tpe, _info) => {
-            }
-            Stmt::Reg(_name, _tpe, _clk, _info) => {
-            }
-            Stmt::RegReset(_name, _tpe, _clk, _rst, _init, _info) => {
-            }
-            Stmt::ChirrtlMemory(_mem) => {
-                continue;
-            }
-            Stmt::ChirrtlMemoryPort(mport) => {
-                match mport {
-                    ChirrtlMemoryPort::Write(_port, _mem, addr, _clk, _info) |
-                        ChirrtlMemoryPort::Read (_port, _mem, addr, _clk, _info) |
-                        ChirrtlMemoryPort::Infer(_port, _mem, addr, _clk, _info) => {
-                        assert!(is_reference_or_const_or_primop1expr(addr), "MemPort addr {:?} is not a Reference", addr);
-                    }
-                }
-            }
-            Stmt::Inst(_inst_name, _mod_name, _info) => {
-                continue;
-            }
-            Stmt::Node(_out_name, expr, _info) => {
-                match expr {
-                    Expr::Mux(cond, true_expr, false_expr) => {
-                        assert!(is_reference_or_const_or_primop1expr(cond), "Mux cond {:?} is not a Reference", cond);
-                        assert!(is_reference_or_const_or_primop1expr(true_expr), "Mux true_expr {:?} is not a Reference", true_expr);
-                        assert!(is_reference_or_const_or_primop1expr(false_expr), "Mux false_expr {:?} is not a Reference", false_expr);
-                    }
-                    Expr::PrimOp2Expr(op, a, b) => {
-                        assert!(is_reference_or_const_or_primop1expr(a), "{:?} a {:?} is not a Reference", op, a);
-                        assert!(is_reference_or_const_or_primop1expr(b), "{:?} b {:?} is not a Reference", op, b);
-                    }
-                    Expr::PrimOp1Expr(op, a) => {
-                        assert!(is_reference_or_const_or_primop1expr(a), "{:?} a {:?} is not a Reference", op, a);
-                    }
-                    Expr::PrimOp1Expr1Int(op, a, _x) => {
-                        assert!(is_reference_or_const_or_primop1expr(a), "{:?} a {:?} is not a Reference", op, a);
-                    }
-                    Expr::PrimOp1Expr2Int(op, a, _x, _y) => {
-                        assert!(is_reference(a), "{:?} a {:?} is not a Reference", op, a);
-                    }
-                    Expr::Reference(_)      |
-                        Expr::UIntNoInit(_) |
-                        Expr::UIntInit(_, _) |
-                        Expr::SIntNoInit(_) |
-                        Expr::SIntInit(_, _) |
-                        Expr::ValidIf(_, _) => {
-                        assert!(false, "Unexpected node right hand side {:?}", expr);
-                    }
-                }
-            }
-            Stmt::Connect(lhs, rhs, _info) => {
-                assert!(is_reference(lhs), "Connect lhs {:?} is not a Reference", lhs);
-                assert!(is_reference_or_const_or_primop1expr(rhs), "Connect rhs {:?} is not a Reference", rhs);
-            }
-            Stmt::Invalidate(_expr, _info) => {
-                continue;
-            }
-            Stmt::Skip(_) => {
-                continue;
-            }
-            Stmt::Printf(_clk, _posedge, _msg, _exprs_opt, _info) => {
-                continue;
-            }
-            Stmt::Assert(_clk, _pred, _cond, _msg, _info) => {
-                continue;
-            }
-        }
-    }
-}
-
 #[cfg(test)]
 mod test {
     use super::*;
@@ -817,24 +682,5 @@ mod test {
     fn boom_lsu() {
         // Indirect addressing
         boom_module("LSU").expect("LSU");
-    }
-
-    fn run_check_assumption(input: &str) -> Result<(), std::io::Error> {
-        let source = std::fs::read_to_string(input)?;
-        let circuit = parse_circuit(&source).expect("firrtl parser");
-        check_ast_assumption(&circuit);
-        Ok(())
-    }
-
-    #[test]
-    fn rocket_assumption() {
-        run_check_assumption("./test-inputs/chipyard.harness.TestHarness.RocketConfig.fir")
-            .expect("rocket ast assumption");
-    }
-
-    #[test]
-    fn boom_assumption() {
-        run_check_assumption("./test-inputs/chipyard.harness.TestHarness.LargeBoomV3Config.fir")
-            .expect("boom ast assumption");
     }
 }
