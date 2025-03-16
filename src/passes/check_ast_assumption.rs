@@ -154,8 +154,9 @@ pub fn check_stmt_assumption(stmts: &Stmts) {
 mod test {
     use super::*;
     use chirrtl_parser::parse_circuit;
+    use crate::common::RippleIRErr;
 
-    fn run_check_assumption(input: &str) -> Result<(), std::io::Error> {
+    fn run_check_assumption(input: &str) -> Result<(), RippleIRErr> {
         let source = std::fs::read_to_string(input)?;
         let circuit = parse_circuit(&source).expect("firrtl parser");
         check_ast_assumption(&circuit);
@@ -163,13 +164,13 @@ mod test {
     }
 
     #[test]
-    fn rocket_assumption() {
+    fn rocket() {
         run_check_assumption("./test-inputs/chipyard.harness.TestHarness.RocketConfig.fir")
             .expect("rocket ast assumption");
     }
 
     #[test]
-    fn boom_assumption() {
+    fn boom() {
         run_check_assumption("./test-inputs/chipyard.harness.TestHarness.LargeBoomV3Config.fir")
             .expect("boom ast assumption");
     }

@@ -482,10 +482,11 @@ impl GraphViz<TypeTreeNode, TypeTreeEdge> for TypeTree {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::common::RippleIRErr;
     use chirrtl_parser::parse_circuit;
 
     #[test]
-    fn print_type_tree() -> Result<(), std::io::Error> {
+    fn print_type_tree() -> Result<(), RippleIRErr> {
         let source = std::fs::read_to_string("./test-inputs/NestedBundle.fir")?;
         let circuit = parse_circuit(&source).expect("firrtl parser");
 
@@ -513,7 +514,7 @@ mod test {
     }
 
     #[test]
-    fn check_subtree_root() -> Result<(), std::io::Error> {
+    fn check_subtree_root() -> Result<(), RippleIRErr> {
         let source = std::fs::read_to_string("./test-inputs/NestedBundle.fir")?;
         let circuit = parse_circuit(&source).expect("firrtl parser");
 
@@ -559,7 +560,7 @@ mod test {
     }
 
     #[test]
-    fn check_subtree_leaves_with_path() -> Result<(), std::io::Error> {
+    fn check_subtree_leaves_with_path() -> Result<(), RippleIRErr> {
         let source = std::fs::read_to_string("./test-inputs/NestedBundle.fir")?;
         let circuit = parse_circuit(&source).expect("firrtl parser");
 

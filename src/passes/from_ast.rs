@@ -574,10 +574,11 @@ fn connect_phi_node_sels(ir: &mut FirGraph, nm: &mut NodeMap) {
 mod test {
     use super::*;
     use crate::common::graphviz::GraphViz;
+    use crate::common::RippleIRErr;
     use chirrtl_parser::parse_circuit;
 
     /// Run the AST to graph conversion and export the graph form
-    fn run(name: &str) -> Result<(), std::io::Error> {
+    fn run(name: &str) -> Result<(), RippleIRErr> {
         let source = std::fs::read_to_string(format!("./test-inputs/{}.fir", name))?;
         let circuit = parse_circuit(&source).expect("firrtl parser");
 
@@ -622,7 +623,7 @@ mod test {
     use chirrtl_parser::firrtl::CircuitModuleParser;
 
     /// Check of the AST to graph conversion works for each CircuitModule
-    fn run_check_completion(input_dir: &str) -> Result<(), std::io::Error> {
+    fn run_check_completion(input_dir: &str) -> Result<(), RippleIRErr> {
         for entry in std::fs::read_dir(input_dir)? {
             let entry = entry?;
             let path = entry.path();
@@ -659,7 +660,7 @@ mod test {
             .expect("boom conversion failed");
     }
 
-    fn boom_module(name: &str) -> Result<(), std::io::Error> {
+    fn boom_module(name: &str) -> Result<(), RippleIRErr> {
         let source = std::fs::read_to_string(format!("./test-inputs/boom-modules/{}.fir", name))?;
         let lexer = FIRRTLLexer::new(&source);
         let parser = CircuitModuleParser::new();

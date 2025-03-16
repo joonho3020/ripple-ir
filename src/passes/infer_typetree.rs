@@ -1,17 +1,18 @@
 use std::collections::VecDeque;
-use chirrtl_parser::ast::PrimOp1Expr;
+use chirrtl_parser::ast::*;
 use petgraph::Direction::{Incoming, Outgoing};
 use petgraph::graph::NodeIndex;
 use petgraph::visit::{EdgeRef, VisitMap, Visitable};
 use petgraph::Undirected;
 use petgraph::prelude::Dfs;
 use indexmap::IndexMap;
+use crate::common::RippleIRErr;
 use crate::ir::firir::*;
 use crate::ir::typetree::*;
 
 pub fn infer_typetree(ir: &mut FirIR) {
-    for (_, rg) in ir.graphs.iter_mut() {
-        infer_typetree_graph(rg);
+    for (name, rg) in ir.graphs.iter_mut() {
+        infer_typetree_graph(rg, name);
     }
 }
 
@@ -46,7 +47,7 @@ fn topo_start_node(nt: &FirNodeType) -> bool {
     }
 }
 
-fn infer_typetree_graph(rg: &mut FirGraph) {
+fn infer_typetree_graph(rg: &mut FirGraph, name: &Identifier) {
     use crate::ir::typetree::GroundType::*;
 
     // Take care of nodes with ground types and memory
@@ -73,14 +74,14 @@ fn infer_typetree_graph(rg: &mut FirGraph) {
                             child.ttree = Some(ttree.as_ref().unwrap().clone());
                         }
                         _ => {
-                            panic!("Unexpected child node {:?} for memory", child);
+                            panic!("{:?} Unexpected child node {:?} for memory", name, child);
                         }
                     }
                 }
             }
             FirNodeType::Phi => {
                 let childs: Vec<NodeIndex> = rg.graph.neighbors_directed(id, Outgoing).collect();
-                assert!(childs.len() == 1, "Phi node should have a single child");
+                assert!(childs.len() == 1, "Phi node should have a single child {:?}", name);
 
                 let cid = childs[0];
                 let child_ttree = rg.graph.node_weight(cid).unwrap().ttree.clone();
@@ -150,25 +151,28 @@ fn infer_typetree_graph(rg: &mut FirGraph) {
 
         // Infer in topo sorted order
         for nidx in topo_sort_order.iter() {
-            let node = rg.graph.node_weight(id).unwrap();
+            let node = rg.graph.node_weight(*nidx).unwrap();
             if node.ttree.is_some() {
                 continue;
             }
-            infer_typetree_node(rg, *nidx);
+            infer_typetree_node(rg, *nidx, name);
         }
 
         visited += topo_sort_order.len();
     }
     assert!(
         visited == vis_map.len(),
-        "visited {} nodes out of {} nodes while topo sorting",
+        "{:?}: visited {} nodes out of {} nodes while topo sorting",
+        name,
         visited,
         vis_map.len());
 }
 
-fn infer_typetree_node(rg: &mut FirGraph, id: NodeIndex) {
+fn infer_typetree_node(rg: &mut FirGraph, id: NodeIndex, name: &Identifier) {
     let node = rg.graph.node_weight(id).unwrap();
-    assert!(!node.ttree.is_some());
+    if node.ttree.is_some() {
+        panic!("{:?}: infer typetree node overriding {:?}", name, node);
+    }
 
     type EdgeEndpoint = (NodeIndex, NodeIndex);
     type EdgeWeightEpTuple<'a> = (&'a FirEdge, EdgeEndpoint);
@@ -197,7 +201,8 @@ fn infer_typetree_node(rg: &mut FirGraph, id: NodeIndex) {
                 TypeTree::eq(
                     &true_node.ttree.as_ref().unwrap(),
                     &false_node.ttree.as_ref().unwrap()),
-                "Mux true and false drivers have different types {:?} {:?} vs {:?} {:?}",
+                "{:?}: Mux true and false drivers have different types {:?} {:?} vs {:?} {:?}",
+                name,
                 true_node,
                 true_node.ttree,
                 false_node,
@@ -230,7 +235,9 @@ fn infer_typetree_node(rg: &mut FirGraph, id: NodeIndex) {
                 TypeTree::eq(
                     &op0_node.ttree.as_ref().unwrap(),
                     &op1_node.ttree.as_ref().unwrap()),
-                "Primop2Expr op0 and op1 drivers have different types {:?} {:?} vs {:?} {:?}",
+                "{:?}: Primop2Expr {:?} op0 and op1 drivers have different types {:?} {:?} vs {:?} {:?}",
+                name,
+                node.nt,
                 op0_node,
                 op0_node.ttree,
                 op1_node,
@@ -294,7 +301,50 @@ fn infer_typetree_node(rg: &mut FirGraph, id: NodeIndex) {
             node_mut.ttree = op0_node.ttree;
         }
         _ => {
-            panic!("Called infer_typetree_node on unexpected node type {:?}", node);
+            panic!("{:?}: Called infer_typetree_node on unexpected node type {:?}", name, node);
         }
     }
 }
+
+pub fn check_typetree_inference(ir: &FirIR) -> Result<(), RippleIRErr> {
+    for (_, rg) in ir.graphs.iter() {
+        check_typetree_inference_graph(rg)?;
+    }
+    return Ok(());
+}
+
+fn check_typetree_inference_graph(rg: &FirGraph) -> Result<(), RippleIRErr> {
+    for id in rg.graph.node_indices() {
+        let node = rg.graph.node_weight(id).unwrap();
+        if !node.ttree.is_some() {
+            return Err(RippleIRErr::FirNodeError("Does not have a typetree".to_string(), node.clone()));
+        }
+    }
+    return Ok(());
+}
+
+#[cfg(test)]
+mod test {
+    use crate::common::RippleIRErr;
+    use crate::passes::runner::run_passes_from_filepath;
+    use super::*;
+
+    fn run_check_typetree_inference(input: &str) -> Result<(), RippleIRErr> {
+        let ir = run_passes_from_filepath(input)?;
+        check_typetree_inference(&ir)?;
+        Ok(())
+    }
+
+    #[test]
+    fn rocket() {
+        run_check_typetree_inference("./test-inputs/chipyard.harness.TestHarness.RocketConfig.fir")
+            .expect("rocket ast assumption");
+    }
+
+    #[test]
+    fn boom() {
+        run_check_typetree_inference("./test-inputs/chipyard.harness.TestHarness.LaregeBoomV3Config.fir")
+            .expect("rocket ast assumption");
+    }
+}
+

@@ -217,8 +217,9 @@ impl WhenTree {
 mod test {
     use super::*;
     use chirrtl_parser::parse_circuit;
+    use crate::common::RippleIRErr;
 
-    fn run(path: &str) -> Result<(), std::io::Error> {
+    fn run(path: &str) -> Result<(), RippleIRErr> {
         let source = std::fs::read_to_string(path)?;
         let circuit = parse_circuit(&source).expect("firrtl parser");
 
