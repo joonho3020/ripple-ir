@@ -33,11 +33,11 @@ impl PhiPriority {
 pub struct RippleNode {
     pub name: Option<Identifier>,
     pub tpe: RippleNodeType,
-    pub tg: TypeGround
+    pub tg: GroundType
 }
 
 impl RippleNode {
-    pub fn new(name: Option<Identifier>, tpe: RippleNodeType, tg: TypeGround) -> Self {
+    pub fn new(name: Option<Identifier>, tpe: RippleNodeType, tg: GroundType) -> Self {
         Self { name, tpe, tg }
     }
 }
@@ -158,7 +158,7 @@ impl RippleGraph {
     }
 
     pub fn add_aggregate_node(&mut self, name: Identifier, tpe: &Type, nt: RippleNodeType) {
-        let mut ttree = TypeTree::construct_tree(tpe, name.clone(), Direction::Output);
+        let mut ttree = TypeTree::construct_tree(tpe, Direction::Output);
         let ttree_id = self.ttrees.len() as u32;
         let leaves = ttree.all_leaves();
 
@@ -171,7 +171,7 @@ impl RippleGraph {
             };
 
             // Insert new graph node
-            let rgnode = RippleNode::new(Some(leaf.name.clone()), nt.clone(), tg.clone());
+            let rgnode = RippleNode::new(Some(leaf.name.clone().unwrap()), nt.clone(), tg.clone());
             let rg_id = self.add_node(rgnode);
 
             // Add this node to the ttree_idx_map

@@ -1,6 +1,7 @@
 use chirrtl_parser::ast::*;
 use std::fmt::{Debug, Display};
 use std::collections::VecDeque;
+use std::process::Output;
 use petgraph::{graph::{Graph, NodeIndex}, Direction::Outgoing};
 use indexmap::IndexMap;
 use crate::common::graphviz::GraphViz;
@@ -22,22 +23,48 @@ impl Direction {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum GroundType {
+    Invalid,
+    DontCare,
+    Clock,
+    Reset,
+    AsyncReset,
+    UInt,
+    SInt,
+    SMem,
+    CMem,
+    Inst,
+}
+
+impl From<&TypeGround> for GroundType {
+    fn from(value: &TypeGround) -> Self {
+        match value {
+            TypeGround::SInt(..) => Self::SInt,
+            TypeGround::UInt(..) => Self::UInt,
+            TypeGround::Clock => Self::Clock,
+            TypeGround::Reset => Self::Reset,
+            TypeGround::AsyncReset => Self::AsyncReset,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum TypeTreeNodeType {
-    Ground(TypeGround),
+    Ground(GroundType),
     Fields,
     Array,
 }
 
 #[derive(Debug, Clone, PartialEq, Hash)]
 pub struct TypeTreeNode {
-    pub name: Identifier,
+    pub name: Option<Identifier>,
     pub dir: Direction,
     pub tpe: TypeTreeNodeType,
     pub id: Option<NodeIndex>
 }
 
 impl TypeTreeNode {
-    pub fn new(name: Identifier, dir: Direction, tpe: TypeTreeNodeType) -> Self {
+    pub fn new(name: Option<Identifier>, dir: Direction, tpe: TypeTreeNodeType) -> Self {
         Self { name, dir, tpe, id: None, }
     }
 }
@@ -49,7 +76,6 @@ impl Display for TypeTreeNode {
         write!(f, "{}", clean_for_dot)
     }
 }
-
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct TypeTreeNodePath {
@@ -66,14 +92,14 @@ impl TypeTreeNodePath {
     pub fn append(&mut self, child: &TypeTreeNode) {
         self.dir = child.dir;
         self.rc = match &self.rc {
-            None => Some(Reference::Ref(child.name.clone())),
+            None => Some(Reference::Ref(child.name.clone().unwrap())),
             Some(par) => {
                 match self.tpe {
-                    TypeTreeNodeType::Ground(_) => Some(Reference::Ref(child.name.clone())),
-                    TypeTreeNodeType::Fields    => Some(Reference::RefDot(Box::new(par.clone()), child.name.clone())),
+                    TypeTreeNodeType::Ground(_) => Some(Reference::Ref(child.name.clone().unwrap())),
+                    TypeTreeNodeType::Fields    => Some(Reference::RefDot(Box::new(par.clone()), child.name.clone().unwrap())),
                     TypeTreeNodeType::Array     => {
                         let id = match &child.name {
-                            Identifier::ID(i) => i,
+                            Some(Identifier::ID(i)) => i,
                             _ => panic!("Array type should have ID as child, got {:?}", child.name)
                         };
                         Some(Reference::RefIdxInt(Box::new(par.clone()), id.clone()))
@@ -85,7 +111,16 @@ impl TypeTreeNodePath {
     }
 }
 
-type Tree = Graph<TypeTreeNode, u32>;
+#[derive(Default, Debug, Clone, Copy)]
+pub struct TypeTreeEdge(u32);
+
+impl Display for TypeTreeEdge {
+    fn fmt(&self, _f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Ok(())
+    }
+}
+
+type Tree = Graph<TypeTreeNode, TypeTreeEdge>;
 
 #[derive(Debug, Default, Clone)]
 pub struct TypeTree {
@@ -94,15 +129,23 @@ pub struct TypeTree {
 }
 
 impl TypeTree {
-    pub fn construct_tree(tpe: &Type, name: Identifier, dir: Direction) -> Self {
+    pub fn construct_tree_from_ground_type(gt: GroundType) -> Self {
         let mut ret = Self::default();
-        Self::construct_tree_recursive(tpe, name, dir, None, &mut ret);
+        let node = TypeTreeNode::new(None, Direction::Output, TypeTreeNodeType::Ground(gt));
+        let root = ret.graph.add_node(node);
+        ret.root = Some(root);
+        return ret;
+    }
+
+    pub fn construct_tree(tpe: &Type, dir: Direction) -> Self {
+        let mut ret = Self::default();
+        Self::construct_tree_recursive(tpe, None, dir, None, &mut ret);
         return ret;
     }
 
     fn create_node_and_add_to_parent(
         node_tpe: TypeTreeNodeType,
-        name: Identifier,
+        name: Option<Identifier>,
         dir: Direction,
         parent_opt: Option<NodeIndex>,
         tree: &mut TypeTree
@@ -110,7 +153,7 @@ impl TypeTree {
         let child = tree.graph.add_node(TypeTreeNode::new(name, dir, node_tpe));
         match parent_opt {
             Some(parent) => {
-                tree.graph.add_edge(parent, child, 0);
+                tree.graph.add_edge(parent, child, TypeTreeEdge::default());
             }
             None => {
                 tree.root = Some(child);
@@ -122,7 +165,7 @@ impl TypeTree {
 
     fn construct_tree_recursive(
         cur_tpe: &Type,
-        name: Identifier,
+        name: Option<Identifier>,
         dir: Direction,
         parent_opt: Option<NodeIndex>,
         tree: &mut Self
@@ -130,7 +173,7 @@ impl TypeTree {
         match cur_tpe {
             Type::TypeGround(x) => {
                 Self::create_node_and_add_to_parent(
-                    TypeTreeNodeType::Ground(x.clone()), name, dir, parent_opt, tree);
+                    TypeTreeNodeType::Ground(GroundType::from(x)), name, dir, parent_opt, tree);
             }
             Type::TypeAggregate(ta) => {
                 match ta.as_ref() {
@@ -142,11 +185,11 @@ impl TypeTree {
                             match field.as_ref() {
                                 Field::Straight(name, tpe) => {
                                     Self::construct_tree_recursive(
-                                        tpe, name.clone(), dir, Some(node_id), tree);
+                                        tpe, Some(name.clone()), dir, Some(node_id), tree);
                                 }
                                 Field::Flipped(name, tpe) => {
                                     Self::construct_tree_recursive(
-                                        tpe, name.clone(), dir.flip(), Some(node_id), tree);
+                                        tpe, Some(name.clone()), dir.flip(), Some(node_id), tree);
                                 }
                             }
                         }
@@ -157,7 +200,7 @@ impl TypeTree {
 
                         for id in 0..len.to_u32() {
                             Self::construct_tree_recursive(
-                                tpe, Identifier::ID(Int::from(id)), dir, Some(node_id), tree);
+                                tpe, Some(Identifier::ID(Int::from(id))), dir, Some(node_id), tree);
                         }
                     }
                 }
@@ -168,13 +211,13 @@ impl TypeTree {
         }
     }
 
-    pub fn all_possible_references(&self) -> Vec<Reference> {
+    pub fn all_possible_references(&self, root_name: Identifier) -> Vec<Reference> {
         let mut ret = vec![];
         let mut q: VecDeque<(NodeIndex, Reference)> = VecDeque::new();
         if let Some(root_id) = self.root {
-            let root = self.graph.node_weight(root_id).unwrap();
-            q.push_back((root_id, Reference::Ref(root.name.clone())));
+            q.push_back((root_id, Reference::Ref(root_name)));
         }
+
         while !q.is_empty() {
             let (id, cur_ref) = q.pop_front().unwrap();
             ret.push(cur_ref.clone());
@@ -183,11 +226,14 @@ impl TypeTree {
             for child_id in childs {
                 let child = self.graph.node_weight(child_id).unwrap();
                 let child_ref = match &child.name {
-                    Identifier::ID(id) => {
+                    Some(Identifier::ID(id)) => {
                         Reference::RefIdxInt(Box::new(cur_ref.clone()), id.clone())
                     }
-                    Identifier::Name(_) => {
-                        Reference::RefDot(Box::new(cur_ref.clone()), child.name.clone())
+                    Some(Identifier::Name(_)) => {
+                        Reference::RefDot(Box::new(cur_ref.clone()), child.name.clone().unwrap())
+                    }
+                    _ => {
+                        panic!("Child nodes in the tree must have a name {:?}", child);
                     }
                 };
                 q.push_back((child_id, child_ref));
@@ -235,7 +281,7 @@ impl TypeTree {
         }
     }
 
-    pub fn ref_identifier_chain(reference: &Reference) -> VecDeque<Identifier> {
+    fn ref_identifier_chain(reference: &Reference) -> VecDeque<Identifier> {
         let mut ret = VecDeque::new();
         Self::ref_identifier_chain_recursive(reference, &mut ret);
         return ret;
@@ -256,7 +302,7 @@ impl TypeTree {
 
             let node = self.graph.node_weight(id).unwrap();
             let ref_name = chain.pop_front().unwrap();
-            if node.name != ref_name {
+            if id != self.root.unwrap() && *node.name.as_ref().unwrap() != ref_name {
                 self.print_tree();
                 panic!("Reference {:?} not inclusive in type tree", reference);
             }
@@ -265,7 +311,7 @@ impl TypeTree {
             for cid in childs {
                 let child = self.graph.node_weight(cid).unwrap();
                 if let Some(ref_name) = chain.front() {
-                    if child.name == *ref_name {
+                    if *child.name.as_ref().unwrap() == *ref_name {
                         q.push_back(cid);
                     }
                 }
@@ -276,7 +322,6 @@ impl TypeTree {
         assert!(q.is_empty(),     "Queue {:?} still contains elements after finding subtree", q);
 
         return subtree_root_opt;
-
     }
 
     /// Given a `reference`, returns all the subtree leaf nodes
@@ -368,9 +413,48 @@ impl TypeTree {
 
         return ret;
     }
+
+    pub fn subtree_from_ref(&self, reference: &Reference) -> Self {
+        let subtree_root_opt = self.subtree_root(reference);
+
+        type NewId = NodeIndex;
+        type OldId = NodeIndex;
+        type IdTuple = (OldId, Option<NewId>);
+
+        let mut q: VecDeque<IdTuple> = VecDeque::new();
+        if let Some(subtree_root) = subtree_root_opt {
+            q.push_back((subtree_root, None));
+        }
+
+        let mut ret = Self::default();
+        while !q.is_empty() {
+            let id_tuple = q.pop_front().unwrap();
+            let mut node = self.graph.node_weight(id_tuple.0).unwrap().clone();
+
+            let new_id = match id_tuple.1 {
+                Some(parent_id) => {
+                    let sid = ret.graph.add_node(node);
+                    ret.graph.add_edge(parent_id, sid, TypeTreeEdge::default());
+                    sid
+                }
+                None => {
+                    node.name = None;
+                    let sid = ret.graph.add_node(node);
+                    ret.root = Some(sid);
+                    sid
+                }
+            };
+
+            let childs = self.graph.neighbors_directed(id_tuple.0, Outgoing);
+            for child in childs {
+                q.push_back((child, Some(new_id)));
+            }
+        }
+        return ret;
+    }
 }
 
-impl GraphViz<TypeTreeNode, u32> for TypeTree {
+impl GraphViz<TypeTreeNode, TypeTreeEdge> for TypeTree {
     fn node_indices(self: &Self) -> petgraph::graph::NodeIndices {
         self.graph.node_indices()
     }
@@ -387,7 +471,7 @@ impl GraphViz<TypeTreeNode, u32> for TypeTree {
         self.graph.edge_endpoints(id)
     }
 
-    fn edge_weight(self: &Self, id: petgraph::prelude::EdgeIndex) -> Option<&u32> {
+    fn edge_weight(self: &Self, id: petgraph::prelude::EdgeIndex) -> Option<&TypeTreeEdge> {
         self.graph.edge_weight(id)
     }
 }
@@ -407,11 +491,11 @@ mod test {
                 CircuitModule::Module(m) => {
                     for port in m.ports.iter() {
                         let port_type_tree = match port.as_ref() {
-                            Port::Input(name, tpe, _info) => {
-                                TypeTree::construct_tree(tpe, name.clone(), Direction::Input)
+                            Port::Input(_name, tpe, _info) => {
+                                TypeTree::construct_tree(tpe, Direction::Input)
                             }
-                            Port::Output(name, tpe, _info) => {
-                                TypeTree::construct_tree(tpe, name.clone(), Direction::Output)
+                            Port::Output(_name, tpe, _info) => {
+                                TypeTree::construct_tree(tpe, Direction::Output)
                             }
                         };
                         port_type_tree.print_tree();
@@ -435,8 +519,8 @@ mod test {
                 CircuitModule::Module(m) => {
                     for port in m.ports.iter() {
                         match port.as_ref() {
-                            Port::Output(name, tpe, _info) => {
-                                let typetree = TypeTree::construct_tree(tpe, name.clone(), Direction::Output);
+                            Port::Output(_name, tpe, _info) => {
+                                let typetree = TypeTree::construct_tree(tpe, Direction::Output);
                                 // let _ = typetree.export_graphviz("./test-outputs/NestedBundle.typetree.pdf", None, false);
 
                                 let root = Reference::Ref(Identifier::Name("io".to_string()));

@@ -68,8 +68,8 @@ fn collect_graph_nodes_from_ports(ir: &mut FirGraph, ports: &Ports, nm: &mut Nod
     for port in ports.iter() {
         match port.as_ref() {
             Port::Input(name, tpe, _info) => {
-                let typetree = TypeTree::construct_tree(tpe, name.clone(), Direction::Input);
-                let all_refs = typetree.all_possible_references();
+                let typetree = TypeTree::construct_tree(tpe, Direction::Input);
+                let all_refs = typetree.all_possible_references(name.clone());
                 let id = ir.graph.add_node(
                     FirNode::new(
                         Some(name.clone()),
@@ -84,8 +84,8 @@ fn collect_graph_nodes_from_ports(ir: &mut FirGraph, ports: &Ports, nm: &mut Nod
                 }
             }
             Port::Output(name, tpe, _info) => {
-                let typetree = TypeTree::construct_tree(tpe, name.clone(), Direction::Output);
-                let all_refs = typetree.all_possible_references();
+                let typetree = TypeTree::construct_tree(tpe, Direction::Output);
+                let all_refs = typetree.all_possible_references(name.clone());
                 let id = ir.graph.add_node(
                     FirNode::new(
                         Some(name.clone()),
@@ -115,7 +115,7 @@ fn add_node_with_typetree(
     dir: Direction,
     nt: FirNodeType
 ) -> NodeIndex {
-    let typetree = TypeTree::construct_tree(tpe, name.clone(), dir);
+    let typetree = TypeTree::construct_tree(tpe, dir);
     return ir.graph.add_node(FirNode::new(Some(name.clone()), nt, Some(typetree)));
 }
 
@@ -126,7 +126,7 @@ fn add_node(
     dir: Direction,
     nt: FirNodeType) -> NodeIndex {
     let typetree_opt = match tpe_opt {
-        Some(tpe) => Some(TypeTree::construct_tree(tpe, name_opt.clone().unwrap(), dir)),
+        Some(tpe) => Some(TypeTree::construct_tree(tpe, dir)),
         None => None,
     };
     return ir.graph.add_node(FirNode::new(name_opt, nt, typetree_opt));
