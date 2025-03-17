@@ -3,8 +3,12 @@ use std::fmt::{Debug, Display};
 use std::collections::VecDeque;
 use petgraph::{graph::{Graph, NodeIndex}, Direction::Outgoing};
 use petgraph::algo::is_isomorphic;
+use ptree::{TreeItem, Style, write_tree, print_tree};
 use indexmap::IndexMap;
+use std::fs::File;
+use std::io::BufWriter;
 use crate::common::graphviz::GraphViz;
+use crate::common::RippleIRErr;
 
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Direction {
@@ -452,6 +456,22 @@ impl TypeTree {
         return ret;
     }
 
+    pub fn subtree_from_expr(&self, expr: &Expr) -> Self {
+        match expr {
+            Expr::Reference(r) => {
+                self.subtree_from_ref(r)
+            }
+            Expr::UIntInit(..)     |
+                Expr::SIntInit(..) |
+                Expr::PrimOp1Expr(..) => {
+                self.clone()
+            }
+            _ => {
+                panic!("Unexpected Expr on subtree_from_expr {:?}", expr);
+            }
+        }
+    }
+
     pub fn eq(&self, other: &Self) -> bool {
         is_isomorphic(&self.graph, &other.graph)
     }
@@ -476,6 +496,54 @@ impl GraphViz<TypeTreeNode, TypeTreeEdge> for TypeTree {
 
     fn edge_weight(self: &Self, id: petgraph::prelude::EdgeIndex) -> Option<&TypeTreeEdge> {
         self.graph.edge_weight(id)
+    }
+}
+
+#[derive(Clone)]
+pub struct TypeTreePrinter<'a> {
+    pub tree: &'a Graph<TypeTreeNode, TypeTreeEdge>,
+    pub idx: NodeIndex,
+}
+
+impl<'a> TypeTreePrinter<'a> {
+    pub fn new(g: &'a Graph<TypeTreeNode, TypeTreeEdge>, idx: NodeIndex) -> Self {
+        Self {
+            tree: g,
+            idx: idx,
+        }
+    }
+
+    pub fn write_to_file(&self, file: &str) -> Result<(), RippleIRErr> {
+        let file = File::create(file)?;
+        let writer = BufWriter::new(file);
+        write_tree(self, writer)?;
+        Ok(())
+    }
+
+    pub fn print(&self) -> Result<(), RippleIRErr> {
+        print_tree(self)?;
+        Ok(())
+    }
+}
+
+impl<'a> TreeItem for TypeTreePrinter<'a> {
+    type Child = Self;
+
+    fn write_self<W: std::io::Write>(&self, f: &mut W, style: &Style) -> std::io::Result<()> {
+        if let Some(w) = self.tree.node_weight(self.idx) {
+            write!(f, "{} {:?}", style.paint(w), self.idx)
+        } else {
+            Ok(())
+        }
+    }
+
+    fn children(&self) -> std::borrow::Cow<[Self::Child]> {
+        let v: Vec<_> = self.tree
+            .neighbors_directed(self.idx, Outgoing)
+            .map(|i| TypeTreePrinter::new(self.tree, i))
+            .collect();
+        let v_rev: Vec<_> = v.iter().map(|x| x.clone()).rev().collect();
+        std::borrow::Cow::from(v_rev)
     }
 }
 

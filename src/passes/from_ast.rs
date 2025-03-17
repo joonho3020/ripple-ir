@@ -313,8 +313,10 @@ fn add_graph_edge_from_expr(
                     panic!("Connect rhs PrimOp1Expr expr not a const {:?}", rhs);
                 }
             };
-            ir.graph.add_edge(op_id, dst_id, edge_type.clone());
-            ir.graph.add_edge(src_id, op_id, edge_type);
+            let mut src_edge_type = edge_type.clone();
+            src_edge_type.et = FirEdgeType::Operand0;
+            ir.graph.add_edge(src_id, op_id, src_edge_type);
+            ir.graph.add_edge(op_id, dst_id, edge_type);
         }
         _ => {
             assert!(false, "Connect rhs {:?} unhandled type", rhs);

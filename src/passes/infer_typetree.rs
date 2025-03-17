@@ -197,16 +197,25 @@ fn infer_typetree_node(rg: &mut FirGraph, id: NodeIndex, name: &Identifier) {
             let true_node  = rg.graph.node_weight(true_ep.1.0).unwrap().clone();
             let false_node = rg.graph.node_weight(false_ep.1.0).unwrap();
 
-            assert!(
-                TypeTree::eq(
-                    &true_node.ttree.as_ref().unwrap(),
-                    &false_node.ttree.as_ref().unwrap()),
-                "{:?}: Mux true and false drivers have different types {:?} {:?} vs {:?} {:?}",
-                name,
-                true_node,
-                true_node.ttree,
-                false_node,
-                false_node.ttree);
+            let true_type_tree = true_node.ttree.as_ref().unwrap().subtree_from_expr(&true_ep.0.src);
+            let false_type_tree = false_node.ttree.as_ref().unwrap().subtree_from_expr(&false_ep.0.src);
+
+            if !TypeTree::eq(&true_type_tree, &false_type_tree) {
+                let true_printer = TypeTreePrinter::new(
+                    &true_type_tree.graph, true_type_tree.root.unwrap());
+                let _ = true_printer.print();
+
+                let false_printer = TypeTreePrinter::new(
+                    &false_type_tree.graph, false_type_tree.root.unwrap());
+                let _ = false_printer.print();
+
+                panic!("{:?}: Mux true and false drivers have different types {:?} {:?} {:?} {:?}",
+                    name,
+                    true_node,
+                    true_ep.0,
+                    false_node,
+                    false_ep.0);
+            }
 
             let node_mut = rg.graph.node_weight_mut(id).unwrap();
             node_mut.ttree = true_node.ttree;
@@ -231,17 +240,25 @@ fn infer_typetree_node(rg: &mut FirGraph, id: NodeIndex, name: &Identifier) {
             let op0_node = rg.graph.node_weight(op0_ep.1.0).unwrap().clone();
             let op1_node = rg.graph.node_weight(op1_ep.1.0).unwrap();
 
-            assert!(
-                TypeTree::eq(
-                    &op0_node.ttree.as_ref().unwrap(),
-                    &op1_node.ttree.as_ref().unwrap()),
-                "{:?}: Primop2Expr {:?} op0 and op1 drivers have different types {:?} {:?} vs {:?} {:?}",
-                name,
-                node.nt,
-                op0_node,
-                op0_node.ttree,
-                op1_node,
-                op1_node.ttree);
+            let op0_type_tree = op0_node.ttree.as_ref().unwrap().subtree_from_expr(&op0_ep.0.src);
+            let op1_type_tree = op1_node.ttree.as_ref().unwrap().subtree_from_expr(&op1_ep.0.src);
+
+            if !TypeTree::eq(&op0_type_tree, &op1_type_tree) {
+                let op0_printer = TypeTreePrinter::new(
+                    &op0_type_tree.graph, op0_type_tree.root.unwrap());
+                let _ = op0_printer.print();
+
+                let op1_printer = TypeTreePrinter::new(
+                    &op1_type_tree.graph, op1_type_tree.root.unwrap());
+                let _ = op1_printer.print();
+
+                panic!("{:?}: Mux op0 and op1 drivers have different types {:?} {:?} {:?} {:?}",
+                    name,
+                    op0_node,
+                    op0_ep.0,
+                    op1_node,
+                    op1_ep.0);
+            }
 
             let node_mut = rg.graph.node_weight_mut(id).unwrap();
             node_mut.ttree = op0_node.ttree;
@@ -255,11 +272,19 @@ fn infer_typetree_node(rg: &mut FirGraph, id: NodeIndex, name: &Identifier) {
                     )
                 );
 
-            let op0_edge_vec: Vec<EdgeWeightEpTuple> = incoming
+            let op0_edge_vec: Vec<EdgeWeightEpTuple> = incoming.clone()
                 .filter(|x| x.0.et == FirEdgeType::Operand0).collect();
+
+            if op0_edge_vec.len() != 1 {
+                eprintln!("{:?} doesn't have enough incoming edges {:?} {:?}",
+                    name,
+                    node,
+                    incoming.collect::<Vec<EdgeWeightEpTuple>>());
+            }
 
             let op0_ep = *op0_edge_vec.get(0).unwrap();
             let op0_node = rg.graph.node_weight(op0_ep.1.0).unwrap().clone();
+            let op0_type_tree = op0_node.ttree.as_ref().unwrap().subtree_from_expr(&op0_ep.0.src);
 
             let node_mut = rg.graph.node_weight_mut(id).unwrap();
 
@@ -277,7 +302,7 @@ fn infer_typetree_node(rg: &mut FirGraph, id: NodeIndex, name: &Identifier) {
                     set_ground_type(rg, id, GroundType::AsyncReset);
                 }
                 _ => {
-                    node_mut.ttree = op0_node.ttree;
+                    node_mut.ttree = Some(op0_type_tree);
                 }
             }
         }
@@ -296,9 +321,10 @@ fn infer_typetree_node(rg: &mut FirGraph, id: NodeIndex, name: &Identifier) {
 
             let op0_ep = *op0_edge_vec.get(0).unwrap();
             let op0_node = rg.graph.node_weight(op0_ep.1.0).unwrap().clone();
+            let op0_type_tree = op0_node.ttree.as_ref().unwrap().subtree_from_expr(&op0_ep.0.src);
 
             let node_mut = rg.graph.node_weight_mut(id).unwrap();
-            node_mut.ttree = op0_node.ttree;
+            node_mut.ttree = Some(op0_type_tree);
         }
         _ => {
             panic!("{:?}: Called infer_typetree_node on unexpected node type {:?}", name, node);
@@ -307,7 +333,8 @@ fn infer_typetree_node(rg: &mut FirGraph, id: NodeIndex, name: &Identifier) {
 }
 
 pub fn check_typetree_inference(ir: &FirIR) -> Result<(), RippleIRErr> {
-    for (_, rg) in ir.graphs.iter() {
+    for (name, rg) in ir.graphs.iter() {
+        println!("{:?}", name);
         check_typetree_inference_graph(rg)?;
     }
     return Ok(());
@@ -336,6 +363,12 @@ mod test {
     }
 
     #[test]
+    fn gcd() {
+        run_check_typetree_inference("./test-inputs/GCD.fir")
+            .expect("gcd ast assumption");
+    }
+
+    #[test]
     fn rocket() {
         run_check_typetree_inference("./test-inputs/chipyard.harness.TestHarness.RocketConfig.fir")
             .expect("rocket ast assumption");
@@ -347,4 +380,3 @@ mod test {
             .expect("rocket ast assumption");
     }
 }
-
