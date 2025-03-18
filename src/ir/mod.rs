@@ -10,6 +10,7 @@ use petgraph::graph::{Graph, NodeIndex, EdgeIndex};
 use crate::common::graphviz::GraphViz;
 use crate::ir::whentree::Condition;
 use crate::ir::typetree::*;
+use crate::ir::firir::*;
 
 #[derive(Debug, Default, Clone, PartialEq, Eq, Hash)]
 pub struct PhiPriority {
@@ -53,13 +54,16 @@ pub enum RippleNodeType {
     SIntLiteral(Int),
 
     Mux,
-    Op,
+    PrimOp2Expr(PrimOp2Expr),
+    PrimOp1Expr(PrimOp1Expr),
+    PrimOp1Expr1Int(PrimOp1Expr1Int, Int),
+    PrimOp1Expr2Int(PrimOp1Expr2Int, Int, Int),
 
     // Stmt
     Wire,
     Reg,
     RegReset,
-    SMem,
+    SMem(Option<ChirrtlMemoryReadUnderWrite>),
     CMem,
     WriteMemPort,
     ReadMemPort,
@@ -77,6 +81,34 @@ impl Display for RippleNode {
         let original = format!("{:?}", self);
         let clean_for_dot = original.replace('"', "");
         write!(f, "{}", clean_for_dot)
+    }
+}
+
+impl From<&FirNodeType> for RippleNodeType {
+    fn from(value: &FirNodeType) -> Self {
+        match value {
+            FirNodeType::Invalid => Self::Invalid,
+            FirNodeType::DontCare => Self::DontCare,
+            FirNodeType::UIntLiteral(_, x) => Self::UIntLiteral(x.clone()),
+            FirNodeType::SIntLiteral(_, x) => Self::SIntLiteral(x.clone()),
+            FirNodeType::Mux => Self::Mux,
+            FirNodeType::PrimOp2Expr(op) => Self::PrimOp2Expr(op.clone()),
+            FirNodeType::PrimOp1Expr(op) => Self::PrimOp1Expr(op.clone()),
+            FirNodeType::PrimOp1Expr1Int(op, a) => Self::PrimOp1Expr1Int(op.clone(), a.clone()),
+            FirNodeType::PrimOp1Expr2Int(op, a, b) => Self::PrimOp1Expr2Int(op.clone(), a.clone(), b.clone()),
+            FirNodeType::Wire => Self::Wire,
+            FirNodeType::Reg => Self::Reg,
+            FirNodeType::RegReset => Self::RegReset,
+            FirNodeType::SMem(x) => Self::SMem(x.clone()),
+            FirNodeType::CMem => Self::CMem,
+            FirNodeType::WriteMemPort => Self::WriteMemPort,
+            FirNodeType::ReadMemPort => Self::ReadMemPort,
+            FirNodeType::InferMemPort => Self::InferMemPort,
+            FirNodeType::Inst(x) => Self::Inst(x.clone()),
+            FirNodeType::Input => Self::Input,
+            FirNodeType::Output => Self::Output,
+            FirNodeType::Phi => Self::Phi,
+        }
     }
 }
 
@@ -163,18 +195,20 @@ impl RippleGraph {
         self.graph.add_node(node)
     }
 
-    pub fn add_aggregate_node(&mut self, name: Identifier, tpe: &Type, nt: RippleNodeType) {
-        let mut ttree = TypeTree::build_from_type(tpe, Direction::Output);
+    pub fn add_aggregate_node(&mut self, name: Identifier, ttree: &TypeTree, nt: RippleNodeType) {
+        let mut my_ttree = ttree.clone();
         let ttree_id = self.ttrees.len() as u32;
-        let leaves = ttree.all_leaves();
+        let leaves = my_ttree.all_leaves();
 
         // Add all the leaf nodes
         for leaf_id in leaves {
-            let leaf = ttree.graph.node_weight(leaf_id).unwrap();
+            let leaf = my_ttree.graph.node_weight(leaf_id).unwrap();
             let tg = match &leaf.tpe {
                 TypeTreeNodeType::Ground(x) => x,
                 _ => panic!("Type tree leaves doesn't have Ground, got {:?}", leaf)
             };
+
+            println!("leaf {:?}", leaf);
 
             // Insert new graph node
             let rgnode = RippleNode::new(Some(leaf.name.clone().unwrap()), nt.clone(), tg.clone());
@@ -184,11 +218,11 @@ impl RippleGraph {
             self.ttree_idx_map.insert(rg_id, TypeTreeIdx::new(leaf_id, ttree_id));
 
             // Update ttree to point to this node
-            ttree.graph.node_weight_mut(leaf_id).unwrap().id = Some(rg_id);
+            my_ttree.graph.node_weight_mut(leaf_id).unwrap().id = Some(rg_id);
         }
 
         // Add the type tree
-        self.ttrees.push(ttree);
+        self.ttrees.push(my_ttree);
         self.root_ref_ttree_idx_map.insert(name, ttree_id);
     }
 

@@ -58,7 +58,10 @@ fn infer_typetree_graph(rg: &mut FirGraph, name: &Identifier) {
             FirNodeType::DontCare        => { set_ground_type(rg, id, DontCare); }
             FirNodeType::UIntLiteral(..) => { set_ground_type(rg, id, UInt); }
             FirNodeType::SIntLiteral(..) => { set_ground_type(rg, id, SInt); }
-            FirNodeType::Inst(..)        => { set_ground_type(rg, id, Inst); }
+            FirNodeType::Inst(..)        => {
+                set_ground_type(rg, id, Inst);
+                todo!("Instance handling is not yet implemented for typetree inference");
+            }
             FirNodeType::CMem |
                 FirNodeType::SMem(..) => {
                 let ttree = rg.graph.node_weight(id).unwrap().ttree.clone();
