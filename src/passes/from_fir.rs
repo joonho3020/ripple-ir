@@ -139,6 +139,12 @@ mod test {
             .expect("gcd ast assumption");
     }
 
+    #[test]
+    fn decoupledmux() {
+        run("./test-inputs/DecoupledMux.fir")
+            .expect("decoupledmux ast assumption");
+    }
+
     // TODO: add tests for cases where
     // - Mux, primops
     // - There are references to expressions as array addresses

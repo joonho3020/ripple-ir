@@ -13,8 +13,8 @@ use crate::common::RippleIRErr;
 
 /// - Direction in the perspective of the noding holding this `TypeTree`
 /// ```
-/// o <--- Incoming -----
-/// o --- Outgoing  ---->
+/// o <-- Incoming ---
+/// o --- Outgoing -->
 /// ```
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TypeDirection {
