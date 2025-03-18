@@ -470,12 +470,17 @@ fn add_graph_edge_from_stmt(ir: &mut FirGraph, stmt: &Stmt, nm: &mut NodeMap) {
                 let root_name = r.root();
                 // If phi node not yet connected, connect now
                 let root_ref = Reference::Ref(root_name);
-                let phi_id = nm.phi_map.get(&root_ref)
-                    .expect(&format!("Phi node for {:?} doesn't exist", root_ref));
+                if !nm.phi_connected.contains(&root_ref) {
+                    let phi_id = nm.phi_map.get(&root_ref)
+                        .expect(&format!("Phi node for {:?} doesn't exist", root_ref));
 
-                let dont_care_id = add_node(ir, None, None, TypeDirection::Outgoing, FirNodeType::DontCare);
-                let dont_care_edge = FirEdge::new(expr.clone(), None, FirEdgeType::DontCare);
-                ir.graph.add_edge(dont_care_id, *phi_id, dont_care_edge);
+                    let dst_id = nm.node_map.get(&root_ref)
+                        .expect(&format!("Invalidate expr not found in {:?}", expr));
+
+                    let phiout_edge = FirEdge::new(expr.clone(), None, FirEdgeType::PhiOut);
+                    ir.graph.add_edge(*phi_id, *dst_id, phiout_edge);
+                    nm.phi_connected.insert(root_ref);
+                }
             } else {
                 panic!("Invalidate expr {:?} is not a reference", expr);
             }
@@ -519,6 +524,21 @@ fn connect_phi_in_edges_from_stmts(ir: &mut FirGraph, stmts: &Stmts, nm: &mut No
                         _ => {
                             panic!("Connect lhs {:?} unhandled type", lhs);
                         }
+                    }
+                }
+                Stmt::Invalidate(expr, _info) => {
+                    if let Expr::Reference(r) = expr {
+                        let root_name = r.root();
+                        // If phi node not yet connected, connect now
+                        let root_ref = Reference::Ref(root_name);
+                        let phi_id = nm.phi_map.get(&root_ref)
+                            .expect(&format!("Phi node for {:?} doesn't exist", root_ref));
+
+                        let dont_care_id = add_node(ir, None, None, TypeDirection::Outgoing, FirNodeType::DontCare);
+                        let dont_care_edge = FirEdge::new(expr.clone(), None, FirEdgeType::DontCare);
+                        ir.graph.add_edge(dont_care_id, *phi_id, dont_care_edge);
+                    } else {
+                        panic!("Invalidate expr {:?} is not a reference", expr);
                     }
                 }
                 _ => {}
@@ -619,6 +639,11 @@ mod test {
     #[test]
     fn hierarchy() {
         run("Hierarchy").expect("Hierarchy");
+    }
+
+    #[test]
+    fn decoupledmux() {
+        run("DecoupledMux").expect("DecoupledMux");
     }
 
     use chirrtl_parser::lexer::FIRRTLLexer;

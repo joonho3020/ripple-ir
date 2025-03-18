@@ -312,7 +312,8 @@ impl RippleGraph {
                         RippleEdge::new(None, et.clone())));
                 }
             } else {
-                println!("Not connected");
+                panic!("Not connected src_ref {:?} src_key {:?} dst_ref {:?} dst_key {:?}",
+                    src_key, src_ref, dst_ref, dst_key);
             }
         }
 

@@ -127,7 +127,11 @@ mod test {
         let fir = run_passes_from_filepath(input)?;
         let rir = from_fir(&fir);
         for (module, rg) in rir.graphs.iter() {
-            rg.export_graphviz(&format!("./test-outputs/{}-{}.fir2rir.pdf",
+            fir.graphs.get(module).unwrap()
+                .export_graphviz(&format!("./test-outputs/{}-{}.fir.pdf",
+                        fir.name.to_string(), module.to_string()), None, true)?;
+
+            rg.export_graphviz(&format!("./test-outputs/{}-{}.rir.pdf",
                     rir.name.to_string(), module.to_string()), None, true)?;
         }
         Ok(())
@@ -150,4 +154,7 @@ mod test {
     // - There are references to expressions as array addresses
     // - There are instance hierarchies
     // - SRAMs
+    //
+    // - Write pass that checks that the Phi nodes are all connected to their child node after
+    // from_ast
 }

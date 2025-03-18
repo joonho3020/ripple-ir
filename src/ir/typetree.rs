@@ -605,8 +605,9 @@ impl<'a> TreeItem for TypeTreePrinter<'a> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::common::RippleIRErr;
+    use crate::{common::RippleIRErr, ir::firir::FirNodeType};
     use chirrtl_parser::parse_circuit;
+    use graphviz_rust::dot_generator::subgraph;
 
     #[test]
     fn check_gcd_name() -> Result<(), RippleIRErr> {
@@ -765,6 +766,46 @@ mod test {
                                         Some(Reference::Ref(Identifier::ID(Int::from(0))))),
                                     NodeIndex::from(43));
                                 assert_eq!(leaves_with_path, expect);
+                            }
+                            _ => {
+                            }
+                        };
+                    }
+
+                }
+                CircuitModule::ExtModule(_e) => {
+                }
+            }
+        }
+        return Ok(());
+    }
+
+    #[test]
+    fn check_subtree_from_expr() -> Result<(), RippleIRErr> {
+        let source = std::fs::read_to_string("./test-inputs/DecoupledMux.fir")?;
+        let circuit = parse_circuit(&source).expect("firrtl parser");
+
+        for module in circuit.modules.iter() {
+            match module.as_ref() {
+                CircuitModule::Module(m) => {
+                    for port in m.ports.iter() {
+                        match port.as_ref() {
+                            Port::Output(_name, tpe, _info) => {
+                                let typetree = TypeTree::build_from_type(tpe, TypeDirection::Outgoing);
+
+                                let _ = typetree.export_graphviz("./test-outputs/DecoupledMux.typetree.pdf", None, false);
+
+                                let root = Reference::Ref(Identifier::Name("io".to_string()));
+                                let c = Reference::RefDot(Box::new(root), Identifier::Name("c".to_string()));
+                                let c_ready = Reference::RefDot(Box::new(c.clone()), Identifier::Name("ready".to_string()));
+
+                                let subtree = typetree.subtree_from_expr(&Expr::Reference(c_ready));
+                                let node = subtree.graph.node_weight(NodeIndex::from(0)).unwrap();
+                                assert_eq!(*node,
+                                    TypeTreeNode::new(
+                                        None,
+                                        TypeDirection::Incoming,
+                                        TypeTreeNodeType::Ground(GroundType::UInt)));
                             }
                             _ => {
                             }
