@@ -5,6 +5,7 @@ pub mod firir;
 use chirrtl_parser::ast::*;
 use derivative::Derivative;
 use std::fmt::Display;
+use std::hash::Hash;
 use indexmap::IndexMap;
 use petgraph::graph::{Graph, NodeIndex, EdgeIndex};
 use crate::common::graphviz::GraphViz;
@@ -43,7 +44,7 @@ impl RippleNode {
     }
 }
 
-#[derive(Debug, Default, Clone, PartialEq, Hash)]
+#[derive(Debug, Default, Clone, PartialEq, Eq, Hash)]
 pub enum RippleNodeType {
     #[default]
     Invalid,
@@ -157,6 +158,28 @@ impl Display for RippleEdge {
     }
 }
 
+impl From<&FirEdgeType> for RippleEdgeType {
+    fn from(value: &FirEdgeType) -> Self {
+        match value {
+            FirEdgeType::Wire => RippleEdgeType::Wire,
+            FirEdgeType::Operand0 => RippleEdgeType::Operand0,
+            FirEdgeType::Operand1 => RippleEdgeType::Operand1,
+            FirEdgeType::MuxCond => RippleEdgeType::MuxCond,
+            FirEdgeType::MuxTrue => RippleEdgeType::MuxTrue,
+            FirEdgeType::MuxFalse => RippleEdgeType::MuxFalse,
+            FirEdgeType::Clock => RippleEdgeType::Clock,
+            FirEdgeType::Reset => RippleEdgeType::Reset,
+            FirEdgeType::DontCare => RippleEdgeType::DontCare,
+            FirEdgeType::PhiInput(prior, cond) => RippleEdgeType::PhiInput(prior.clone(), cond.clone()),
+            FirEdgeType::PhiSel => RippleEdgeType::PhiSel,
+            FirEdgeType::PhiOut => RippleEdgeType::PhiOut,
+            FirEdgeType::MemPortEdge => RippleEdgeType::MemPortEdge,
+            FirEdgeType::MemPortAddr => RippleEdgeType::MemPortAddr,
+            FirEdgeType::ArrayAddr => RippleEdgeType::ArrayAddr
+        }
+    }
+}
+
 type IRGraph = Graph<RippleNode, RippleEdge>;
 
 pub type TreeIdx = u32;
@@ -173,11 +196,23 @@ impl TypeTreeIdx {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct RootTypeTreeKey {
+    pub name: Identifier,
+    pub nt: RippleNodeType,
+}
+
+impl RootTypeTreeKey {
+    pub fn new(name: Identifier, nt: RippleNodeType) -> Self {
+        Self { name, nt }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct RippleGraph {
     pub graph: IRGraph,
     pub ttree_idx_map: IndexMap<NodeIndex, TypeTreeIdx>,
-    pub root_ref_ttree_idx_map: IndexMap<Identifier, TreeIdx>,
+    pub root_ref_ttree_idx_map: IndexMap<RootTypeTreeKey, TreeIdx>,
     pub ttrees: Vec<TypeTree>,
 }
 
@@ -195,7 +230,12 @@ impl RippleGraph {
         self.graph.add_node(node)
     }
 
-    pub fn add_aggregate_node(&mut self, name: Identifier, ttree: &TypeTree, nt: RippleNodeType) {
+    pub fn add_aggregate_node(
+        &mut self,
+        name: Identifier,
+        ttree: &TypeTree,
+        nt: RippleNodeType
+    ) -> RootTypeTreeKey {
         let mut my_ttree = ttree.clone();
         let ttree_id = self.ttrees.len() as u32;
         let leaves = my_ttree.all_leaves();
@@ -223,7 +263,10 @@ impl RippleGraph {
 
         // Add the type tree
         self.ttrees.push(my_ttree);
-        self.root_ref_ttree_idx_map.insert(name, ttree_id);
+
+        let root_key = RootTypeTreeKey::new(name, nt);
+        self.root_ref_ttree_idx_map.insert(root_key.clone(), ttree_id);
+        return root_key;
     }
 
     pub fn add_edge(&mut self, src: NodeIndex, dst: NodeIndex, edge: RippleEdge) -> EdgeIndex {
@@ -232,19 +275,24 @@ impl RippleGraph {
 
     pub fn add_aggregate_edge(
         &mut self,
-        src_name: Identifier,
+        src_key: &RootTypeTreeKey,
         src_ref: &Reference,
-        dst_name: Identifier,
+        dst_key: &RootTypeTreeKey,
         dst_ref: &Reference,
         et: RippleEdgeType
     ) {
-        let src_ttree_id = self.root_ref_ttree_idx_map.get(&src_name).expect("to exist");
+        let src_ttree_id = self.root_ref_ttree_idx_map.get(src_key).expect("to exist");
         let src_ttree = self.ttrees.get(*src_ttree_id as usize).expect("to exist");
         let src_leaves = src_ttree.subtree_leaves_with_path(src_ref);
 
-        let dst_ttree_id = self.root_ref_ttree_idx_map.get(&dst_name).expect("to exist");
+
+        let dst_ttree_id = self.root_ref_ttree_idx_map.get(dst_key).expect("to exist");
         let dst_ttree = self.ttrees.get(*dst_ttree_id as usize).expect("to exist");
         let dst_leaves = dst_ttree.subtree_leaves_with_path(dst_ref);
+
+        println!("src_ref {:?} dst_ref {:?}", src_ref, dst_ref);
+        println!("{:?} src_leaves: {:?}", src_key, src_leaves);
+        println!("{:?} dst_leaves: {:?}", dst_key, dst_leaves);
 
         let mut edges: Vec<(NodeIndex, NodeIndex, RippleEdge)> = vec![];
         for (src_path_key, src_ttree_leaf_id) in src_leaves {
@@ -252,7 +300,7 @@ impl RippleGraph {
             if dst_leaves.contains_key(&src_path_key) {
                 let dst_ttree_leaf_id = dst_leaves.get(&src_path_key).unwrap();
                 let dst_ttree_leaf = dst_ttree.graph.node_weight(*dst_ttree_leaf_id).unwrap();
-                if src_ttree_leaf.dir == Direction::Output {
+                if src_ttree_leaf.dir == TypeDirection::Outgoing {
                     edges.push((
                         src_ttree_leaf.id.unwrap(),
                         dst_ttree_leaf.id.unwrap(),
@@ -263,6 +311,8 @@ impl RippleGraph {
                         src_ttree_leaf.id.unwrap(),
                         RippleEdge::new(None, et.clone())));
                 }
+            } else {
+                println!("Not connected");
             }
         }
 

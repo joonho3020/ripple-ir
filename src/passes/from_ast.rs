@@ -1,5 +1,5 @@
 use crate::ir::whentree::WhenTree;
-use crate::ir::typetree::{Direction, TypeTree};
+use crate::ir::typetree::{TypeDirection, TypeTree};
 use crate::ir::firir::*;
 use crate::ir::PhiPriority;
 use crate::passes::check_ast_assumption::*;
@@ -67,7 +67,7 @@ fn collect_graph_nodes_from_ports(ir: &mut FirGraph, ports: &Ports, nm: &mut Nod
     for port in ports.iter() {
         match port.as_ref() {
             Port::Input(name, tpe, _info) => {
-                let typetree = TypeTree::build_from_type(tpe, Direction::Input);
+                let typetree = TypeTree::build_from_type(tpe, TypeDirection::Outgoing);
                 let all_refs = typetree.all_possible_references(name.clone());
                 let id = ir.graph.add_node(
                     FirNode::new(
@@ -83,12 +83,12 @@ fn collect_graph_nodes_from_ports(ir: &mut FirGraph, ports: &Ports, nm: &mut Nod
                 }
             }
             Port::Output(name, tpe, _info) => {
-                let typetree = TypeTree::build_from_type(tpe, Direction::Output);
+                let typetree = TypeTree::build_from_type(tpe, TypeDirection::Incoming);
                 let all_refs = typetree.all_possible_references(name.clone());
                 let id = ir.graph.add_node(
                     FirNode::new(
                         Some(name.clone()),
-                        FirNodeType::Input,
+                        FirNodeType::Output,
                         Some(typetree)
                     ));
 
@@ -111,7 +111,7 @@ fn add_node(
     ir: &mut FirGraph,
     tpe_opt: Option<&Type>,
     name_opt: Option<Identifier>,
-    dir: Direction,
+    dir: TypeDirection,
     nt: FirNodeType
 ) -> NodeIndex {
     let typetree_opt = match tpe_opt {
@@ -131,25 +131,25 @@ fn add_graph_node_from_stmt(ir: &mut FirGraph, stmt: &Stmt, nm: &mut NodeMap) {
             }
         }
         Stmt::Wire(name, tpe, _info) => {
-            let id = add_node(ir, Some(tpe), Some(name.clone()), Direction::Output, FirNodeType::Wire);
+            let id = add_node(ir, Some(tpe), Some(name.clone()), TypeDirection::Outgoing, FirNodeType::Wire);
             nm.node_map.insert(Reference::Ref(name.clone()), id);
         }
         Stmt::Reg(name, tpe, _clk, _info) => {
-            let id = add_node(ir, Some(tpe), Some(name.clone()), Direction::Output, FirNodeType::Reg);
+            let id = add_node(ir, Some(tpe), Some(name.clone()), TypeDirection::Outgoing, FirNodeType::Reg);
             nm.node_map.insert(Reference::Ref(name.clone()), id);
         }
         Stmt::RegReset(name, tpe, _clk, _rst, _init, _info) => {
-            let id = add_node(ir, Some(tpe), Some(name.clone()), Direction::Output, FirNodeType::RegReset);
+            let id = add_node(ir, Some(tpe), Some(name.clone()), TypeDirection::Outgoing, FirNodeType::RegReset);
             nm.node_map.insert(Reference::Ref(name.clone()), id);
         }
         Stmt::ChirrtlMemory(mem) => {
             match mem {
                 ChirrtlMemory::SMem(name, tpe, ruw_opt, _info) => {
-                    let id = add_node(ir, Some(tpe), Some(name.clone()), Direction::Output, FirNodeType::SMem(ruw_opt.clone()));
+                    let id = add_node(ir, Some(tpe), Some(name.clone()), TypeDirection::Outgoing, FirNodeType::SMem(ruw_opt.clone()));
                     nm.node_map.insert(Reference::Ref(name.clone()), id);
                 }
                 ChirrtlMemory::CMem(name, tpe, _info) => {
-                    let id = add_node(ir, Some(tpe), Some(name.clone()), Direction::Output, FirNodeType::CMem);
+                    let id = add_node(ir, Some(tpe), Some(name.clone()), TypeDirection::Outgoing, FirNodeType::CMem);
                     nm.node_map.insert(Reference::Ref(name.clone()), id);
                 }
             }
@@ -157,22 +157,22 @@ fn add_graph_node_from_stmt(ir: &mut FirGraph, stmt: &Stmt, nm: &mut NodeMap) {
         Stmt::ChirrtlMemoryPort(mport) => {
             let (name, id) = match mport {
                 ChirrtlMemoryPort::Write(port, _mem, _addr, _clk, _info) => {
-                    let id = add_node(ir, None, Some(port.clone()), Direction::Output, FirNodeType::WriteMemPort);
+                    let id = add_node(ir, None, Some(port.clone()), TypeDirection::Outgoing, FirNodeType::WriteMemPort);
                     (port, id)
                 }
                 ChirrtlMemoryPort::Read(port, _mem, _addr, _clk, _info) => {
-                    let id = add_node(ir, None, Some(port.clone()), Direction::Output, FirNodeType::ReadMemPort);
+                    let id = add_node(ir, None, Some(port.clone()), TypeDirection::Outgoing, FirNodeType::ReadMemPort);
                     (port, id)
                 }
                 ChirrtlMemoryPort::Infer(port, _mem, _addr, _clk, _info) => {
-                    let id = add_node(ir, None, Some(port.clone()), Direction::Output, FirNodeType::InferMemPort);
+                    let id = add_node(ir, None, Some(port.clone()), TypeDirection::Outgoing, FirNodeType::InferMemPort);
                     (port, id)
                 }
             };
             nm.node_map.insert(Reference::Ref(name.clone()), id);
         }
         Stmt::Inst(inst_name, mod_name, _info) => {
-            let id = add_node(ir, None, Some(inst_name.clone()), Direction::Output, FirNodeType::Inst(mod_name.clone()));
+            let id = add_node(ir, None, Some(inst_name.clone()), TypeDirection::Outgoing, FirNodeType::Inst(mod_name.clone()));
             nm.node_map.insert(Reference::Ref(inst_name.clone()), id);
         }
         Stmt::Node(out_name, expr, _info) => {
@@ -181,23 +181,23 @@ fn add_graph_node_from_stmt(ir: &mut FirGraph, stmt: &Stmt, nm: &mut NodeMap) {
             // in `nm.node_map`
             match expr {
                 Expr::Mux(_, _, _) => {
-                    let id = add_node(ir, None, None, Direction::Output, FirNodeType::Mux);
+                    let id = add_node(ir, None, None, TypeDirection::Outgoing, FirNodeType::Mux);
                     nm.node_map.insert(Reference::Ref(out_name.clone()), id);
                 }
                 Expr::PrimOp2Expr(op, _, _) => {
-                    let id = add_node(ir, None, Some(out_name.clone()), Direction::Output, FirNodeType::PrimOp2Expr(*op));
+                    let id = add_node(ir, None, Some(out_name.clone()), TypeDirection::Outgoing, FirNodeType::PrimOp2Expr(*op));
                     nm.node_map.insert(Reference::Ref(out_name.clone()), id);
                 }
                 Expr::PrimOp1Expr(op, _) => {
-                    let id = add_node(ir, None, Some(out_name.clone()), Direction::Output, FirNodeType::PrimOp1Expr(*op));
+                    let id = add_node(ir, None, Some(out_name.clone()), TypeDirection::Outgoing, FirNodeType::PrimOp1Expr(*op));
                     nm.node_map.insert(Reference::Ref(out_name.clone()), id);
                 }
                 Expr::PrimOp1Expr1Int(op, _, x) => {
-                    let id = add_node(ir, None, Some(out_name.clone()), Direction::Output, FirNodeType::PrimOp1Expr1Int(*op, x.clone()));
+                    let id = add_node(ir, None, Some(out_name.clone()), TypeDirection::Outgoing, FirNodeType::PrimOp1Expr1Int(*op, x.clone()));
                     nm.node_map.insert(Reference::Ref(out_name.clone()), id);
                 }
                 Expr::PrimOp1Expr2Int(op, _, x, y) => {
-                    let id = add_node(ir, None, Some(out_name.clone()), Direction::Output, FirNodeType::PrimOp1Expr2Int(*op, x.clone(), y.clone()));
+                    let id = add_node(ir, None, Some(out_name.clone()), TypeDirection::Outgoing, FirNodeType::PrimOp1Expr2Int(*op, x.clone(), y.clone()));
                     nm.node_map.insert(Reference::Ref(out_name.clone()), id);
                 }
                 Expr::Reference(_)      |
@@ -219,7 +219,7 @@ fn add_graph_node_from_stmt(ir: &mut FirGraph, stmt: &Stmt, nm: &mut NodeMap) {
                     let root_name = r.root();
                     let root_ref = Reference::Ref(root_name.clone());
                     if !nm.phi_map.contains_key(&root_ref) {
-                        let id = add_node(ir, None, Some(root_name.clone()), Direction::Output, FirNodeType::Phi);
+                        let id = add_node(ir, None, Some(root_name.clone()), TypeDirection::Outgoing, FirNodeType::Phi);
                         nm.phi_map.insert(root_ref, id);
                     }
                 }
@@ -293,21 +293,21 @@ fn add_graph_edge_from_expr(
             add_graph_edge_from_ref(ir, dst_id, r, edge_type, nm);
         }
         Expr::UIntInit(w, init) => {
-            let src_id = add_node(ir, None, None, Direction::Output, FirNodeType::UIntLiteral(*w, init.clone()));
+            let src_id = add_node(ir, None, None, TypeDirection::Outgoing, FirNodeType::UIntLiteral(*w, init.clone()));
             ir.graph.add_edge(src_id, dst_id, edge_type);
         }
         Expr::SIntInit(w, init) => {
-            let src_id = add_node(ir, None, None, Direction::Output, FirNodeType::SIntLiteral(*w, init.clone()));
+            let src_id = add_node(ir, None, None, TypeDirection::Outgoing, FirNodeType::SIntLiteral(*w, init.clone()));
             ir.graph.add_edge(src_id, dst_id, edge_type);
         }
         Expr::PrimOp1Expr(op, expr) => {
-            let op_id = add_node(ir, None, None, Direction::Output, FirNodeType::PrimOp1Expr(*op));
+            let op_id = add_node(ir, None, None, TypeDirection::Outgoing, FirNodeType::PrimOp1Expr(*op));
             let src_id = match expr.as_ref() {
                 Expr::UIntInit(w, init) => {
-                    add_node(ir, None, None, Direction::Output, FirNodeType::UIntLiteral(*w, init.clone()))
+                    add_node(ir, None, None, TypeDirection::Outgoing, FirNodeType::UIntLiteral(*w, init.clone()))
                 },
                 Expr::SIntInit(w, init) => {
-                    add_node(ir, None, None, Direction::Output, FirNodeType::SIntLiteral(*w, init.clone()))
+                    add_node(ir, None, None, TypeDirection::Outgoing, FirNodeType::SIntLiteral(*w, init.clone()))
                 }
                 _ => {
                     panic!("Connect rhs PrimOp1Expr expr not a const {:?}", rhs);
@@ -473,7 +473,7 @@ fn add_graph_edge_from_stmt(ir: &mut FirGraph, stmt: &Stmt, nm: &mut NodeMap) {
                 let phi_id = nm.phi_map.get(&root_ref)
                     .expect(&format!("Phi node for {:?} doesn't exist", root_ref));
 
-                let dont_care_id = add_node(ir, None, None, Direction::Output, FirNodeType::DontCare);
+                let dont_care_id = add_node(ir, None, None, TypeDirection::Outgoing, FirNodeType::DontCare);
                 let dont_care_edge = FirEdge::new(expr.clone(), None, FirEdgeType::DontCare);
                 ir.graph.add_edge(dont_care_id, *phi_id, dont_care_edge);
             } else {

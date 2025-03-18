@@ -1,28 +1,33 @@
 use chirrtl_parser::ast::*;
-use petgraph::Direction::Incoming;
 use std::fmt::{Debug, Display};
 use std::collections::VecDeque;
-use petgraph::{graph::{Graph, NodeIndex}, Direction::Outgoing};
+use petgraph::{graph::{Graph, NodeIndex}, Direction::{Outgoing, Incoming}};
 use petgraph::algo::is_isomorphic;
 use ptree::{TreeItem, Style, write_tree, print_tree};
 use indexmap::IndexMap;
 use std::fs::File;
 use std::io::BufWriter;
+use std::hash::{Hash, Hasher};
 use crate::common::graphviz::GraphViz;
 use crate::common::RippleIRErr;
 
+/// - Direction in the perspective of the noding holding this `TypeTree`
+/// ```
+/// o <--- Incoming -----
+/// o --- Outgoing  ---->
+/// ```
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum Direction {
+pub enum TypeDirection {
     #[default]
-    Output,
-    Input,
+    Outgoing,
+    Incoming,
 }
 
-impl Direction {
+impl TypeDirection {
     pub fn flip(&self) -> Self {
         match self {
-            Self::Input => Self::Output,
-            Self::Output => Self::Input,
+            Self::Incoming => Self::Outgoing,
+            Self::Outgoing => Self::Incoming,
         }
     }
 }
@@ -63,13 +68,13 @@ pub enum TypeTreeNodeType {
 #[derive(Debug, Clone, PartialEq, Hash)]
 pub struct TypeTreeNode {
     pub name: Option<Identifier>,
-    pub dir: Direction,
+    pub dir: TypeDirection,
     pub tpe: TypeTreeNodeType,
     pub id: Option<NodeIndex>
 }
 
 impl TypeTreeNode {
-    pub fn new(name: Option<Identifier>, dir: Direction, tpe: TypeTreeNodeType) -> Self {
+    pub fn new(name: Option<Identifier>, dir: TypeDirection, tpe: TypeTreeNodeType) -> Self {
         Self { name, dir, tpe, id: None, }
     }
 }
@@ -82,15 +87,27 @@ impl Display for TypeTreeNode {
     }
 }
 
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+#[derive(Debug, Clone, Eq)]
 pub struct TypeTreeNodePath {
-    dir: Direction,
+    dir: TypeDirection,
     tpe: TypeTreeNodeType,
     rc:  Option<Reference>,
 }
 
+impl Hash for TypeTreeNodePath {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.rc.hash(state);
+    }
+}
+
+impl PartialEq for TypeTreeNodePath {
+    fn eq(&self, other: &Self) -> bool {
+        self.rc == other.rc
+    }
+}
+
 impl TypeTreeNodePath {
-    pub fn new(dir: Direction, tpe: TypeTreeNodeType, rc: Option<Reference>) -> Self {
+    pub fn new(dir: TypeDirection, tpe: TypeTreeNodeType, rc: Option<Reference>) -> Self {
         Self { dir, tpe, rc }
     }
 
@@ -136,13 +153,13 @@ pub struct TypeTree {
 impl TypeTree {
     pub fn build_from_ground_type(gt: GroundType) -> Self {
         let mut ret = Self::default();
-        let node = TypeTreeNode::new(None, Direction::Output, TypeTreeNodeType::Ground(gt));
+        let node = TypeTreeNode::new(None, TypeDirection::Outgoing, TypeTreeNodeType::Ground(gt));
         let root = ret.graph.add_node(node);
         ret.root = Some(root);
         return ret;
     }
 
-    pub fn build_from_type(tpe: &Type, dir: Direction) -> Self {
+    pub fn build_from_type(tpe: &Type, dir: TypeDirection) -> Self {
         let mut ret = Self::default();
         ret.build_recursive(tpe, None, dir, None);
         return ret;
@@ -152,7 +169,7 @@ impl TypeTree {
         &mut self,
         node_tpe: TypeTreeNodeType,
         name: Option<Identifier>,
-        dir: Direction,
+        dir: TypeDirection,
         parent_opt: Option<NodeIndex>,
     ) -> NodeIndex {
         let child = self.graph.add_node(TypeTreeNode::new(name, dir, node_tpe));
@@ -172,7 +189,7 @@ impl TypeTree {
         &mut self,
         cur_tpe: &Type,
         name: Option<Identifier>,
-        dir: Direction,
+        dir: TypeDirection,
         parent_opt: Option<NodeIndex>
     ) {
         match cur_tpe {
@@ -602,7 +619,7 @@ mod test {
                     for port in m.ports.iter() {
                         match port.as_ref() {
                             Port::Output(_name, tpe, _info) => {
-                                let tt = TypeTree::build_from_type(tpe, Direction::Output);
+                                let tt = TypeTree::build_from_type(tpe, TypeDirection::Outgoing);
                                 assert_eq!(tt.node_name(&Identifier::Name("io".to_string()), NodeIndex::from(1)).to_string(), "io.value1".to_string());
                                 assert_eq!(tt.node_name(&Identifier::Name("io".to_string()), NodeIndex::from(2)).to_string(), "io.value2".to_string());
                                 assert_eq!(tt.node_name(&Identifier::Name("io".to_string()), NodeIndex::from(3)).to_string(), "io.loadingValues".to_string());
@@ -633,10 +650,10 @@ mod test {
                     for port in m.ports.iter() {
                         let port_type_tree = match port.as_ref() {
                             Port::Input(_name, tpe, _info) => {
-                                TypeTree::build_from_type(tpe, Direction::Input)
+                                TypeTree::build_from_type(tpe, TypeDirection::Incoming)
                             }
                             Port::Output(_name, tpe, _info) => {
-                                TypeTree::build_from_type(tpe, Direction::Output)
+                                TypeTree::build_from_type(tpe, TypeDirection::Outgoing)
                             }
                         };
                         port_type_tree.print_tree();
@@ -661,7 +678,7 @@ mod test {
                     for port in m.ports.iter() {
                         match port.as_ref() {
                             Port::Output(_name, tpe, _info) => {
-                                let typetree = TypeTree::build_from_type(tpe, Direction::Output);
+                                let typetree = TypeTree::build_from_type(tpe, TypeDirection::Outgoing);
                                 let _ = typetree.export_graphviz("./test-outputs/NestedBundle.typetree.pdf", None, false);
 
                                 let root = Reference::Ref(Identifier::Name("io".to_string()));
@@ -716,7 +733,7 @@ mod test {
                     for port in m.ports.iter() {
                         match port.as_ref() {
                             Port::Output(_name, tpe, _info) => {
-                                let typetree = TypeTree::build_from_type(tpe, Direction::Output);
+                                let typetree = TypeTree::build_from_type(tpe, TypeDirection::Outgoing);
 
                                 let _ = typetree.export_graphviz("./test-outputs/NestedBundle.typetree.pdf", None, false);
 
@@ -729,21 +746,21 @@ mod test {
                                 let mut expect: IndexMap<TypeTreeNodePath, NodeIndex> = IndexMap::new();
                                 expect.insert(
                                     TypeTreeNodePath::new(
-                                        Direction::Output,
+                                        TypeDirection::Outgoing,
                                         TypeTreeNodeType::Ground(GroundType::UInt),
                                         Some(Reference::Ref(Identifier::ID(Int::from(2))))),
                                     NodeIndex::from(45));
 
                                 expect.insert(
                                     TypeTreeNodePath::new(
-                                        Direction::Output,
+                                        TypeDirection::Outgoing,
                                         TypeTreeNodeType::Ground(GroundType::UInt),
                                         Some(Reference::Ref(Identifier::ID(Int::from(1))))),
                                     NodeIndex::from(44));
 
                                 expect.insert(
                                     TypeTreeNodePath::new(
-                                        Direction::Output,
+                                        TypeDirection::Outgoing,
                                         TypeTreeNodeType::Ground(GroundType::UInt),
                                         Some(Reference::Ref(Identifier::ID(Int::from(0))))),
                                     NodeIndex::from(43));

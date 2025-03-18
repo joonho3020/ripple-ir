@@ -17,7 +17,7 @@ make_output_dir:
 
 [group: 'test']
 test: uncompress make_output_dir
-  cargo nextest run --release
+  cargo nextest run --release --no-fail-fast
 
 [group: 'test']
 test_debug: uncompress make_output_dir
