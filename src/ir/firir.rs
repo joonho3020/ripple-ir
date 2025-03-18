@@ -126,14 +126,15 @@ impl FirGraph {
     }
 }
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Clone)]
 pub struct FirIR {
+    pub name: Identifier,
     pub graphs: IndexMap<Identifier, FirGraph>
 }
 
 impl FirIR {
-    pub fn new() -> Self {
-        Self { graphs: IndexMap::new() }
+    pub fn new(name: Identifier) -> Self {
+        Self { name, graphs: IndexMap::new() }
     }
 }
 

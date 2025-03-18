@@ -27,7 +27,7 @@ struct NodeMap {
 
 /// Create a graph based IR from the FIRRTL AST
 pub fn from_circuit(ast: &Circuit) -> FirIR {
-    let mut ret = FirIR::default();
+    let mut ret = FirIR::new(ast.name.clone());
     for module in ast.modules.iter() {
         let (name, ripple_graph) = from_circuit_module(module);
         ret.graphs.insert(name.clone(), ripple_graph);

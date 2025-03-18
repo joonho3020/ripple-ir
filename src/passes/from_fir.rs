@@ -8,7 +8,7 @@ use crate::ir::*;
 
 
 pub fn from_fir(fir: &FirIR) -> RippleIR {
-    let mut ret = RippleIR::default();
+    let mut ret = RippleIR::new(fir.name.clone());
     for (name, fgraph) in fir.graphs.iter() {
         let rg = from_fir_graph(fgraph);
         ret.graphs.insert(name.clone(), rg);
@@ -86,8 +86,9 @@ mod test {
     fn run(input: &str) -> Result<(), RippleIRErr> {
         let fir = run_passes_from_filepath(input)?;
         let rir = from_fir(&fir);
-        for (name, rg) in rir.graphs.iter() {
-            rg.export_graphviz(&format!("./test-outputs/{}-{:?}.fir2rir.pdf", input, name), None, true)?;
+        for (module, rg) in rir.graphs.iter() {
+            rg.export_graphviz(&format!("./test-outputs/{}-{}.fir2rir.pdf",
+                    rir.name.to_string(), module.to_string()), None, true)?;
         }
         Ok(())
     }

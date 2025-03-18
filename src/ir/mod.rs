@@ -208,10 +208,10 @@ impl RippleGraph {
                 _ => panic!("Type tree leaves doesn't have Ground, got {:?}", leaf)
             };
 
-            println!("leaf {:?}", leaf);
+            let leaf_name = my_ttree.node_name(&name, leaf_id);
 
             // Insert new graph node
-            let rgnode = RippleNode::new(Some(leaf.name.clone().unwrap()), nt.clone(), tg.clone());
+            let rgnode = RippleNode::new(Some(leaf_name), nt.clone(), tg.clone());
             let rg_id = self.add_node(rgnode);
 
             // Add this node to the ttree_idx_map
@@ -274,14 +274,15 @@ impl RippleGraph {
     }
 }
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Clone)]
 pub struct RippleIR {
+    pub name: Identifier,
     pub graphs: IndexMap<Identifier, RippleGraph>
 }
 
 impl RippleIR {
-    pub fn new() -> Self {
-        Self { graphs: IndexMap::new() }
+    pub fn new(name: Identifier) -> Self {
+        Self { name, graphs: IndexMap::new() }
     }
 }
 

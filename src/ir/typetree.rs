@@ -1,4 +1,5 @@
 use chirrtl_parser::ast::*;
+use petgraph::Direction::Incoming;
 use std::fmt::{Debug, Display};
 use std::collections::VecDeque;
 use petgraph::{graph::{Graph, NodeIndex}, Direction::Outgoing};
@@ -264,6 +265,43 @@ impl TypeTree {
                 println!("TypeTree empty");
             }
         }
+    }
+
+    fn id_identifier_chain_recursive(&self, id: NodeIndex, chain: &mut String) {
+        let parents = self.graph.neighbors_directed(id, Incoming);
+        for pid in parents {
+            self.id_identifier_chain_recursive(pid, chain);
+        }
+
+        let node = self.graph.node_weight(id).unwrap();
+
+        let name = match &node.name {
+            Some(x) => {
+                match x {
+                    Identifier::Name(y) => format!(".{}", y),
+                    Identifier::ID(y) => format!("[{}]", y.to_u32())
+                }
+            }
+            None => "".to_string()
+        };
+
+        match node.tpe {
+            TypeTreeNodeType::Ground(..) => {
+                chain.push_str(&name);
+            }
+            TypeTreeNodeType::Fields => {
+                chain.push_str(&name);
+            }
+            TypeTreeNodeType::Array => {
+                chain.push_str(&name);
+            }
+        }
+    }
+
+    pub fn node_name(&self, root: &Identifier, id: NodeIndex) -> Identifier {
+        let mut ret = root.to_string();
+        self.id_identifier_chain_recursive(id, &mut ret);
+        return Identifier::Name(ret);
     }
 
     fn ref_identifier_chain_recursive(reference: &Reference, chain: &mut VecDeque<Identifier>) {
@@ -554,6 +592,37 @@ mod test {
     use chirrtl_parser::parse_circuit;
 
     #[test]
+    fn check_gcd_name() -> Result<(), RippleIRErr> {
+        let source = std::fs::read_to_string("./test-inputs/GCD.fir")?;
+        let circuit = parse_circuit(&source).expect("firrtl parser");
+
+        for module in circuit.modules.iter() {
+            match module.as_ref() {
+                CircuitModule::Module(m) => {
+                    for port in m.ports.iter() {
+                        match port.as_ref() {
+                            Port::Output(_name, tpe, _info) => {
+                                let tt = TypeTree::build_from_type(tpe, Direction::Output);
+                                assert_eq!(tt.node_name(&Identifier::Name("io".to_string()), NodeIndex::from(1)).to_string(), "io.value1".to_string());
+                                assert_eq!(tt.node_name(&Identifier::Name("io".to_string()), NodeIndex::from(2)).to_string(), "io.value2".to_string());
+                                assert_eq!(tt.node_name(&Identifier::Name("io".to_string()), NodeIndex::from(3)).to_string(), "io.loadingValues".to_string());
+                                assert_eq!(tt.node_name(&Identifier::Name("io".to_string()), NodeIndex::from(4)).to_string(), "io.outputGCD".to_string());
+                                assert_eq!(tt.node_name(&Identifier::Name("io".to_string()), NodeIndex::from(5)).to_string(), "io.outputValid".to_string());
+                            }
+                            _ => {
+                            }
+                        };
+                    }
+
+                }
+                CircuitModule::ExtModule(_e) => {
+                }
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
     fn print_type_tree() -> Result<(), RippleIRErr> {
         let source = std::fs::read_to_string("./test-inputs/NestedBundle.fir")?;
         let circuit = parse_circuit(&source).expect("firrtl parser");
@@ -593,7 +662,7 @@ mod test {
                         match port.as_ref() {
                             Port::Output(_name, tpe, _info) => {
                                 let typetree = TypeTree::build_from_type(tpe, Direction::Output);
-                                // let _ = typetree.export_graphviz("./test-outputs/NestedBundle.typetree.pdf", None, false);
+                                let _ = typetree.export_graphviz("./test-outputs/NestedBundle.typetree.pdf", None, false);
 
                                 let root = Reference::Ref(Identifier::Name("io".to_string()));
                                 let subtree_root = typetree.subtree_root(&root);
@@ -603,13 +672,22 @@ mod test {
                                 let subtree_root = typetree.subtree_root(&g);
                                 assert_eq!(subtree_root, Some(NodeIndex::from(1)));
 
+                                let g_name = typetree.node_name(&Identifier::Name("io".to_string()), subtree_root.unwrap());
+                                assert_eq!(g_name.to_string(), "io.g".to_string());
+
                                 let g1 = Reference::RefIdxInt(Box::new(g), Int::from(1));
                                 let subtree_root = typetree.subtree_root(&g1);
                                 assert_eq!(subtree_root, Some(NodeIndex::from(24)));
 
+                                let g1_name = typetree.node_name(&Identifier::Name("io".to_string()), subtree_root.unwrap());
+                                assert_eq!(g1_name.to_string(), "io.g[1]".to_string());
+
                                 let g1f = Reference::RefDot(Box::new(g1), Identifier::Name("f".to_string()));
                                 let subtree_root = typetree.subtree_root(&g1f);
                                 assert_eq!(subtree_root, Some(NodeIndex::from(42)));
+
+                                let g1f_name = typetree.node_name(&Identifier::Name("io".to_string()), subtree_root.unwrap());
+                                assert_eq!(g1f_name.to_string(), "io.g[1].f".to_string());
 
                                 let subtree_leaves = typetree.subtree_leaves(&g1f);
                                 assert_eq!(subtree_leaves, vec![NodeIndex::from(45), NodeIndex::from(44), NodeIndex::from(43)]);
