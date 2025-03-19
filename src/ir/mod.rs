@@ -4,9 +4,10 @@ pub mod firir;
 
 use chirrtl_parser::ast::*;
 use derivative::Derivative;
+use petgraph::visit::EdgeRef;
 use std::fmt::Display;
 use std::hash::Hash;
-use indexmap::IndexMap;
+use indexmap::{IndexMap, IndexSet};
 use petgraph::graph::{Graph, NodeIndex, EdgeIndex};
 use crate::common::graphviz::GraphViz;
 use crate::ir::whentree::Condition;
@@ -180,6 +181,18 @@ impl From<&FirEdgeType> for RippleEdgeType {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct AggEdgeKey {
+    pub dst_tree: TreeIdx,
+    pub et: RippleEdgeType,
+}
+
+impl AggEdgeKey {
+    pub fn new(dst_tree: TreeIdx, et: RippleEdgeType) -> Self {
+        Self { dst_tree, et }
+    }
+}
+
 type IRGraph = Graph<RippleNode, RippleEdge>;
 
 pub type TreeIdx = u32;
@@ -213,6 +226,7 @@ pub struct RippleGraph {
     pub graph: IRGraph,
     pub ttree_idx_map: IndexMap<NodeIndex, TypeTreeIdx>,
     pub root_ref_ttree_idx_map: IndexMap<RootTypeTreeKey, TreeIdx>,
+    pub ttree_idx_root_ref_map: IndexMap<TreeIdx, RootTypeTreeKey>,
     pub ttrees: Vec<TypeTree>,
 }
 
@@ -222,6 +236,7 @@ impl RippleGraph {
             graph: IRGraph::new(),
             ttree_idx_map: IndexMap::new(),
             root_ref_ttree_idx_map: IndexMap::new(),
+            ttree_idx_root_ref_map: IndexMap::new(),
             ttrees: vec![],
         }
     }
@@ -270,6 +285,7 @@ impl RippleGraph {
 
         let root_key = RootTypeTreeKey::new(name, nt);
         self.root_ref_ttree_idx_map.insert(root_key.clone(), ttree_id);
+        self.ttree_idx_root_ref_map.insert(ttree_id, root_key.clone());
         return root_key;
     }
 
@@ -381,6 +397,98 @@ impl RippleGraph {
         for edge in edges {
             self.add_edge(edge.0, edge.1, edge.2);
         }
+    }
+
+    pub fn check_node_type(&self) {
+        for ttree in self.ttrees.iter() {
+            let leaf_ids = ttree.all_leaves();
+            let mut prev_nt_opt: Option<RippleNodeType> = None;
+            for leaf_id in leaf_ids {
+                let leaf = ttree.node_weight(leaf_id).unwrap();
+                let ir_id = leaf.id.unwrap();
+                let ir_node = self.graph.node_weight(ir_id).unwrap();
+                if let Some(prev_nt) = prev_nt_opt.clone() {
+                    if ir_node.tpe != prev_nt {
+                        ttree.print_tree();
+                        panic!("Nodes under the same ttree has different types {:?} {:?}", ir_node, prev_nt);
+                    }
+                } else {
+                    prev_nt_opt = Some(ir_node.tpe.clone());
+                }
+            }
+        }
+    }
+
+    pub fn node_indices_agg(&self) -> Vec<TreeIdx> {
+        (0..self.ttrees.len() as u32).collect()
+    }
+
+    pub fn node_weight_agg(&self, id: TreeIdx) -> (Option<&TypeTree>, Option<&RootTypeTreeKey>) {
+        (self.ttrees.get(id as usize), self.ttree_idx_root_ref_map.get(&id))
+    }
+
+    pub fn neighbors_agg(&self, id: TreeIdx) -> Vec<TreeIdx> {
+        let ttree = self.ttrees.get(id as usize).unwrap();
+        let leaf_ids = ttree.all_leaves();
+
+        let mut neighbor_ttree_ids: IndexSet<TreeIdx> = IndexSet::new();
+        for leaf_id in leaf_ids {
+            let leaf = ttree.graph.node_weight(leaf_id).unwrap();
+            let ir_id = leaf.id.unwrap();
+
+            let neighbor_ids = self.graph.neighbors(ir_id);
+            for nid in neighbor_ids {
+                let neighbor_ttree_idx = self.ttree_idx_map.get(&nid).unwrap();
+                neighbor_ttree_ids.insert(neighbor_ttree_idx.tree_id);
+            }
+        }
+        return neighbor_ttree_ids.iter().map(|x| *x).collect();
+    }
+
+    pub fn neighbors_directed_agg(&self, id: TreeIdx, dir: petgraph::Direction) -> Vec<TreeIdx> {
+        let ttree = self.ttrees.get(id as usize).unwrap();
+        let leaf_ids = ttree.all_leaves();
+
+        let mut neighbor_ttree_ids: IndexSet<TreeIdx> = IndexSet::new();
+        for leaf_id in leaf_ids {
+            let leaf = ttree.graph.node_weight(leaf_id).unwrap();
+            let ir_id = leaf.id.unwrap();
+
+            let neighbor_ids = self.graph.neighbors_directed(ir_id, dir);
+            for nid in neighbor_ids {
+                let neighbor_ttree_idx = self.ttree_idx_map.get(&nid).unwrap();
+                neighbor_ttree_ids.insert(neighbor_ttree_idx.tree_id);
+            }
+        }
+        return neighbor_ttree_ids.iter().map(|x| *x).collect();
+    }
+
+    pub fn edges_directed_agg(&self, id: TreeIdx, dir: petgraph::Direction) -> IndexMap<AggEdgeKey, Vec<EdgeIndex>> {
+        let ttree = self.ttrees.get(id as usize).unwrap();
+        let leaf_ids = ttree.all_leaves();
+
+        let mut ttree_edge_map: IndexMap<AggEdgeKey, Vec<EdgeIndex>> = IndexMap::new();
+        for leaf_id in leaf_ids {
+            let leaf = ttree.graph.node_weight(leaf_id).unwrap();
+            let ir_id = leaf.id.unwrap();
+
+            let edge_ids = self.graph.edges_directed(ir_id, dir);
+            for eid in edge_ids {
+                let (_src, dst) = self.graph.edge_endpoints(eid.id()).unwrap();
+                let neighbor_ttree_idx = self.ttree_idx_map.get(&dst).unwrap();
+                let rir_edge = self.graph.edge_weight(eid.id()).unwrap();
+
+                let edge_map_key = AggEdgeKey::new(neighbor_ttree_idx.tree_id, rir_edge.et.clone());
+                if !ttree_edge_map.contains_key(&edge_map_key) {
+                    ttree_edge_map.insert(edge_map_key.clone(), vec![]);
+                }
+                ttree_edge_map
+                    .get_mut(&edge_map_key)
+                    .unwrap()
+                    .push(eid.id());
+            }
+        }
+        return ttree_edge_map;
     }
 }
 
