@@ -2,10 +2,8 @@ use chirrtl_parser::ast::*;
 use firir::FirGraph;
 use indexmap::{IndexMap, IndexSet};
 use petgraph::graph::NodeIndex;
-use crate::common::graphviz::GraphViz;
 use crate::ir::firir::{FirEdgeType, FirIR};
 use crate::ir::*;
-
 
 pub fn from_fir(fir: &FirIR) -> RippleIR {
     let mut ret = RippleIR::new(fir.name.clone());
@@ -26,7 +24,7 @@ struct NameSpace {
 impl NameSpace {
     pub fn new(fg: &FirGraph) -> Self {
         let mut used: IndexSet<Identifier> = IndexSet::new();
-        for id in fg.node_indices() {
+        for id in fg.graph.node_indices() {
             let node = fg.graph.node_weight(id).unwrap();
             if let Some(name) = &node.name {
                 used.insert(name.clone());
@@ -69,8 +67,8 @@ fn from_fir_graph(fg: &FirGraph) -> RippleGraph {
     let mut ns = NameSpace::new(fg);
 
     // Create nodes
-    for id in fg.node_indices() {
-        let node = fg.node_weight(id).unwrap();
+    for id in fg.graph.node_indices() {
+        let node = fg.graph.node_weight(id).unwrap();
         let name = if let Some(name) = &node.name {
             name.clone()
         } else {
@@ -86,9 +84,9 @@ fn from_fir_graph(fg: &FirGraph) -> RippleGraph {
     }
 
     // Add edges
-    for id in fg.edge_indices() {
-        let edge = fg.edge_weight(id).unwrap();
-        let ep = fg.edge_endpoints(id).unwrap();
+    for id in fg.graph.edge_indices() {
+        let edge = fg.graph.edge_weight(id).unwrap();
+        let ep = fg.graph.edge_endpoints(id).unwrap();
         let src = ep.0;
         let dst = ep.1;
 
@@ -105,14 +103,14 @@ fn from_fir_graph(fg: &FirGraph) -> RippleGraph {
                 if single_edge(&edge.et) {
                     rg.add_single_edge(
                         src_key,
-                        src_ref,
+                        &src_ref,
                         dst_key,
                         dst_ref,
                         RippleEdgeType::from(&edge.et));
                 } else {
                     rg.add_aggregate_edge(
                         src_key,
-                        src_ref,
+                        &src_ref,
                         dst_key,
                         dst_ref,
                         RippleEdgeType::from(&edge.et));
@@ -122,14 +120,14 @@ fn from_fir_graph(fg: &FirGraph) -> RippleGraph {
                 if single_edge(&edge.et) {
                     rg.add_single_edge(
                         src_key,
-                        src_ref,
+                        &src_ref,
                         dst_key,
                         &Reference::Ref(dst_key.name.clone()),
                         RippleEdgeType::from(&edge.et));
                 } else {
                     rg.add_aggregate_edge(
                         src_key,
-                        src_ref,
+                        &src_ref,
                         dst_key,
                         &Reference::Ref(dst_key.name.clone()),
                         RippleEdgeType::from(&edge.et));
@@ -162,6 +160,7 @@ fn from_fir_graph(fg: &FirGraph) -> RippleGraph {
 mod test {
     use crate::common::RippleIRErr;
     use crate::passes::runner::run_passes_from_filepath;
+    use crate::common::graphviz::GraphViz;
     use super::*;
 
     fn run(input: &str) -> Result<(), RippleIRErr> {

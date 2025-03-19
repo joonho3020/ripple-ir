@@ -8,7 +8,7 @@ use indexmap::IndexMap;
 use std::fs::File;
 use std::io::BufWriter;
 use std::hash::{Hash, Hasher};
-use crate::common::graphviz::GraphViz;
+use crate::common::graphviz::*;
 use crate::common::RippleIRErr;
 
 /// - Direction in the perspective of the noding holding this `TypeTree`
@@ -539,7 +539,7 @@ impl TypeTree {
     }
 }
 
-impl GraphViz<TypeTreeNode, TypeTreeEdge> for TypeTree {
+impl DefaultGraphVizCore<TypeTreeNode, TypeTreeEdge> for TypeTree {
     fn node_indices(self: &Self) -> petgraph::graph::NodeIndices {
         self.graph.node_indices()
     }
@@ -561,6 +561,15 @@ impl GraphViz<TypeTreeNode, TypeTreeEdge> for TypeTree {
     }
 }
 
+impl GraphViz for TypeTree {
+    fn graphviz_string(
+        self: &Self,
+        node_attr: Option<&crate::common::graphviz::NodeAttributeMap>
+    ) -> Result<String, std::io::Error> {
+        DefaultGraphVizCore::graphviz_string(self, node_attr)
+    }
+}
+
 #[derive(Clone)]
 pub struct TypeTreePrinter<'a> {
     pub tree: &'a Graph<TypeTreeNode, TypeTreeEdge>,
@@ -568,10 +577,10 @@ pub struct TypeTreePrinter<'a> {
 }
 
 impl<'a> TypeTreePrinter<'a> {
-    pub fn new(g: &'a Graph<TypeTreeNode, TypeTreeEdge>, idx: NodeIndex) -> Self {
+    pub fn new(tree: &'a Graph<TypeTreeNode, TypeTreeEdge>, idx: NodeIndex) -> Self {
         Self {
-            tree: g,
-            idx: idx,
+            tree,
+            idx,
         }
     }
 
@@ -612,9 +621,8 @@ impl<'a> TreeItem for TypeTreePrinter<'a> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::{common::RippleIRErr, ir::firir::FirNodeType};
+    use crate::common::RippleIRErr;
     use chirrtl_parser::parse_circuit;
-    use graphviz_rust::dot_generator::subgraph;
 
     #[test]
     fn check_gcd_name() -> Result<(), RippleIRErr> {

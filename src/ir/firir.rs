@@ -3,7 +3,7 @@ use derivative::Derivative;
 use std::fmt::Display;
 use indexmap::IndexMap;
 use petgraph::graph::{Graph, NodeIndex};
-use crate::common::graphviz::GraphViz;
+use crate::common::graphviz::{DefaultGraphVizCore, GraphViz};
 use crate::common::RippleIRErr;
 use crate::ir::typetree::TypeTree;
 use crate::ir::whentree::Condition;
@@ -149,7 +149,7 @@ impl FirIR {
     }
 }
 
-impl GraphViz<FirNode, FirEdge> for FirGraph {
+impl DefaultGraphVizCore<FirNode, FirEdge> for FirGraph {
     fn node_indices(self: &Self) -> petgraph::graph::NodeIndices {
         self.graph.node_indices()
     }
@@ -168,5 +168,14 @@ impl GraphViz<FirNode, FirEdge> for FirGraph {
 
     fn edge_weight(self: &Self, id: petgraph::prelude::EdgeIndex) -> Option<&FirEdge> {
         self.graph.edge_weight(id)
+    }
+}
+
+impl GraphViz for FirGraph {
+    fn graphviz_string(
+            self: &Self,
+            node_attr: Option<&crate::common::graphviz::NodeAttributeMap>
+    ) -> Result<String, std::io::Error> {
+        DefaultGraphVizCore::graphviz_string(self, node_attr)
     }
 }

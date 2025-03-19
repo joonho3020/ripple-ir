@@ -78,9 +78,17 @@ pub enum RippleNodeType {
     Phi,
 }
 
-impl Display for RippleNode {
+impl Display for RippleNodeType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let original = format!("{:?}", self);
+        let clean_for_dot = original.replace('"', "");
+        write!(f, "{}", clean_for_dot)
+    }
+}
+
+impl Display for RippleNode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let original = format!("{:?}\n{:?}\n{:?}", self.name, self.tpe, self.tg);
         let clean_for_dot = original.replace('"', "");
         write!(f, "{}", clean_for_dot)
     }
@@ -153,7 +161,7 @@ pub enum RippleEdgeType {
 
 impl Display for RippleEdge {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let original = format!("{:?}", self);
+        let original = format!("{:?}", self.et);
         let clean_for_dot = original.replace('"', "");
         write!(f, "{}", clean_for_dot)
     }
@@ -404,7 +412,7 @@ impl RippleGraph {
             let leaf_ids = ttree.all_leaves();
             let mut prev_nt_opt: Option<RippleNodeType> = None;
             for leaf_id in leaf_ids {
-                let leaf = ttree.node_weight(leaf_id).unwrap();
+                let leaf = ttree.graph.node_weight(leaf_id).unwrap();
                 let ir_id = leaf.id.unwrap();
                 let ir_node = self.graph.node_weight(ir_id).unwrap();
                 if let Some(prev_nt) = prev_nt_opt.clone() {
@@ -504,24 +512,95 @@ impl RippleIR {
     }
 }
 
-impl GraphViz<RippleNode, RippleEdge> for RippleGraph {
-    fn node_indices(self: &Self) -> petgraph::graph::NodeIndices {
-        self.graph.node_indices()
-    }
+impl GraphViz for RippleGraph {
+    fn graphviz_string(
+        self: &Self,
+        node_attr: Option<&crate::common::graphviz::NodeAttributeMap>
+    ) -> Result<String, std::io::Error> {
+        use graphviz_rust::{
+            attributes::{rankdir, EdgeAttributes, GraphAttributes, NodeAttributes},
+            dot_generator::{edge, id, node_id},
+            dot_structures::Id,
+            dot_structures::Stmt as DotStmt,
+            dot_structures::Subgraph as DotSubgraph,
+            dot_structures::Node as DotNode,
+            dot_structures::NodeId as DotNodeId,
+            dot_structures::*,
+            printer::{DotPrinter, PrinterContext}
+        };
 
-    fn node_weight(self: &Self, id: NodeIndex) -> Option<&RippleNode> {
-        self.graph.node_weight(id)
-    }
+        let mut g = graphviz_rust::dot_structures::Graph::DiGraph {
+            id: graphviz_rust::dot_generator::id!(""),
+            strict: false,
+            stmts: vec![
+                DotStmt::from(GraphAttributes::rankdir(rankdir::TB)),
+                DotStmt::from(GraphAttributes::splines(true)),
+                DotStmt::from(GraphAttributes::mindist(2.0)),
+                DotStmt::from(GraphAttributes::ranksep(5.0)),
+            ]
+        };
 
-    fn edge_indices(self: &Self) -> petgraph::graph::EdgeIndices {
-        self.graph.edge_indices()
-    }
+        // Add nodes
+        for (ttree_idx, ttree) in self.ttrees.iter().enumerate() {
+            let leaves = ttree.all_leaves();
+            let root_info = self.ttree_idx_root_ref_map.get(&(ttree_idx as TreeIdx)).unwrap();
 
-    fn edge_endpoints(self: &Self, id: petgraph::prelude::EdgeIndex) -> Option<(NodeIndex, NodeIndex)> {
-        self.graph.edge_endpoints(id)
-    }
+            // Create graphviz subgraph to group nodes together
+            let subgraph_name = format!("\"cluster_{}\"", root_info.name).replace('"', "");
+            let mut subgraph = DotSubgraph {
+                id: Id::Plain(subgraph_name),
+                stmts: vec![]
+            };
 
-    fn edge_weight(self: &Self, id: petgraph::prelude::EdgeIndex) -> Option<&RippleEdge> {
-        self.graph.edge_weight(id)
+            // Collect all flattened nodes under the current aggregate node
+            for ttree_id in leaves.iter() {
+                let leaf = ttree.graph.node_weight(*ttree_id).unwrap();
+                let rir_id = leaf.id.unwrap();
+                let rir_node = self.graph.node_weight(rir_id).unwrap();
+
+                let node_label_inner = format!("{}", rir_node).to_string().replace('"', "");
+                let node_label = format!("\"{}\"", node_label_inner);
+
+
+                // Create graphviz node
+                let mut gv_node = DotNode {
+                    id: DotNodeId(Id::Plain(rir_id.index().to_string()), None),
+                    attributes: vec![
+                        NodeAttributes::label(node_label)
+                    ],
+                };
+
+                // Add node attribute if it exists
+                if node_attr.is_some() {
+                    let na = node_attr.unwrap();
+                    if na.contains_key(&rir_id) {
+                        gv_node.attributes.push(na.get(&rir_id).unwrap().clone());
+                    }
+                }
+                subgraph.stmts.push(DotStmt::from(gv_node));
+            }
+            g.add_stmt(DotStmt::from(DotSubgraph::from(subgraph)));
+        }
+
+        // Add edges
+        for eid in self.graph.edge_indices() {
+            let ep = self.graph.edge_endpoints(eid).unwrap();
+            let w = self.graph.edge_weight(eid).unwrap();
+            // Create graphviz edge
+            let mut e = edge!(
+                node_id!(ep.0.index().to_string()) =>
+                node_id!(ep.1.index().to_string()));
+
+            let edge_label_inner = format!("{}", w).to_string().replace('"', "");
+            let edge_label = format!("\"{}\"", edge_label_inner);
+
+            e.attributes.push(
+                EdgeAttributes::label(edge_label));
+            g.add_stmt(Stmt::Edge(e));
+        }
+
+        // Export to pdf
+        let dot = g.print(&mut PrinterContext::new(true, 4, "\n".to_string(), 90));
+        Ok(dot)
     }
 }

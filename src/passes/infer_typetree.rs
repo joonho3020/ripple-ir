@@ -6,7 +6,6 @@ use petgraph::visit::{EdgeRef, VisitMap, Visitable};
 use petgraph::Undirected;
 use petgraph::prelude::Dfs;
 use indexmap::IndexMap;
-use crate::common::graphviz::GraphViz;
 use crate::common::RippleIRErr;
 use crate::ir::firir::*;
 use crate::ir::typetree::*;
@@ -364,7 +363,7 @@ mod test {
         let ir = run_passes_from_filepath(input)?;
         check_typetree_inference(&ir)?;
 
-        for (module, fg) in ir.graphs.iter() {
+        for (_module, fg) in ir.graphs.iter() {
             for id in fg.graph.node_indices() {
                 let node = fg.graph.node_weight(id).unwrap();
                 println!("-----------------------");

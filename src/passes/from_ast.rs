@@ -386,7 +386,6 @@ fn add_graph_edge_from_stmt(ir: &mut FirGraph, stmt: &Stmt, nm: &mut NodeMap) {
                     let mem_ref  = Reference::Ref(mem.clone());
 
                     let port_id = nm.node_map.get(&port_ref).unwrap();
-                    let mem_id  = nm.node_map.get(&mem_ref).unwrap();
 
                     let port_expr = Expr::Reference(port_ref);
                     let mem_expr = Expr::Reference(mem_ref);
@@ -699,9 +698,7 @@ mod test {
         let parser = CircuitModuleParser::new();
 
         let ast = parser.parse(lexer).expect("TOWORK");
-        let (_, graph) = from_circuit_module(&ast);
-        let dot = graph.graphviz_string(None)?;
-// println!("{}", dot);
+        let (_, _graph) = from_circuit_module(&ast);
 
         Ok(())
     }

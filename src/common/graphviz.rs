@@ -16,7 +16,7 @@ pub type NodeAttributeMap = IndexMap<NodeIndex, Attribute>;
 
 /// By implementing this trait, you can easily export petgraph graphs
 /// into a Graphviz dot format
-pub trait GraphViz<N, E>
+pub trait DefaultGraphVizCore<N, E>
 where
     N: Display,
     E: Display,
@@ -26,23 +26,6 @@ where
     fn edge_indices(self: &Self) -> EdgeIndices;
     fn edge_endpoints(self: &Self, id: EdgeIndex) -> Option<(NodeIndex, NodeIndex)>;
     fn edge_weight(self: &Self, id: EdgeIndex) -> Option<&E>;
-
-    /// Exports the graph into a graphviz pdf output
-    /// - path: should include the filename
-    /// - node_attr: adds additional node attributes when provided
-    fn export_graphviz(
-        self: &Self,
-        path: &str,
-        node_attr: Option<&NodeAttributeMap>,
-        debug: bool
-    ) -> Result<String, std::io::Error> {
-        let dot = self.graphviz_string(node_attr)?;
-        if debug {
-            println!("{}", dot);
-        }
-        exec_dot(dot.clone(), vec![Format::Pdf.into(), CommandArg::Output(path.to_string())])?;
-        return Ok(dot);
-    }
 
     fn graphviz_string(
         self: &Self,
@@ -96,5 +79,29 @@ where
         // Export to pdf
         let dot = g.print(&mut PrinterContext::new(true, 4, "\n".to_string(), 90));
         Ok(dot)
+    }
+}
+
+pub trait GraphViz {
+    fn graphviz_string(
+        self: &Self,
+        node_attr: Option<&NodeAttributeMap>
+    ) -> Result<String, std::io::Error>;
+
+    /// Exports the graph into a graphviz pdf output
+    /// - path: should include the filename
+    /// - node_attr: adds additional node attributes when provided
+    fn export_graphviz(
+        self: &Self,
+        path: &str,
+        node_attr: Option<&NodeAttributeMap>,
+        debug: bool
+    ) -> Result<String, std::io::Error> {
+        let dot = self.graphviz_string(node_attr)?;
+        if debug {
+            println!("{}", dot);
+        }
+        exec_dot(dot.clone(), vec![Format::Pdf.into(), CommandArg::Output(path.to_string())])?;
+        return Ok(dot);
     }
 }
