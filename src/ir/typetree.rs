@@ -96,6 +96,7 @@ pub struct TypeTreeNodePath {
 
 impl Hash for TypeTreeNodePath {
     fn hash<H: Hasher>(&self, state: &mut H) {
+        self.tpe.hash(state);
         self.rc.hash(state);
     }
 }
@@ -377,8 +378,14 @@ impl TypeTree {
             }
         }
 
-        assert!(chain.is_empty(), "Reference {:?} is not inclusive in type tree", reference);
-        assert!(q.is_empty(),     "Queue {:?} still contains elements after finding subtree", q);
+        if !chain.is_empty() {
+            self.print_tree();
+            panic!("Reference {:?} is not inclusive in type tree", reference);
+        }
+        if !q.is_empty() {
+            self.print_tree();
+            panic!("Queue {:?} still contains elements after finding subtree", q);
+        }
 
         return subtree_root_opt;
     }

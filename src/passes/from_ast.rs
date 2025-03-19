@@ -535,7 +535,13 @@ fn connect_phi_in_edges_from_stmts(ir: &mut FirGraph, stmts: &Stmts, nm: &mut No
                             .expect(&format!("Phi node for {:?} doesn't exist", root_ref));
 
                         let dont_care_id = add_node(ir, None, None, TypeDirection::Outgoing, FirNodeType::DontCare);
-                        let dont_care_edge = FirEdge::new(expr.clone(), None, FirEdgeType::DontCare);
+
+                        // NOTE: Use Reference(root_ref) as the source of this.
+                        // This is because there is no expression to represent a DontCare node,
+                        // but we know that the DontCare has a TypeTree with only the root node.
+                        // Hence, the Expr::Reference(root_ref) that is passed on to
+                        // TypeTree for various lookups will just be ignored
+                        let dont_care_edge = FirEdge::new(Expr::Reference(root_ref), Some(r.clone()), FirEdgeType::DontCare);
                         ir.graph.add_edge(dont_care_id, *phi_id, dont_care_edge);
                     } else {
                         panic!("Invalidate expr {:?} is not a reference", expr);

@@ -4,6 +4,7 @@ use std::fmt::Display;
 use indexmap::IndexMap;
 use petgraph::graph::{Graph, NodeIndex};
 use crate::common::graphviz::GraphViz;
+use crate::common::RippleIRErr;
 use crate::ir::typetree::TypeTree;
 use crate::ir::whentree::Condition;
 use crate::ir::PhiPriority;
@@ -135,6 +136,16 @@ pub struct FirIR {
 impl FirIR {
     pub fn new(name: Identifier) -> Self {
         Self { name, graphs: IndexMap::new() }
+    }
+
+    pub fn export(&self, outdir: &str, pfx: &str) -> Result<(), RippleIRErr> {
+        for (module, fg) in self.graphs.iter() {
+            fg.export_graphviz(
+                &format!("{}/{}-{}.{}.pdf", outdir, self.name.to_string(), module, pfx),
+                None,
+                false)?;
+        }
+        Ok(())
     }
 }
 

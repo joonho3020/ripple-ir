@@ -3,7 +3,7 @@ use firir::FirGraph;
 use indexmap::{IndexMap, IndexSet};
 use petgraph::graph::NodeIndex;
 use crate::common::graphviz::GraphViz;
-use crate::ir::firir::FirIR;
+use crate::ir::firir::{FirEdgeType, FirIR};
 use crate::ir::*;
 
 
@@ -50,6 +50,19 @@ impl NameSpace {
     }
 }
 
+fn single_edge(et: &FirEdgeType) -> bool {
+    match et {
+        FirEdgeType::MuxCond |
+        FirEdgeType::Clock   |
+        FirEdgeType::Reset   |
+        FirEdgeType::DontCare   |
+        FirEdgeType::PhiSel => {
+            true
+        }
+        _ => false
+    }
+}
+
 fn from_fir_graph(fg: &FirGraph) -> RippleGraph {
     let mut rg = RippleGraph::new();
     let mut node_map: IndexMap<NodeIndex, RootTypeTreeKey> = IndexMap::new();
@@ -82,36 +95,64 @@ fn from_fir_graph(fg: &FirGraph) -> RippleGraph {
         let src_key = node_map.get(&src).unwrap();
         let dst_key = node_map.get(&dst).unwrap();
 
-        println!("============ src_key {:?} dst_key {:?}", src_key, dst_key);
+        println!("================================================");
+        println!("src_key {:?}", src_key);
+        println!("dst_key {:?}", dst_key);
+        println!("edge {:?}", edge);
 
         match (&edge.src, &edge.dst) {
             (Expr::Reference(src_ref), Some(dst_ref)) => {
-                rg.add_aggregate_edge(
-                    src_key,
-                    src_ref,
-                    dst_key,
-                    dst_ref,
-                    RippleEdgeType::from(&edge.et));
+                if single_edge(&edge.et) {
+                    rg.add_single_edge(
+                        src_key,
+                        src_ref,
+                        dst_key,
+                        dst_ref,
+                        RippleEdgeType::from(&edge.et));
+                } else {
+                    rg.add_aggregate_edge(
+                        src_key,
+                        src_ref,
+                        dst_key,
+                        dst_ref,
+                        RippleEdgeType::from(&edge.et));
+                }
             }
             (Expr::Reference(src_ref), None) => {
-                rg.add_aggregate_edge(
-                    src_key,
-                    src_ref,
-                    dst_key,
-                    &Reference::Ref(dst_key.name.clone()),
-                    RippleEdgeType::from(&edge.et));
+                if single_edge(&edge.et) {
+                    rg.add_single_edge(
+                        src_key,
+                        src_ref,
+                        dst_key,
+                        &Reference::Ref(dst_key.name.clone()),
+                        RippleEdgeType::from(&edge.et));
+                } else {
+                    rg.add_aggregate_edge(
+                        src_key,
+                        src_ref,
+                        dst_key,
+                        &Reference::Ref(dst_key.name.clone()),
+                        RippleEdgeType::from(&edge.et));
+                }
             }
             _ => {
-                rg.add_aggregate_edge(
-                    src_key,
-                    &Reference::Ref(src_key.name.clone()),
-                    dst_key,
-                    &Reference::Ref(dst_key.name.clone()),
-                    RippleEdgeType::from(&edge.et));
+                if single_edge(&edge.et) {
+                    rg.add_single_edge(
+                        src_key,
+                        &Reference::Ref(src_key.name.clone()),
+                        dst_key,
+                        &Reference::Ref(dst_key.name.clone()),
+                        RippleEdgeType::from(&edge.et));
+                } else {
+                    rg.add_aggregate_edge(
+                        src_key,
+                        &Reference::Ref(src_key.name.clone()),
+                        dst_key,
+                        &Reference::Ref(dst_key.name.clone()),
+                        RippleEdgeType::from(&edge.et));
+                }
             }
         }
-
-        println!("=====================================");
     }
 
     return rg;

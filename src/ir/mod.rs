@@ -261,6 +261,10 @@ impl RippleGraph {
             my_ttree.graph.node_weight_mut(leaf_id).unwrap().id = Some(rg_id);
         }
 
+        println!("-----------------------------");
+        println!("{:?} {:?}", name, nt);
+        my_ttree.print_tree();
+
         // Add the type tree
         self.ttrees.push(my_ttree);
 
@@ -273,6 +277,60 @@ impl RippleGraph {
         self.graph.add_edge(src, dst, edge)
     }
 
+    pub fn add_single_edge(
+        &mut self,
+        src_key: &RootTypeTreeKey,
+        src_ref: &Reference,
+        dst_key: &RootTypeTreeKey,
+        dst_ref: &Reference,
+        et: RippleEdgeType
+    ) {
+        println!("src_ref {:?} src_key {:?}", src_ref, src_key);
+        println!("dst_ref {:?} dst_key {:?}", dst_ref, dst_key);
+
+        let src_ttree_id = self.root_ref_ttree_idx_map.get(src_key).expect("to exist");
+        let src_ttree = self.ttrees.get(*src_ttree_id as usize).expect("to exist");
+        let src_leaves = src_ttree.subtree_leaves_with_path(src_ref);
+
+        let dst_ttree_id = self.root_ref_ttree_idx_map.get(dst_key).expect("to exist");
+        let dst_ttree = self.ttrees.get(*dst_ttree_id as usize).expect("to exist");
+        let dst_leaves = dst_ttree.subtree_leaves_with_path(dst_ref);
+
+        println!("src_ttree");
+        src_ttree.print_tree();
+        println!("src_leaves {:?}", src_leaves);
+
+        println!("dst_ttree");
+        dst_ttree.print_tree();
+        println!("dst_leaves {:?}", dst_leaves);
+
+        assert!(src_leaves.len() == 1, "add_single_edge got multiple src_leaves {:?}", src_leaves);
+        assert!(dst_leaves.len() > 0, "add_single_edge got zero destinations");
+
+        let mut edges: Vec<(NodeIndex, NodeIndex, RippleEdge)> = vec![];
+        let (_src_path_key, src_ttree_leaf_id) = src_leaves.first().unwrap();
+        let src_ttree_leaf = src_ttree.graph.node_weight(*src_ttree_leaf_id).unwrap();
+
+        for (_dst_path_key, dst_ttree_leaf_id) in dst_leaves {
+            let dst_ttree_leaf = dst_ttree.graph.node_weight(dst_ttree_leaf_id).unwrap();
+            if src_ttree_leaf.dir == TypeDirection::Outgoing {
+                edges.push((
+                        src_ttree_leaf.id.unwrap(),
+                        dst_ttree_leaf.id.unwrap(),
+                        RippleEdge::new(None, et.clone())));
+            } else {
+                edges.push((
+                        dst_ttree_leaf.id.unwrap(),
+                        src_ttree_leaf.id.unwrap(),
+                        RippleEdge::new(None, et.clone())));
+            }
+        }
+
+        for edge in edges {
+            self.add_edge(edge.0, edge.1, edge.2);
+        }
+    }
+
     pub fn add_aggregate_edge(
         &mut self,
         src_key: &RootTypeTreeKey,
@@ -281,18 +339,19 @@ impl RippleGraph {
         dst_ref: &Reference,
         et: RippleEdgeType
     ) {
+        println!("src_ref {:?} src_key {:?}", src_ref, src_key);
+        println!("dst_ref {:?} dst_key {:?}", dst_ref, dst_key);
+
         let src_ttree_id = self.root_ref_ttree_idx_map.get(src_key).expect("to exist");
         let src_ttree = self.ttrees.get(*src_ttree_id as usize).expect("to exist");
         let src_leaves = src_ttree.subtree_leaves_with_path(src_ref);
-
 
         let dst_ttree_id = self.root_ref_ttree_idx_map.get(dst_key).expect("to exist");
         let dst_ttree = self.ttrees.get(*dst_ttree_id as usize).expect("to exist");
         let dst_leaves = dst_ttree.subtree_leaves_with_path(dst_ref);
 
-        println!("src_ref {:?} dst_ref {:?}", src_ref, dst_ref);
-        println!("{:?} src_leaves: {:?}", src_key, src_leaves);
-        println!("{:?} dst_leaves: {:?}", dst_key, dst_leaves);
+        println!("src_leaves: {:?}", src_leaves);
+        println!("dst_leaves: {:?}", dst_leaves);
 
         let mut edges: Vec<(NodeIndex, NodeIndex, RippleEdge)> = vec![];
         for (src_path_key, src_ttree_leaf_id) in src_leaves {

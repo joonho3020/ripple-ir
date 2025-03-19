@@ -363,6 +363,15 @@ mod test {
     fn run_check_typetree_inference(input: &str) -> Result<(), RippleIRErr> {
         let ir = run_passes_from_filepath(input)?;
         check_typetree_inference(&ir)?;
+
+        for (module, fg) in ir.graphs.iter() {
+            for id in fg.graph.node_indices() {
+                let node = fg.graph.node_weight(id).unwrap();
+                println!("-----------------------");
+                println!("{:?} {:?}", id, node);
+                node.ttree.as_ref().unwrap().print_tree();
+            }
+        }
         Ok(())
     }
 
@@ -371,6 +380,13 @@ mod test {
         run_check_typetree_inference("./test-inputs/GCD.fir")
             .expect("gcd ast assumption");
     }
+
+    #[test]
+    fn decoupledmux() {
+        run_check_typetree_inference("./test-inputs/DecoupledMux.fir")
+            .expect("decoupledmux ast assumption");
+    }
+
 
     #[test]
     fn rocket() {
