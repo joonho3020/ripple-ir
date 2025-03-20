@@ -13,6 +13,7 @@ use petgraph::graph::{EdgeIndex, EdgeIndices, NodeIndex, NodeIndices};
 /// IndexMap from Lgraph node index to a GraphViz node attribute.
 /// The attributes are added when passing this value to `export_graphviz`
 pub type NodeAttributeMap = IndexMap<NodeIndex, Attribute>;
+pub type EdgeAttributeMap = IndexMap<EdgeIndex, Attribute>;
 
 /// By implementing this trait, you can easily export petgraph graphs
 /// into a Graphviz dot format
@@ -29,7 +30,8 @@ where
 
     fn graphviz_string(
         self: &Self,
-        node_attr: Option<&NodeAttributeMap>
+        node_attr: Option<&NodeAttributeMap>,
+        edge_attr: Option<&EdgeAttributeMap>
     ) -> Result<String, std::io::Error> {
         let mut g = graphviz_rust::dot_structures::Graph::DiGraph {
             id: graphviz_rust::dot_generator::id!(""),
@@ -52,8 +54,7 @@ where
             };
 
             // Add node attribute if it exists
-            if node_attr.is_some() {
-                let na = node_attr.unwrap();
+            if let Some(na) = node_attr{
                 if na.contains_key(&id) {
                     gv_node.attributes.push(na.get(&id).unwrap().clone());
                 }
@@ -73,6 +74,14 @@ where
 
             e.attributes.push(
                 EdgeAttributes::label(format!("\"{}\"", w).to_string()));
+
+            // Add edge attribute if it exists
+            if let Some(ea) = edge_attr {
+                if ea.contains_key(&id) {
+                    e.attributes.push(ea.get(&id).unwrap().clone());
+                }
+            }
+
             g.add_stmt(Stmt::Edge(e));
         }
 
@@ -85,7 +94,8 @@ where
 pub trait GraphViz {
     fn graphviz_string(
         self: &Self,
-        node_attr: Option<&NodeAttributeMap>
+        node_attr: Option<&NodeAttributeMap>,
+        edge_attr: Option<&EdgeAttributeMap>
     ) -> Result<String, std::io::Error>;
 
     /// Exports the graph into a graphviz pdf output
@@ -95,9 +105,10 @@ pub trait GraphViz {
         self: &Self,
         path: &str,
         node_attr: Option<&NodeAttributeMap>,
+        edge_attr: Option<&EdgeAttributeMap>,
         debug: bool
     ) -> Result<String, std::io::Error> {
-        let dot = self.graphviz_string(node_attr)?;
+        let dot = self.graphviz_string(node_attr, edge_attr)?;
         if debug {
             println!("{}", dot);
         }

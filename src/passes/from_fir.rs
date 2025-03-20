@@ -2,8 +2,10 @@ use chirrtl_parser::ast::*;
 use firir::FirGraph;
 use indexmap::{IndexMap, IndexSet};
 use petgraph::graph::NodeIndex;
+use graphviz_rust::attributes::{NodeAttributes, color_name};
 use crate::ir::firir::{FirEdgeType, FirIR};
 use crate::ir::*;
+use crate::common::graphviz::*;
 
 pub fn from_fir(fir: &FirIR) -> RippleIR {
     let mut ret = RippleIR::new(fir.name.clone());
@@ -158,6 +160,8 @@ fn from_fir_graph(fg: &FirGraph) -> RippleGraph {
 
 #[cfg(test)]
 mod test {
+    use std::collections::VecDeque;
+
     use crate::common::RippleIRErr;
     use crate::passes::runner::run_passes_from_filepath;
     use crate::common::graphviz::GraphViz;
@@ -169,10 +173,10 @@ mod test {
         for (module, rg) in rir.graphs.iter() {
             fir.graphs.get(module).unwrap()
                 .export_graphviz(&format!("./test-outputs/{}-{}.fir.pdf",
-                        fir.name.to_string(), module.to_string()), None, true)?;
+                        fir.name.to_string(), module.to_string()), None, None, true)?;
 
             rg.export_graphviz(&format!("./test-outputs/{}-{}.rir.pdf",
-                    rir.name.to_string(), module.to_string()), None, true)?;
+                    rir.name.to_string(), module.to_string()), None, None, true)?;
         }
         Ok(())
     }
@@ -188,6 +192,87 @@ mod test {
         run("./test-inputs/DecoupledMux.fir")
             .expect("decoupledmux ast assumption");
     }
+
+    fn traverse(module: &Identifier, rg: &RippleGraph) -> Result<(), RippleIRErr> {
+        let mut q: VecDeque<TreeIdx> = VecDeque::new();
+
+        for agg_id in rg.node_indices_agg().iter() {
+            let agg_w = rg.node_weight_agg(*agg_id);
+
+            // Collect all the IOs
+            match agg_w.1.unwrap().nt {
+                RippleNodeType::Input |
+                    RippleNodeType::Output => {
+                    q.push_back(*agg_id);
+                }
+                _ => {
+                }
+            }
+        }
+
+        let mut iter_outer = 0;
+        let mut vis_map = rg.vismap_agg();
+        while !q.is_empty() {
+            let agg_id = q.pop_front().unwrap();
+            vis_map.visit(agg_id);
+
+            let mut node_attributes = NodeAttributeMap::default();
+            let src_ttree = rg.ttrees.get(agg_id as usize).unwrap();
+            let leaf_ids = src_ttree.all_leaves();
+            for leaf_id in leaf_ids {
+                let leaf = src_ttree.graph.node_weight(leaf_id).unwrap();
+                let rg_id = leaf.id.unwrap();
+                node_attributes.insert(rg_id, NodeAttributes::color(color_name::green));
+            }
+
+            let agg_edges = rg.edges_agg(agg_id);
+            for (iter_inner, (edge_key, edges)) in agg_edges.iter().enumerate() {
+                if !vis_map.is_visited(edge_key.dst_tree) {
+                    q.push_back(edge_key.dst_tree);
+
+                    let mut cur_node_attributes = node_attributes.clone();
+
+                    let dst_ttree = rg.ttrees.get(edge_key.dst_tree as usize).unwrap();
+                    let leaf_ids = dst_ttree.all_leaves();
+                    for leaf_id in leaf_ids {
+                        let leaf = dst_ttree.graph.node_weight(leaf_id).unwrap();
+                        let rg_id = leaf.id.unwrap();
+                        cur_node_attributes.insert(rg_id, NodeAttributes::color(color_name::blue));
+                    }
+
+                    let mut edge_attributes = EdgeAttributeMap::default();
+                    for eid in edges {
+                        edge_attributes.insert(*eid, NodeAttributes::color(color_name::red));
+                    }
+
+                    rg.export_graphviz(
+                        &format!("./test-outputs/{}-{}-{}.traverse.agg.pdf", module, iter_outer, iter_inner),
+                        Some(cur_node_attributes).as_ref(),
+                        Some(edge_attributes).as_ref(),
+                        false)?;
+                }
+            }
+            iter_outer += 1;
+        }
+        Ok(())
+    }
+
+    fn run_traverse(input: &str) -> Result<(), RippleIRErr> {
+        let fir = run_passes_from_filepath(input)?;
+        let rir = from_fir(&fir);
+        for (module, rg) in rir.graphs.iter() {
+            traverse(module, rg)?;
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn traverse_decoupledmux() {
+        run_traverse("./test-inputs/DecoupledMux.fir")
+            .expect("decoupledmux traverse assumption");
+    }
+
+
 
     // TODO: add tests for cases where
     // - Mux, primops

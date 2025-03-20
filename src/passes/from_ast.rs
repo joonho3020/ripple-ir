@@ -611,7 +611,7 @@ mod test {
 
         let ir = from_circuit(&circuit);
         for (sub_name, graph) in ir.graphs {
-            graph.export_graphviz(&format!("./test-outputs/{}-{}.dot.pdf", name, sub_name), None, true)?;
+            graph.export_graphviz(&format!("./test-outputs/{}-{}.dot.pdf", name, sub_name), None, None, true)?;
         }
         Ok(())
     }

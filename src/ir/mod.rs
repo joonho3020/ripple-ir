@@ -9,7 +9,8 @@ use std::fmt::Display;
 use std::hash::Hash;
 use indexmap::{IndexMap, IndexSet};
 use petgraph::graph::{Graph, NodeIndex, EdgeIndex};
-use crate::common::graphviz::GraphViz;
+use fixedbitset::FixedBitSet;
+use crate::common::graphviz::*;
 use crate::ir::whentree::Condition;
 use crate::ir::typetree::*;
 use crate::ir::firir::*;
@@ -198,6 +199,25 @@ pub struct AggEdgeKey {
 impl AggEdgeKey {
     pub fn new(dst_tree: TreeIdx, et: RippleEdgeType) -> Self {
         Self { dst_tree, et }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct AggVisMap {
+    visited: FixedBitSet
+}
+
+impl AggVisMap {
+    pub fn new(num_bits: u32) -> Self {
+        Self { visited: FixedBitSet::with_capacity(num_bits as usize) }
+    }
+
+    pub fn is_visited(&self, id: TreeIdx) -> bool {
+        self.visited.contains(id as usize)
+    }
+
+    pub fn visit(&mut self, id: TreeIdx) {
+        self.visited.set(id as usize, true);
     }
 }
 
@@ -498,6 +518,38 @@ impl RippleGraph {
         }
         return ttree_edge_map;
     }
+
+    pub fn edges_agg(&self, id: TreeIdx) -> IndexMap<AggEdgeKey, Vec<EdgeIndex>> {
+        let ttree = self.ttrees.get(id as usize).unwrap();
+        let leaf_ids = ttree.all_leaves();
+
+        let mut ttree_edge_map: IndexMap<AggEdgeKey, Vec<EdgeIndex>> = IndexMap::new();
+        for leaf_id in leaf_ids {
+            let leaf = ttree.graph.node_weight(leaf_id).unwrap();
+            let ir_id = leaf.id.unwrap();
+
+            let edge_ids = self.graph.edges(ir_id);
+            for eid in edge_ids {
+                let (_src, dst) = self.graph.edge_endpoints(eid.id()).unwrap();
+                let neighbor_ttree_idx = self.ttree_idx_map.get(&dst).unwrap();
+                let rir_edge = self.graph.edge_weight(eid.id()).unwrap();
+
+                let edge_map_key = AggEdgeKey::new(neighbor_ttree_idx.tree_id, rir_edge.et.clone());
+                if !ttree_edge_map.contains_key(&edge_map_key) {
+                    ttree_edge_map.insert(edge_map_key.clone(), vec![]);
+                }
+                ttree_edge_map
+                    .get_mut(&edge_map_key)
+                    .unwrap()
+                    .push(eid.id());
+            }
+        }
+        return ttree_edge_map;
+    }
+
+    pub fn vismap_agg(&self) -> AggVisMap {
+        AggVisMap::new(self.ttrees.len() as u32)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -515,7 +567,8 @@ impl RippleIR {
 impl GraphViz for RippleGraph {
     fn graphviz_string(
         self: &Self,
-        node_attr: Option<&crate::common::graphviz::NodeAttributeMap>
+        node_attr: Option<&NodeAttributeMap>,
+        edge_attr: Option<&EdgeAttributeMap>
     ) -> Result<String, std::io::Error> {
         use graphviz_rust::{
             attributes::{rankdir, EdgeAttributes, GraphAttributes, NodeAttributes},
@@ -571,8 +624,7 @@ impl GraphViz for RippleGraph {
                 };
 
                 // Add node attribute if it exists
-                if node_attr.is_some() {
-                    let na = node_attr.unwrap();
+                if let Some(na) = node_attr {
                     if na.contains_key(&rir_id) {
                         gv_node.attributes.push(na.get(&rir_id).unwrap().clone());
                     }
@@ -596,6 +648,14 @@ impl GraphViz for RippleGraph {
 
             e.attributes.push(
                 EdgeAttributes::label(edge_label));
+
+            // Add edge attribute if it exists
+            if let Some(ea) = edge_attr {
+                if ea.contains_key(&eid) {
+                    e.attributes.push(ea.get(&eid).unwrap().clone());
+                }
+            }
+
             g.add_stmt(Stmt::Edge(e));
         }
 

@@ -3,7 +3,7 @@ use derivative::Derivative;
 use std::fmt::Display;
 use indexmap::IndexMap;
 use petgraph::graph::{Graph, NodeIndex};
-use crate::common::graphviz::{DefaultGraphVizCore, GraphViz};
+use crate::common::graphviz::*;
 use crate::common::RippleIRErr;
 use crate::ir::typetree::TypeTree;
 use crate::ir::whentree::Condition;
@@ -143,6 +143,7 @@ impl FirIR {
             fg.export_graphviz(
                 &format!("{}/{}-{}.{}.pdf", outdir, self.name.to_string(), module, pfx),
                 None,
+                None,
                 false)?;
         }
         Ok(())
@@ -174,8 +175,9 @@ impl DefaultGraphVizCore<FirNode, FirEdge> for FirGraph {
 impl GraphViz for FirGraph {
     fn graphviz_string(
             self: &Self,
-            node_attr: Option<&crate::common::graphviz::NodeAttributeMap>
+            node_attr: Option<&NodeAttributeMap>,
+            edge_attr: Option<&EdgeAttributeMap>
     ) -> Result<String, std::io::Error> {
-        DefaultGraphVizCore::graphviz_string(self, node_attr)
+        DefaultGraphVizCore::graphviz_string(self, node_attr, edge_attr)
     }
 }

@@ -564,9 +564,10 @@ impl DefaultGraphVizCore<TypeTreeNode, TypeTreeEdge> for TypeTree {
 impl GraphViz for TypeTree {
     fn graphviz_string(
         self: &Self,
-        node_attr: Option<&crate::common::graphviz::NodeAttributeMap>
+        node_attr: Option<&NodeAttributeMap>,
+        edge_attr: Option<&EdgeAttributeMap>
     ) -> Result<String, std::io::Error> {
-        DefaultGraphVizCore::graphviz_string(self, node_attr)
+        DefaultGraphVizCore::graphviz_string(self, node_attr, edge_attr)
     }
 }
 
@@ -695,7 +696,7 @@ mod test {
                         match port.as_ref() {
                             Port::Output(_name, tpe, _info) => {
                                 let typetree = TypeTree::build_from_type(tpe, TypeDirection::Outgoing);
-                                let _ = typetree.export_graphviz("./test-outputs/NestedBundle.typetree.pdf", None, false);
+                                let _ = typetree.export_graphviz("./test-outputs/NestedBundle.typetree.pdf", None, None, false);
 
                                 let root = Reference::Ref(Identifier::Name("io".to_string()));
                                 let subtree_root = typetree.subtree_root(&root);
@@ -751,7 +752,7 @@ mod test {
                             Port::Output(_name, tpe, _info) => {
                                 let typetree = TypeTree::build_from_type(tpe, TypeDirection::Outgoing);
 
-                                let _ = typetree.export_graphviz("./test-outputs/NestedBundle.typetree.pdf", None, false);
+                                let _ = typetree.export_graphviz("./test-outputs/NestedBundle.typetree.pdf", None, None, false);
 
                                 let root = Reference::Ref(Identifier::Name("io".to_string()));
                                 let g = Reference::RefDot(Box::new(root), Identifier::Name("g".to_string()));
@@ -808,7 +809,7 @@ mod test {
                             Port::Output(_name, tpe, _info) => {
                                 let typetree = TypeTree::build_from_type(tpe, TypeDirection::Outgoing);
 
-                                let _ = typetree.export_graphviz("./test-outputs/DecoupledMux.typetree.pdf", None, false);
+                                let _ = typetree.export_graphviz("./test-outputs/DecoupledMux.typetree.pdf", None, None, false);
 
                                 let root = Reference::Ref(Identifier::Name("io".to_string()));
                                 let c = Reference::RefDot(Box::new(root), Identifier::Name("c".to_string()));

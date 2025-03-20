@@ -118,7 +118,7 @@ mod test {
         let mut ir = from_circuit(&circuit);
         remove_unnecessary_phi(&mut ir);
         for (sub_name, graph) in ir.graphs {
-            graph.export_graphviz(&format!("./test-outputs/{}-{}.remove_phi.dot.pdf", name, sub_name), None, true)?;
+            graph.export_graphviz(&format!("./test-outputs/{}-{}.remove_phi.dot.pdf", name, sub_name), None, None, false)?;
         }
         Ok(())
     }
