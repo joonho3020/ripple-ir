@@ -304,10 +304,6 @@ impl RippleGraph {
             my_ttree.graph.node_weight_mut(leaf_id).unwrap().id = Some(rg_id);
         }
 
-        println!("-----------------------------");
-        println!("{:?} {:?}", name, nt);
-        my_ttree.print_tree();
-
         // Add the type tree
         self.ttrees.push(my_ttree);
 
@@ -329,9 +325,6 @@ impl RippleGraph {
         dst_ref: &Reference,
         et: RippleEdgeType
     ) {
-        println!("src_ref {:?} src_key {:?}", src_ref, src_key);
-        println!("dst_ref {:?} dst_key {:?}", dst_ref, dst_key);
-
         let src_ttree_id = self.root_ref_ttree_idx_map.get(src_key).expect("to exist");
         let src_ttree = self.ttrees.get(*src_ttree_id as usize).expect("to exist");
         let src_leaves = src_ttree.subtree_leaves_with_path(src_ref);
@@ -339,14 +332,6 @@ impl RippleGraph {
         let dst_ttree_id = self.root_ref_ttree_idx_map.get(dst_key).expect("to exist");
         let dst_ttree = self.ttrees.get(*dst_ttree_id as usize).expect("to exist");
         let dst_leaves = dst_ttree.subtree_leaves_with_path(dst_ref);
-
-        println!("src_ttree");
-        src_ttree.print_tree();
-        println!("src_leaves {:?}", src_leaves);
-
-        println!("dst_ttree");
-        dst_ttree.print_tree();
-        println!("dst_leaves {:?}", dst_leaves);
 
         assert!(src_leaves.len() == 1, "add_single_edge got multiple src_leaves {:?}", src_leaves);
         assert!(dst_leaves.len() > 0, "add_single_edge got zero destinations");
@@ -383,9 +368,6 @@ impl RippleGraph {
         dst_ref: &Reference,
         et: RippleEdgeType
     ) {
-        println!("src_ref {:?} src_key {:?}", src_ref, src_key);
-        println!("dst_ref {:?} dst_key {:?}", dst_ref, dst_key);
-
         let src_ttree_id = self.root_ref_ttree_idx_map.get(src_key).expect("to exist");
         let src_ttree = self.ttrees.get(*src_ttree_id as usize).expect("to exist");
         let src_leaves = src_ttree.subtree_leaves_with_path(src_ref);
@@ -393,9 +375,6 @@ impl RippleGraph {
         let dst_ttree_id = self.root_ref_ttree_idx_map.get(dst_key).expect("to exist");
         let dst_ttree = self.ttrees.get(*dst_ttree_id as usize).expect("to exist");
         let dst_leaves = dst_ttree.subtree_leaves_with_path(dst_ref);
-
-        println!("src_leaves: {:?}", src_leaves);
-        println!("dst_leaves: {:?}", dst_leaves);
 
         let mut edges: Vec<(NodeIndex, NodeIndex, RippleEdge)> = vec![];
         for (src_path_key, src_ttree_leaf_id) in src_leaves {

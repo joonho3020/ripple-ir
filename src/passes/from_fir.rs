@@ -2,10 +2,8 @@ use chirrtl_parser::ast::*;
 use firir::FirGraph;
 use indexmap::{IndexMap, IndexSet};
 use petgraph::graph::NodeIndex;
-use graphviz_rust::attributes::{NodeAttributes, color_name};
 use crate::ir::firir::{FirEdgeType, FirIR};
 use crate::ir::*;
-use crate::common::graphviz::*;
 
 pub fn from_fir(fir: &FirIR) -> RippleIR {
     let mut ret = RippleIR::new(fir.name.clone());
@@ -95,11 +93,6 @@ fn from_fir_graph(fg: &FirGraph) -> RippleGraph {
         let src_key = node_map.get(&src).unwrap();
         let dst_key = node_map.get(&dst).unwrap();
 
-        println!("================================================");
-        println!("src_key {:?}", src_key);
-        println!("dst_key {:?}", dst_key);
-        println!("edge {:?}", edge);
-
         match (&edge.src, &edge.dst) {
             (Expr::Reference(src_ref), Some(dst_ref)) => {
                 if single_edge(&edge.et) {
@@ -161,7 +154,9 @@ fn from_fir_graph(fg: &FirGraph) -> RippleGraph {
 #[cfg(test)]
 mod test {
     use std::collections::VecDeque;
+    use graphviz_rust::attributes::{NodeAttributes, color_name};
 
+    use crate::common::graphviz::*;
     use crate::common::RippleIRErr;
     use crate::passes::runner::run_passes_from_filepath;
     use crate::common::graphviz::GraphViz;
@@ -210,6 +205,8 @@ mod test {
             }
         }
 
+        let mut file_names: Vec<String> = vec![];
+
         let mut iter_outer = 0;
         let mut vis_map = rg.vismap_agg();
         while !q.is_empty() {
@@ -245,15 +242,23 @@ mod test {
                         edge_attributes.insert(*eid, NodeAttributes::color(color_name::red));
                     }
 
+                    let out_name = format!("./test-outputs/{}-{}-{}.traverse.agg.pdf", module, iter_outer, iter_inner);
                     rg.export_graphviz(
-                        &format!("./test-outputs/{}-{}-{}.traverse.agg.pdf", module, iter_outer, iter_inner),
+                        &out_name,
                         Some(cur_node_attributes).as_ref(),
                         Some(edge_attributes).as_ref(),
                         false)?;
+
+                    file_names.push(out_name);
                 }
             }
             iter_outer += 1;
         }
+
+        rg.create_gif(
+            &format!("./test-outputs/{}.gif", module),
+            &file_names)?;
+
         Ok(())
     }
 

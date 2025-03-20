@@ -9,6 +9,12 @@ use graphviz_rust::{
 };
 use indexmap::IndexMap;
 use petgraph::graph::{EdgeIndex, EdgeIndices, NodeIndex, NodeIndices};
+use pdfium_render::prelude::*;
+use image::{RgbaImage, DynamicImage};
+use gif::{Encoder, Frame, Repeat};
+use std::fs::File;
+use std::io::BufWriter;
+use crate::common::RippleIRErr;
 
 /// IndexMap from Lgraph node index to a GraphViz node attribute.
 /// The attributes are added when passing this value to `export_graphviz`
@@ -114,5 +120,52 @@ pub trait GraphViz {
         }
         exec_dot(dot.clone(), vec![Format::Pdf.into(), CommandArg::Output(path.to_string())])?;
         return Ok(dot);
+    }
+
+    fn create_gif(
+        self: &Self,
+        path: &str,
+        pdf_files: &Vec<String>
+    ) -> Result<(), RippleIRErr> {
+        // Initialize Pdfium
+        let pdfium = Pdfium::new(Pdfium::bind_to_library(Pdfium::pdfium_platform_library_name_at_path("./pdfium/lib")).unwrap());
+
+        // Vector to hold rendered images
+        let mut images = Vec::new();
+
+         let render_config = PdfRenderConfig::new()
+            .set_target_width(8000)
+            .set_maximum_height(12000);
+
+        for pdf_path in pdf_files {
+            let document = pdfium.load_pdf_from_file(pdf_path, None)?;
+
+            for page_index in 0..document.pages().len() {
+                let page = document.pages().get(page_index).unwrap();
+                let bitmap = page.render_with_config(&render_config)?;
+
+                // Convert the bitmap to an RgbaImage
+                let rgba_image = RgbaImage::from_raw(
+                    bitmap.width() as u32,
+                    bitmap.height() as u32,
+                    bitmap.as_rgba_bytes(),
+                ).unwrap();
+
+                images.push(DynamicImage::ImageRgba8(rgba_image));
+            }
+        }
+
+        // Create a GIF file
+        let gif_file = File::create(path).unwrap();
+        let mut encoder = Encoder::new(BufWriter::new(gif_file), images[0].width() as u16, images[0].height() as u16, &[]).unwrap();
+        encoder.set_repeat(Repeat::Infinite).unwrap();
+
+        // Convert images to GIF frames
+        for img in images {
+            let img = img.to_rgba8();
+            let frame = Frame::from_rgba_speed(img.width() as u16, img.height() as u16, &mut img.clone().into_raw(), 4);
+            encoder.write_frame(&frame).unwrap();
+        }
+        Ok(())
     }
 }
