@@ -17,9 +17,12 @@ use std::io::BufWriter;
 use spinoff::{Spinner, spinners};
 use crate::common::RippleIRErr;
 
-/// IndexMap from Lgraph node index to a GraphViz node attribute.
+/// IndexMap from NodeIndex to a GraphViz node attribute.
 /// The attributes are added when passing this value to `export_graphviz`
 pub type NodeAttributeMap = IndexMap<NodeIndex, Attribute>;
+
+/// IndexMap from EdgeIndex to a GraphViz node attribute.
+/// The attributes are added when passing this value to `export_graphviz`
 pub type EdgeAttributeMap = IndexMap<EdgeIndex, Attribute>;
 
 /// By implementing this trait, you can easily export petgraph graphs
@@ -35,6 +38,7 @@ where
     fn edge_endpoints(self: &Self, id: EdgeIndex) -> Option<(NodeIndex, NodeIndex)>;
     fn edge_weight(self: &Self, id: EdgeIndex) -> Option<&E>;
 
+    /// Creates a string that represents contents of a dot file
     fn graphviz_string(
         self: &Self,
         node_attr: Option<&NodeAttributeMap>,
@@ -99,6 +103,8 @@ where
 }
 
 pub trait GraphViz {
+
+    /// Creates a string that represents contents of a dot file
     fn graphviz_string(
         self: &Self,
         node_attr: Option<&NodeAttributeMap>,
@@ -108,6 +114,7 @@ pub trait GraphViz {
     /// Exports the graph into a graphviz pdf output
     /// - path: should include the filename
     /// - node_attr: adds additional node attributes when provided
+    /// - edge_attr: adds additional edge attributes when provided
     fn export_graphviz(
         self: &Self,
         path: &str,
@@ -127,6 +134,10 @@ pub trait GraphViz {
         return Ok(dot);
     }
 
+    /// Given a list of pdf files, create a gif from it. Frames are ordered
+    /// in the order of `pdf_files`.
+    /// - path: path to the output file. should include the filename
+    /// - pdf_files: each entry represents a path to a pdf
     fn create_gif(
         self: &Self,
         path: &str,

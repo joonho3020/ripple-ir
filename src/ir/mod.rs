@@ -237,9 +237,16 @@ impl TypeTreeIdx {
     }
 }
 
+/// Can be used as a key to identify a `TypeTree` in `RippleGraph`
+/// Represents a unique aggregate node in the IR
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct RootTypeTreeKey {
+    /// Identifier of the reference root
     pub name: Identifier,
+
+    /// Need to identify the type of the node as multiple nodes can
+    /// use the same Identifier but have different `RippleNodeType`.
+    /// E.g., Phi and Reg nodes
     pub nt: RippleNodeType,
 }
 
@@ -251,10 +258,21 @@ impl RootTypeTreeKey {
 
 #[derive(Debug, Clone)]
 pub struct RippleGraph {
+    /// Graph of this IR
     pub graph: IRGraph,
+
+    /// Maps each node in `graph` to the `TypeTree` (`TypeTreeIdx.tree_id`)
+    /// and the `NodeIndex` (`TypeTreeIdx.leaf_id`) within the `TypeTree`
     pub ttree_idx_map: IndexMap<NodeIndex, TypeTreeIdx>,
+
+    /// Maps a key that represents a unique aggregate node `RootTypeTreeKey` to the `TypeTree`
     pub root_ref_ttree_idx_map: IndexMap<RootTypeTreeKey, TreeIdx>,
+
+    /// Maps a `TypeTree` to a `RootTypeTreeKey`
     pub ttree_idx_root_ref_map: IndexMap<TreeIdx, RootTypeTreeKey>,
+
+    /// `TypeTree`. Each represents an aggregate node (or it can be a single node
+    /// for nodes with `GroundType`s)
     pub ttrees: Vec<TypeTree>,
 }
 
@@ -368,10 +386,12 @@ impl RippleGraph {
         dst_ref: &Reference,
         et: RippleEdgeType
     ) {
+        // Get leaves of the src aggregate node
         let src_ttree_id = self.root_ref_ttree_idx_map.get(src_key).expect("to exist");
         let src_ttree = self.ttrees.get(*src_ttree_id as usize).expect("to exist");
         let src_leaves = src_ttree.subtree_leaves_with_path(src_ref);
 
+        // Get leaves of the dst aggregate node
         let dst_ttree_id = self.root_ref_ttree_idx_map.get(dst_key).expect("to exist");
         let dst_ttree = self.ttrees.get(*dst_ttree_id as usize).expect("to exist");
         let dst_leaves = dst_ttree.subtree_leaves_with_path(dst_ref);
@@ -379,6 +399,8 @@ impl RippleGraph {
         let mut edges: Vec<(NodeIndex, NodeIndex, RippleEdge)> = vec![];
         for (src_path_key, src_ttree_leaf_id) in src_leaves {
             let src_ttree_leaf = src_ttree.graph.node_weight(src_ttree_leaf_id).unwrap();
+
+            // If there is a matching path in the dst aggregate node, add an edge
             if dst_leaves.contains_key(&src_path_key) {
                 let dst_ttree_leaf_id = dst_leaves.get(&src_path_key).unwrap();
                 let dst_ttree_leaf = dst_ttree.graph.node_weight(*dst_ttree_leaf_id).unwrap();
@@ -426,6 +448,8 @@ impl RippleGraph {
         }
     }
 
+    /// Similar to node_indices in petgraph.
+    /// Here, `TreeIdx` represents an aggregate node index
     pub fn node_indices_agg(&self) -> Vec<TreeIdx> {
         (0..self.ttrees.len() as u32).collect()
     }

@@ -87,11 +87,17 @@ impl Display for TypeTreeNode {
     }
 }
 
+/// Used for representing a path in the `TypeTree`
 #[derive(Debug, Clone, Eq)]
 pub struct TypeTreeNodePath {
+    /// Direction of the type
     dir: TypeDirection,
+
+    /// Type of this node
     tpe: TypeTreeNodeType,
-    rc:  Option<Reference>,
+
+    /// Reference representing the path in the `TypeTree`
+    rc: Option<Reference>,
 }
 
 impl Hash for TypeTreeNodePath {
@@ -112,6 +118,7 @@ impl TypeTreeNodePath {
         Self { dir, tpe, rc }
     }
 
+    /// Add a `child` node to the path in the `TypeTree`
     pub fn append(&mut self, child: &TypeTreeNode) {
         self.dir = child.dir;
         self.rc = match &self.rc {
@@ -145,9 +152,13 @@ impl Display for TypeTreeEdge {
 
 type Tree = Graph<TypeTreeNode, TypeTreeEdge>;
 
+/// A tree that represents the type of an aggregate node
 #[derive(Debug, Default, Clone)]
 pub struct TypeTree {
+    /// Graph representing the tree
     pub graph: Tree,
+
+    /// NodeIndex of the root node
     pub root: Option<NodeIndex>
 }
 
@@ -160,6 +171,7 @@ impl TypeTree {
         return ret;
     }
 
+    /// Build a `TypeTree` that represents a `Type`
     pub fn build_from_type(tpe: &Type, dir: TypeDirection) -> Self {
         let mut ret = Self::default();
         ret.build_recursive(tpe, None, dir, None);
@@ -234,6 +246,16 @@ impl TypeTree {
         }
     }
 
+    /// Returns all possible references in this `TypeTree` instance
+    /// ```
+    ///     root
+    ///   /     \
+    ///   a     b
+    ///        / \
+    ///        c d
+    /// ```
+    /// - when `root_name` is `io`, and the typetree looks like the above,
+    /// this function will return: `[ io, io.a, io.b, io.b.c, io.b.d ]`
     pub fn all_possible_references(&self, root_name: Identifier) -> Vec<Reference> {
         let mut ret = vec![];
         let mut q: VecDeque<(NodeIndex, Reference)> = VecDeque::new();
@@ -316,6 +338,7 @@ impl TypeTree {
         }
     }
 
+    /// Returns a stringified node name of a node in a tree
     pub fn node_name(&self, root: &Identifier, id: NodeIndex) -> Identifier {
         let mut ret = root.to_string();
         self.id_identifier_chain_recursive(id, &mut ret);
@@ -347,7 +370,15 @@ impl TypeTree {
         return ret;
     }
 
-
+    /// Returns the root of the subtree given a `reference`
+    /// ```
+    ///     root
+    ///   /     \
+    ///   a     b
+    ///        / \
+    ///        c d
+    /// ```
+    /// - When `reference` is `io.b`, it will return NodeIndex for `b`
     pub fn subtree_root(&self, reference: &Reference) -> Option<NodeIndex> {
         let mut chain = Self::ref_identifier_chain(reference);
         let mut q: VecDeque<NodeIndex> = VecDeque::new();
@@ -424,6 +455,7 @@ impl TypeTree {
         return ret;
     }
 
+    /// Given a `reference`, returns all the subtree leaf nodes along with the path to each node
     pub fn subtree_leaves_with_path(&self, reference: &Reference) -> IndexMap<TypeTreeNodePath, NodeIndex> {
         let mut ret = IndexMap::new();
 
@@ -455,6 +487,7 @@ impl TypeTree {
         return ret;
     }
 
+    /// Returns all leaf node indices of this tree
     pub fn all_leaves(&self) -> Vec<NodeIndex> {
         let mut ret = vec![];
         let mut q: VecDeque<NodeIndex> = VecDeque::new();
@@ -479,6 +512,7 @@ impl TypeTree {
         return ret;
     }
 
+    /// Given `reference`, returns a subtree for this reference type
     pub fn subtree_from_ref(&self, reference: &Reference) -> Self {
         let subtree_root_opt = self.subtree_root(reference);
 
@@ -518,6 +552,7 @@ impl TypeTree {
         return ret;
     }
 
+    /// Given `expr`, returns a subtree for this expr type
     pub fn subtree_from_expr(&self, expr: &Expr) -> Self {
         match expr {
             Expr::Reference(r) => {
@@ -571,6 +606,7 @@ impl GraphViz for TypeTree {
     }
 }
 
+/// Helper struct for printing the `TypeTree`
 #[derive(Clone)]
 pub struct TypeTreePrinter<'a> {
     pub tree: &'a Graph<TypeTreeNode, TypeTreeEdge>,
