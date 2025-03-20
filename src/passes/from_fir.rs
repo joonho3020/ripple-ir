@@ -211,6 +211,9 @@ mod test {
         let mut vis_map = rg.vismap_agg();
         while !q.is_empty() {
             let agg_id = q.pop_front().unwrap();
+            if vis_map.is_visited(agg_id) {
+                continue;
+            }
             vis_map.visit(agg_id);
 
             let mut node_attributes = NodeAttributeMap::default();

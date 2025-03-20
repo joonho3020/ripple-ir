@@ -14,6 +14,7 @@ use image::{RgbaImage, DynamicImage};
 use gif::{Encoder, Frame, Repeat};
 use std::fs::File;
 use std::io::BufWriter;
+use spinoff::{Spinner, spinners};
 use crate::common::RippleIRErr;
 
 /// IndexMap from Lgraph node index to a GraphViz node attribute.
@@ -118,7 +119,11 @@ pub trait GraphViz {
         if debug {
             println!("{}", dot);
         }
+
+        let mut spinner = Spinner::new(spinners::Dots, "Exporting dot file...", None);
         exec_dot(dot.clone(), vec![Format::Pdf.into(), CommandArg::Output(path.to_string())])?;
+        spinner.success("Done!");
+
         return Ok(dot);
     }
 
@@ -155,6 +160,8 @@ pub trait GraphViz {
             }
         }
 
+        let mut spinner = Spinner::new(spinners::Dots, "Creating gif from images...", None);
+
         // Create a GIF file
         let gif_file = File::create(path).unwrap();
         let mut encoder = Encoder::new(BufWriter::new(gif_file), images[0].width() as u16, images[0].height() as u16, &[]).unwrap();
@@ -166,6 +173,9 @@ pub trait GraphViz {
             let frame = Frame::from_rgba_speed(img.width() as u16, img.height() as u16, &mut img.clone().into_raw(), 4);
             encoder.write_frame(&frame).unwrap();
         }
+
+        spinner.success("Done!");
+
         Ok(())
     }
 }
