@@ -109,6 +109,9 @@ Seems like there are some prior work that seems relevant to what we are trying t
 - Performing the diff and identifying subgraphs that are isomorphic between different circuit versions
     - [ ] Parse the textual format in python
     - [ ] Using [implementation of the graph-hasing paper](https://github.com/calebh/dihash), check if we can perform subgraph-iso on FIRRTL diffs
+        - Use hashes of k-neighbors to find potential correspondence points
+        - Partition the graph around these correspondence points
+        - Graph equivalence check on these partitions
 
 ### Related work
 
