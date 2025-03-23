@@ -129,7 +129,7 @@ pub trait GraphViz {
 
         let mut spinner = Spinner::new(spinners::Dots, "Exporting dot file...", None);
         exec_dot(dot.clone(), vec![Format::Pdf.into(), CommandArg::Output(path.to_string())])?;
-        spinner.success("Done!");
+        spinner.success("Finished exporting dotfile");
 
         return Ok(dot);
     }
@@ -185,7 +185,7 @@ pub trait GraphViz {
             encoder.write_frame(&frame).unwrap();
         }
 
-        spinner.success("Done!");
+        spinner.success("Finished generating gif");
 
         Ok(())
     }

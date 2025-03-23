@@ -4,11 +4,19 @@ use indexmap::{IndexMap, IndexSet};
 use petgraph::graph::NodeIndex;
 use crate::ir::firir::{FirEdgeType, FirIR};
 use crate::ir::*;
+use crate::common::graphviz::GraphViz;
 
 pub fn from_fir(fir: &FirIR) -> RippleIR {
     let mut ret = RippleIR::new(fir.name.clone());
     for (name, fgraph) in fir.graphs.iter() {
+        let _ = fgraph.export_graphviz(
+            &format!("./test-outputs/{}-{}.fir.pdf", fir.name, name), None, None, false);
+
         let rg = from_fir_graph(fgraph);
+
+        let _ = rg.export_graphviz(
+            &format!("./test-outputs/{}-{}.rir.pdf", fir.name, name), None, None, true);
+
         ret.graphs.insert(name.clone(), rg);
     }
     return ret;
@@ -50,11 +58,12 @@ impl NameSpace {
 
 fn single_edge(et: &FirEdgeType) -> bool {
     match et {
-        FirEdgeType::MuxCond |
-        FirEdgeType::Clock   |
-        FirEdgeType::Reset   |
-        FirEdgeType::DontCare   |
-        FirEdgeType::PhiSel => {
+        FirEdgeType::MuxCond     |
+        FirEdgeType::Clock       |
+        FirEdgeType::Reset       |
+        FirEdgeType::DontCare    |
+        FirEdgeType::PhiSel      |
+        FirEdgeType::MemPortAddr => {
             true
         }
         _ => false
@@ -93,57 +102,31 @@ fn from_fir_graph(fg: &FirGraph) -> RippleGraph {
         let src_key = node_map.get(&src).unwrap();
         let dst_key = node_map.get(&dst).unwrap();
 
-        match (&edge.src, &edge.dst) {
-            (Expr::Reference(src_ref), Some(dst_ref)) => {
-                if single_edge(&edge.et) {
-                    rg.add_single_edge(
-                        src_key,
-                        &src_ref,
-                        dst_key,
-                        dst_ref,
-                        RippleEdgeType::from(&edge.et));
-                } else {
-                    rg.add_aggregate_edge(
-                        src_key,
-                        &src_ref,
-                        dst_key,
-                        dst_ref,
-                        RippleEdgeType::from(&edge.et));
-                }
+        let src_ref = match &edge.src {
+            Expr::Reference(src_ref) => src_ref,
+            _ => &Reference::Ref(src_key.name.clone())
+        };
+
+        let dst_ref = match &edge.dst {
+            Some(dst_ref) => dst_ref,
+            None => &Reference::Ref(dst_key.name.clone()),
+        };
+        let et = RippleEdgeType::from(&edge.et);
+
+        match &edge.et {
+            FirEdgeType::MuxCond     |
+                FirEdgeType::Clock       |
+                FirEdgeType::Reset       |
+                FirEdgeType::DontCare    |
+                FirEdgeType::PhiSel      |
+                FirEdgeType::MemPortAddr => {
+                    rg.add_single_edge(src_key, &src_ref, dst_key, dst_ref, et);
             }
-            (Expr::Reference(src_ref), None) => {
-                if single_edge(&edge.et) {
-                    rg.add_single_edge(
-                        src_key,
-                        &src_ref,
-                        dst_key,
-                        &Reference::Ref(dst_key.name.clone()),
-                        RippleEdgeType::from(&edge.et));
-                } else {
-                    rg.add_aggregate_edge(
-                        src_key,
-                        &src_ref,
-                        dst_key,
-                        &Reference::Ref(dst_key.name.clone()),
-                        RippleEdgeType::from(&edge.et));
-                }
+            FirEdgeType::MemPortEdge => {
+                rg.add_aggregate_mem_edge(src_key, &src_ref, dst_key, dst_ref, et);
             }
             _ => {
-                if single_edge(&edge.et) {
-                    rg.add_single_edge(
-                        src_key,
-                        &Reference::Ref(src_key.name.clone()),
-                        dst_key,
-                        &Reference::Ref(dst_key.name.clone()),
-                        RippleEdgeType::from(&edge.et));
-                } else {
-                    rg.add_aggregate_edge(
-                        src_key,
-                        &Reference::Ref(src_key.name.clone()),
-                        dst_key,
-                        &Reference::Ref(dst_key.name.clone()),
-                        RippleEdgeType::from(&edge.et));
-                }
+                rg.add_aggregate_edge(src_key, &src_ref, dst_key, dst_ref, et);
             }
         }
     }
@@ -278,6 +261,12 @@ mod test {
     fn traverse_decoupledmux() {
         run_traverse("./test-inputs/DecoupledMux.fir")
             .expect("decoupledmux traverse assumption");
+    }
+
+    #[test]
+    fn traverse_singleportsram() {
+        run_traverse("./test-inputs/SinglePortSRAM.fir")
+            .expect("singleportsram traverse assumption");
     }
 
 

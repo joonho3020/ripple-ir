@@ -65,6 +65,9 @@ fn infer_typetree_graph(fg: &mut FirGraph, name: &Identifier) {
             FirNodeType::CMem |
                 FirNodeType::SMem(..) => {
                 let ttree = fg.graph.node_weight(id).unwrap().ttree.clone();
+                let ttree_array_entry = ttree.as_ref().unwrap().subtree_array_element();
+
+                ttree_array_entry.print_tree();
 
                 // Copy ttree to each port
                 let childs: Vec<NodeIndex> = fg.graph.neighbors_directed(id, Outgoing).collect();
@@ -74,7 +77,7 @@ fn infer_typetree_graph(fg: &mut FirGraph, name: &Identifier) {
                         FirNodeType::InferMemPort |
                             FirNodeType::WriteMemPort |
                             FirNodeType::ReadMemPort => {
-                            child.ttree = Some(ttree.as_ref().unwrap().clone());
+                            child.ttree = Some(ttree_array_entry.clone());
                         }
                         _ => {
                             panic!("{:?} Unexpected child node {:?} for memory", name, child);

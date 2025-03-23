@@ -397,12 +397,12 @@ impl RippleGraph {
         let dst_leaves = dst_ttree.subtree_leaves_with_path(dst_ref);
 
         let mut edges: Vec<(NodeIndex, NodeIndex, RippleEdge)> = vec![];
-        for (src_path_key, src_ttree_leaf_id) in src_leaves {
-            let src_ttree_leaf = src_ttree.graph.node_weight(src_ttree_leaf_id).unwrap();
+        for (src_path_key, src_ttree_leaf_id) in src_leaves.iter() {
+            let src_ttree_leaf = src_ttree.graph.node_weight(*src_ttree_leaf_id).unwrap();
 
             // If there is a matching path in the dst aggregate node, add an edge
-            if dst_leaves.contains_key(&src_path_key) {
-                let dst_ttree_leaf_id = dst_leaves.get(&src_path_key).unwrap();
+            if dst_leaves.contains_key(src_path_key) {
+                let dst_ttree_leaf_id = dst_leaves.get(src_path_key).unwrap();
                 let dst_ttree_leaf = dst_ttree.graph.node_weight(*dst_ttree_leaf_id).unwrap();
                 if src_ttree_leaf.dir == TypeDirection::Outgoing {
                     edges.push((
@@ -416,8 +416,59 @@ impl RippleGraph {
                         RippleEdge::new(None, et.clone())));
                 }
             } else {
-                panic!("Not connected src_ref {:?} src_key {:?} dst_ref {:?} dst_key {:?}",
-                    src_key, src_ref, dst_ref, dst_key);
+                panic!("Not connected src_ref {:?}\nsrc_key {:?}\nsrc_leaves {:?}\ndst_ref {:?}\ndst_key {:?}\ndst_leaves {:?}",
+                    src_ref, src_key, src_leaves, dst_ref, dst_key, dst_leaves);
+            }
+        }
+
+        // TODO: Test for partial connections?
+
+        for edge in edges {
+            self.add_edge(edge.0, edge.1, edge.2);
+        }
+    }
+
+    pub fn add_aggregate_mem_edge(
+        &mut self,
+        src_key: &RootTypeTreeKey,
+        src_ref: &Reference,
+        dst_key: &RootTypeTreeKey,
+        dst_ref: &Reference,
+        et: RippleEdgeType
+    ) {
+        // Get leaves of the src aggregate node
+        let src_ttree_id = self.root_ref_ttree_idx_map.get(src_key).expect("to exist");
+        let src_ttree = self.ttrees.get(*src_ttree_id as usize).expect("to exist");
+        let src_ttree_array_entry = src_ttree.subtree_array_element();
+        let src_leaves = src_ttree_array_entry.subtree_leaves_with_path(src_ref);
+
+        // Get leaves of the dst aggregate node
+        let dst_ttree_id = self.root_ref_ttree_idx_map.get(dst_key).expect("to exist");
+        let dst_ttree = self.ttrees.get(*dst_ttree_id as usize).expect("to exist");
+        let dst_leaves = dst_ttree.subtree_leaves_with_path(dst_ref);
+
+        let mut edges: Vec<(NodeIndex, NodeIndex, RippleEdge)> = vec![];
+        for (src_path_key, src_ttree_leaf_id) in src_leaves.iter() {
+            let src_ttree_leaf = src_ttree_array_entry.graph.node_weight(*src_ttree_leaf_id).unwrap();
+
+            // If there is a matching path in the dst aggregate node, add an edge
+            if dst_leaves.contains_key(src_path_key) {
+                let dst_ttree_leaf_id = dst_leaves.get(src_path_key).unwrap();
+                let dst_ttree_leaf = dst_ttree.graph.node_weight(*dst_ttree_leaf_id).unwrap();
+                if src_ttree_leaf.dir == TypeDirection::Outgoing {
+                    edges.push((
+                        src_ttree_leaf.id.unwrap(),
+                        dst_ttree_leaf.id.unwrap(),
+                        RippleEdge::new(None, et.clone())));
+                } else {
+                    edges.push((
+                        dst_ttree_leaf.id.unwrap(),
+                        src_ttree_leaf.id.unwrap(),
+                        RippleEdge::new(None, et.clone())));
+                }
+            } else {
+                panic!("Not connected src_ref {:?}\nsrc_key {:?}\nsrc_leaves {:?}\ndst_ref {:?}\ndst_key {:?}\ndst_leaves {:?}",
+                    src_ref, src_key, src_leaves, dst_ref, dst_key, dst_leaves);
             }
         }
 
@@ -602,7 +653,9 @@ impl GraphViz for RippleGraph {
             let root_info = self.ttree_idx_root_ref_map.get(&(ttree_idx as TreeIdx)).unwrap();
 
             // Create graphviz subgraph to group nodes together
-            let subgraph_name = format!("\"cluster_{}\"", root_info.name).replace('"', "");
+            let subgraph_name = format!("\"cluster_{}_{}\"",
+                root_info.name,
+                ttree_idx).replace('"', "");
             let mut subgraph = DotSubgraph {
                 id: Id::Plain(subgraph_name),
                 stmts: vec![]

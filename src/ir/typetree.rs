@@ -569,6 +569,19 @@ impl TypeTree {
         }
     }
 
+    pub fn subtree_array_element(&self) -> Self {
+        let root = self.root.expect("to exist");
+        assert_eq!(
+            self.graph.node_weight(root).unwrap().tpe,
+            TypeTreeNodeType::Array);
+
+        self.subtree_from_ref(
+            &Reference::RefIdxInt(
+                Box::new(Reference::Ref(Identifier::Name("".to_string()))),
+                Int::from(0)))
+    }
+
+    /// Checks if two typetrees are equivalent
     pub fn eq(&self, other: &Self) -> bool {
         is_isomorphic(&self.graph, &other.graph)
     }
@@ -660,6 +673,42 @@ mod test {
     use super::*;
     use crate::common::RippleIRErr;
     use chirrtl_parser::parse_circuit;
+
+    #[test]
+    fn check_subtree_array_element() -> Result<(), RippleIRErr> {
+        let source = std::fs::read_to_string("./test-inputs/SinglePortSRAM.fir")?;
+        let circuit = parse_circuit(&source).expect("firrtl parser");
+
+        for module in circuit.modules.iter() {
+            match module.as_ref() {
+                CircuitModule::Module(m) => {
+                    for stmt in &m.stmts {
+                        match stmt.as_ref() {
+                            Stmt::ChirrtlMemory(mem) => {
+                                match mem {
+                                    ChirrtlMemory::SMem(_, tpe, ..) => {
+                                        let ttree = TypeTree::build_from_type(tpe, TypeDirection::Outgoing);
+                                        let ttree_ae = ttree.subtree_array_element();
+
+                                        let type_agg = TypeAggregate::Array(
+                                            Box::new(Type::TypeGround(TypeGround::UInt(Some(Width(2))))),
+                                            Int::from(4));
+                                        let expected_type = Type::TypeAggregate(Box::new(type_agg));
+                                        let ttree_ae_expected = TypeTree::build_from_type(&expected_type, TypeDirection::Outgoing);
+                                        assert!(ttree_ae.eq(&ttree_ae_expected));
+                                    }
+                                    _ => { }
+                                }
+                            }
+                            _ => { }
+                        }
+                    }
+                }
+                _ => { }
+            }
+        }
+        Ok(())
+    }
 
     #[test]
     fn check_gcd_name() -> Result<(), RippleIRErr> {
