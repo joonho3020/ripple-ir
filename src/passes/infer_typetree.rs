@@ -67,8 +67,6 @@ fn infer_typetree_graph(fg: &mut FirGraph, name: &Identifier) {
                 let ttree = fg.graph.node_weight(id).unwrap().ttree.clone();
                 let ttree_array_entry = ttree.as_ref().unwrap().subtree_array_element();
 
-                ttree_array_entry.print_tree();
-
                 // Copy ttree to each port
                 let childs: Vec<NodeIndex> = fg.graph.neighbors_directed(id, Outgoing).collect();
                 for cid in childs {

@@ -5,6 +5,8 @@ pub mod firir;
 use chirrtl_parser::ast::*;
 use derivative::Derivative;
 use petgraph::visit::EdgeRef;
+use petgraph::Direction::Incoming;
+use petgraph::Direction::Outgoing;
 use std::fmt::Display;
 use std::hash::Hash;
 use indexmap::{IndexMap, IndexSet};
@@ -218,6 +220,10 @@ impl AggVisMap {
 
     pub fn visit(&mut self, id: TreeIdx) {
         self.visited.set(id as usize, true);
+    }
+
+    pub fn has_unvisited(&self) -> bool {
+        self.visited.count_zeroes(..) > 0
     }
 }
 
@@ -573,6 +579,26 @@ impl RippleGraph {
         return ttree_edge_map;
     }
 
+    fn add_flat_edge_to_agg_edge(
+        &self,
+        id: NodeIndex,
+        eid: EdgeIndex,
+        ttree_edge_map: &mut IndexMap<AggEdgeKey, Vec<EdgeIndex>>
+    ) {
+        let neighbor_ttree_idx = self.ttree_idx_map.get(&id).unwrap();
+        let rir_edge = self.graph.edge_weight(eid).unwrap();
+
+        let edge_map_key = AggEdgeKey::new(neighbor_ttree_idx.tree_id, rir_edge.et.clone());
+        if !ttree_edge_map.contains_key(&edge_map_key) {
+            ttree_edge_map.insert(edge_map_key.clone(), vec![]);
+        }
+        ttree_edge_map
+            .get_mut(&edge_map_key)
+            .unwrap()
+            .push(eid);
+    }
+
+    /// Returns undirected aggregate edges
     pub fn edges_agg(&self, id: TreeIdx) -> IndexMap<AggEdgeKey, Vec<EdgeIndex>> {
         let ttree = self.ttrees.get(id as usize).unwrap();
         let leaf_ids = ttree.all_leaves();
@@ -582,20 +608,15 @@ impl RippleGraph {
             let leaf = ttree.graph.node_weight(leaf_id).unwrap();
             let ir_id = leaf.id.unwrap();
 
-            let edge_ids = self.graph.edges(ir_id);
+            let edge_ids = self.graph.edges_directed(ir_id, Outgoing);
             for eid in edge_ids {
                 let (_src, dst) = self.graph.edge_endpoints(eid.id()).unwrap();
-                let neighbor_ttree_idx = self.ttree_idx_map.get(&dst).unwrap();
-                let rir_edge = self.graph.edge_weight(eid.id()).unwrap();
-
-                let edge_map_key = AggEdgeKey::new(neighbor_ttree_idx.tree_id, rir_edge.et.clone());
-                if !ttree_edge_map.contains_key(&edge_map_key) {
-                    ttree_edge_map.insert(edge_map_key.clone(), vec![]);
-                }
-                ttree_edge_map
-                    .get_mut(&edge_map_key)
-                    .unwrap()
-                    .push(eid.id());
+                self.add_flat_edge_to_agg_edge(dst, eid.id(), &mut ttree_edge_map);
+            }
+            let edge_ids = self.graph.edges_directed(ir_id, Incoming);
+            for eid in edge_ids {
+                let (src, _dst) = self.graph.edge_endpoints(eid.id()).unwrap();
+                self.add_flat_edge_to_agg_edge(src, eid.id(), &mut ttree_edge_map);
             }
         }
         return ttree_edge_map;

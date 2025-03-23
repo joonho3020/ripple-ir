@@ -4,19 +4,11 @@ use indexmap::{IndexMap, IndexSet};
 use petgraph::graph::NodeIndex;
 use crate::ir::firir::{FirEdgeType, FirIR};
 use crate::ir::*;
-use crate::common::graphviz::GraphViz;
 
 pub fn from_fir(fir: &FirIR) -> RippleIR {
     let mut ret = RippleIR::new(fir.name.clone());
     for (name, fgraph) in fir.graphs.iter() {
-        let _ = fgraph.export_graphviz(
-            &format!("./test-outputs/{}-{}.fir.pdf", fir.name, name), None, None, false);
-
         let rg = from_fir_graph(fgraph);
-
-        let _ = rg.export_graphviz(
-            &format!("./test-outputs/{}-{}.rir.pdf", fir.name, name), None, None, true);
-
         ret.graphs.insert(name.clone(), rg);
     }
     return ret;
@@ -171,7 +163,7 @@ mod test {
             .expect("decoupledmux ast assumption");
     }
 
-    fn traverse(module: &Identifier, rg: &RippleGraph) -> Result<(), RippleIRErr> {
+    fn traverse(module: &Identifier, rg: &RippleGraph, export: bool) -> Result<u32, RippleIRErr> {
         let mut q: VecDeque<TreeIdx> = VecDeque::new();
 
         for agg_id in rg.node_indices_agg().iter() {
@@ -191,13 +183,16 @@ mod test {
         let mut file_names: Vec<String> = vec![];
 
         let mut iter_outer = 0;
+        let mut agg_node_cnt = 0;
         let mut vis_map = rg.vismap_agg();
+
         while !q.is_empty() {
             let agg_id = q.pop_front().unwrap();
             if vis_map.is_visited(agg_id) {
                 continue;
             }
             vis_map.visit(agg_id);
+            agg_node_cnt += 1;
 
             let mut node_attributes = NodeAttributeMap::default();
             let src_ttree = rg.ttrees.get(agg_id as usize).unwrap();
@@ -228,33 +223,50 @@ mod test {
                         edge_attributes.insert(*eid, NodeAttributes::color(color_name::red));
                     }
 
-                    let out_name = format!("./test-outputs/{}-{}-{}.traverse.agg.pdf", module, iter_outer, iter_inner);
-                    rg.export_graphviz(
-                        &out_name,
-                        Some(cur_node_attributes).as_ref(),
-                        Some(edge_attributes).as_ref(),
-                        false)?;
+                    if export {
+                        let out_name = format!(
+                            "./test-outputs/{}-{}-{}.traverse.agg.pdf",
+                            module, iter_outer, iter_inner);
 
-                    file_names.push(out_name);
+                        rg.export_graphviz(
+                            &out_name,
+                            Some(cur_node_attributes).as_ref(),
+                            Some(edge_attributes).as_ref(),
+                            false)?;
+                        file_names.push(out_name);
+                    }
                 }
             }
             iter_outer += 1;
         }
+        assert!(!vis_map.has_unvisited());
 
-        rg.create_gif(
-            &format!("./test-outputs/{}.gif", module),
-            &file_names)?;
+        if export {
+            rg.create_gif(
+                &format!("./test-outputs/{}.gif", module),
+                &file_names)?;
+        }
 
-        Ok(())
+        Ok(agg_node_cnt)
     }
 
     fn run_traverse(input: &str) -> Result<(), RippleIRErr> {
         let fir = run_passes_from_filepath(input)?;
         let rir = from_fir(&fir);
         for (module, rg) in rir.graphs.iter() {
-            traverse(module, rg)?;
+            let agg_nodes = traverse(module, rg, false)?;
+            let fg = fir.graphs.get(module).unwrap();
+            assert_eq!(agg_nodes, fg.graph.node_count() as u32,
+                "Node count mismatch expect {} got {}",
+                fg.graph.node_count(), agg_nodes);
         }
         Ok(())
+    }
+
+    #[test]
+    fn traverse_gcd() {
+        run_traverse("./test-inputs/GCD.fir")
+            .expect("gcd traverse assumption");
     }
 
     #[test]
@@ -269,6 +281,11 @@ mod test {
             .expect("singleportsram traverse assumption");
     }
 
+    #[test]
+    fn traverse_aggregatesram() {
+        run_traverse("./test-inputs/AggregateSRAM.fir")
+            .expect("aggregatesram traverse assumption");
+    }
 
 
     // TODO: add tests for cases where
