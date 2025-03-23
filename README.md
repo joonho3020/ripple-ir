@@ -75,46 +75,44 @@ These optimizations makes it difficult to identify correspondence points between
 
 ### Problem & high level idea
 
-The above issues points us to a common problem: given two circuits represented in a graph form (circuits are graphs after all), how do we identify isomorphic subgraphs and isolate different regions?
-Well, the subgraph isomorphism problem is generally a NP hard problem just like most problems we encountered during class!
+The above issues points us to a common problem: given two circuits represented in a graph form (circuits are graphs after all), how do we identify a common subgraph between the two and isolate different regions?
+Well, the maximul common subgraph problem is a NP hard problem just like most problems we encountered during class!
 However, I believe we can solve this for most cases that we run into during the hardware development cycle.
-Also, it is perfectly okay if we run into a bad case where the complexity explodes: we can just compile the design from scratch in this case.
-
-Okay, so how should we approach this problem?
-So here is my high-level idea on how to go about this problem.
-Lets start off with combinational logic as in class.
-One nice thing about combinational logic is that it is a DAG and there seems to be plenty of prior work for DAGs.
-If we can find identical DAGs easily, we can reduce the combinational logic as a single node in a sequential graph by assigning a unique "hash value" to the combinational node.
-Now that the graph size has been reduced, we can run existing graph-iso algorithms to identify graph-diffs.
+Also, we don't even have to search for the maximul subgraph: a large enough common subgraph is good enough.
+Finally, it is perfectly okay if we run into a bad case where the complexity explodes: we can just compile the design from scratch in this case.
 
 Seems like there are some prior work that seems relevant to what we are trying to do.
+In [An Approximate Maximum Common Subgraph Algorithm for Large Digital Circuits](https://ieeexplore.ieee.org/abstract/document/5615521), it finds seemingly similar nodes.
+Starting from these similarish looking nodes, it iteratively finds nodes that are similar between the two graphs.
 
-- [Graph hashing](https://arxiv.org/pdf/2002.06653)
-    - Computes a canonical hash of a directed graph
-    - Hash is represented hierarchical in a merkle tree
+The first step would be to replicate this work in our infrastructure.
+Additionional details are explained in the [implementation section](#implementation).
+
 
 ### Plan
 
 #### Obtaining background information
 
-- [ ] Read the graph-hashing paper together
+- [ ] Read [An Approximate Maximum Common Subgraph Algorithm for Large Digital Circuits](https://ieeexplore.ieee.org/abstract/document/5615521)
+- [ ] Read [Graph hashing](https://arxiv.org/pdf/2002.06653)
 
 #### Implementation
 
-- [Chisel examples](https://github.com/joonho3020/chisel-examples)
-    - We can generate FIRRTL files using the above repo
+- Generate a bunch of chisel examples that are slightly different from each other
+    - [Chisel examples](https://github.com/joonho3020/chisel-examples): we can generate FIRRTL files using this repo
     - [ ] Create a bunch of Chisel circuits that contains small diffs
-- This repo can currently generate circuit graphs from the FIRRTL intermediate representation
-    - [ ] Export the circuit graph representation in a textual format
-- Performing the diff and identifying subgraphs that are isomorphic between different circuit versions
-    - [ ] Parse the textual format in python
-    - [ ] Using [implementation of the graph-hasing paper](https://github.com/calebh/dihash), check if we can perform subgraph-iso on FIRRTL diffs
-        - Use hashes of k-neighbors to find potential correspondence points
-        - Partition the graph around these correspondence points
-        - Graph equivalence check on these partitions
+        - ALU, Queue, Register file, pointer chasing, Small cache, GCD, FIR filter
+    - We can move on to larger circuits after a while
+- This repo can currently generate circuit graphs from the FIRRTL/CHIRRTL IR
+    - It parses the textual format of CHIRRTL and converts it into a internal graph format
+    - You can extend this repo to investigate various approaches described below
+- Perform the diff and identify subgraphs that are isomorphic between different circuit versions
+    - [ ] Reproduce this paper's algorithm: [An Approximate Maximum Common Subgraph Algorithm for Large Digital Circuits](https://ieeexplore.ieee.org/abstract/document/5615521)
+    - [ ] (Experimental/researchy) See if we can augment the above algorithm by using merkel-tree type hashing
 
 ### Related work
 
+- [An Approximate Maximum Common Subgraph Algorithm for Large Digital Circuits](https://ieeexplore.ieee.org/abstract/document/5615521)
 - [Graph hashing](https://arxiv.org/pdf/2002.06653)
 - [DAGs and Equivalence Classes of DAGs](https://www.cs.cmu.edu/afs/cs/project/jair/pub/volume18/acid03a-html/node2.html)
 
