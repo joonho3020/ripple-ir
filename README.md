@@ -88,27 +88,30 @@ Starting from these similarish looking nodes, it iteratively finds nodes that ar
 The first step would be to replicate this work in our infrastructure.
 Additionional details are explained in the [implementation section](#implementation).
 
-
 ### Plan
 
 #### Obtaining background information
 
-- [ ] Read [An Approximate Maximum Common Subgraph Algorithm for Large Digital Circuits](https://ieeexplore.ieee.org/abstract/document/5615521)
-- [ ] Read [Graph hashing](https://arxiv.org/pdf/2002.06653)
+- [ ] Read [An Approximate Maximum Common Subgraph Algorithm for Large Digital Circuits](https://ieeexplore.ieee.org/abstract/document/5615521) (by 3/31)
+<!-- - [ ] Read [Graph hashing](https://arxiv.org/pdf/2002.06653) -->
 
 #### Implementation
 
 - Generate a bunch of chisel examples that are slightly different from each other
     - [Chisel examples](https://github.com/joonho3020/chisel-examples): we can generate FIRRTL files using this repo
     - [ ] Create a bunch of Chisel circuits that contains small diffs
-        - ALU, Queue, Register file, pointer chasing, Small cache, GCD, FIR filter
+        - Circuits to consider: ALU, Queue, Register file, pointer chasing, Small cache, GCD, FIR filter
+        - Changes to consider: internal logic change, add/remove IO ports, adding a submodule
     - We can move on to larger circuits after a while
 - This repo can currently generate circuit graphs from the FIRRTL/CHIRRTL IR
     - It parses the textual format of CHIRRTL and converts it into a internal graph format
     - You can extend this repo to investigate various approaches described below
+    - [ ] Get used to the code by 2nd week of April
 - Perform the diff and identify subgraphs that are isomorphic between different circuit versions
     - [ ] Reproduce this paper's algorithm: [An Approximate Maximum Common Subgraph Algorithm for Large Digital Circuits](https://ieeexplore.ieee.org/abstract/document/5615521)
+        - April 2nd, 3rd, 4th week
     - [ ] (Experimental/researchy) See if we can augment the above algorithm by using merkel-tree type hashing
+        - Rest of May
 
 ### Related work
 
@@ -124,3 +127,58 @@ Additionional details are explained in the [implementation section](#implementat
 - VF2 algorithm
     - [VF2 in petgraph](https://docs.rs/petgraph/latest/petgraph/algo/isomorphism/index.html)
     - [Rust VF2 standalone](https://docs.rs/vf2/latest/vf2/)
+
+---
+
+
+### Summary of: [An Approximate Maximum Common Subgraph Algorithm for Large Digital Circuits](https://ieeexplore.ieee.org/abstract/document/5615521)
+
+- Problem setup: Given GA = (VA, EA, LA) and GB = (VB, EB, LB), netlists (cells A and B), the goal is to find a mapping MAB: VA → VB that matches as many equivalent nodes as possible, forming an approximate maximum common subgraph
+- Terminology
+    - Label: structural semantic identifiers (e.g., input port 0 of an adder). It has nothing to do with user defined names such as `my_wire` etc
+    - FA: Finished vertices in gA (already processed).
+    - DA: Discovered vertices in gA (ready to be matched).
+        - Each vertex in DA is scored by its expected number of mapping candidates—low-candidate vertices are prioritized to reduce ambiguity
+    - UA: Undiscovered vertices in gA.
+    - M̂AB: The current mapping from vertices in gA to vertices in gB.
+- Algorithm overview: greedy, one-pass traversal algorithm
+    - Starts from matched input/output ports
+    - Expands the mapping by exploring neighbors in a best-first order
+    - Chooses candidate matches in the second graph based on label and neighborhood similarity
+
+1. Initialization
+    - Input/output ports of GA and GB are matched directly (based on label)
+    - Neighbors of these matched ports are marked as “discovered” (DA)
+
+```
+FA ← IA ∪ OA
+M̂AB ← { (vA, vB) | vA ∈ FA, vB ∈ IB ∪ OB, LA(vA) == LB(vB) }
+DA ← neighbors(FA) \ FA
+```
+
+2. Main loop:
+
+```
+While DA is not empty:
+    1. Select a vertex dA from DA with the lowest expected number of candidates.
+    2. Identify NB – the set of vertices in gB that are already matched to dA’s neighbors.
+    3. Find candidate matches CB in gB that:
+        •  Have the same label as dA.
+        •  Are unmapped.
+        •  Are neighbors of all nodes in NB.
+    4. If CB is non-empty:
+        •  Pick the best candidate cB ∈ CB using a neighborhood similarity heuristic.
+        •  Add the pair (dA, cB) to M̂AB.
+        •  Add undiscovered neighbors of dA to DA.
+        •  Adjust expected candidate scores for other vertices in DA.
+    5.Move dA to FA.
+```
+
+
+3. DA book-keeping
+
+```
+• DA is kept sorted by expected number of candidates (speculative priority).
+• If actual candidate count is higher than expected, the vertex is reinserted into DA with updated score.
+• When a mapping is made, the candidate expectations of nearby vertices are decremented to reflect the reduced mapping space.
+```
