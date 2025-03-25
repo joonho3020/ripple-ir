@@ -288,5 +288,4 @@ mod test {
 
     // TODO: add tests for cases where
     // - There are references to expressions as array addresses
-    // - There are instance hierarchies
 }

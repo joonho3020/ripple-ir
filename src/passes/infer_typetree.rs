@@ -71,6 +71,11 @@ fn infer_typetree_graph(fir: &mut FirIR, name: &Identifier) {
                 let mut cg_io_ttree = cg.io_typetree();
                 cg_io_ttree.flip();
 
+                if child_module_name == Identifier::Name("plusarg_reader".to_string()) {
+                    println!("Module {:?} node id {:?}", name, id);
+                    cg_io_ttree.print_tree();
+                }
+
                 let node_mut = fir.graphs.get_mut(name).unwrap().graph.node_weight_mut(id).unwrap();
                 node_mut.ttree = Some(cg_io_ttree);
             }
@@ -377,15 +382,7 @@ mod test {
     use crate::passes::runner::run_passes_from_filepath;
 
     fn check_run_to_completion(input: &str) -> Result<(), RippleIRErr> {
-        let ir = run_passes_from_filepath(input)?;
-        for (module, fg) in ir.graphs.iter() {
-            println!("============= {:?} ==============", module);
-            for id in fg.graph.node_indices() {
-                let node = fg.graph.node_weight(id).unwrap();
-                println!("-------------------------------------");
-                node.ttree.as_ref().unwrap().print_tree();
-            }
-        }
+        let _fir = run_passes_from_filepath(input)?;
         Ok(())
     }
 
@@ -406,7 +403,6 @@ mod test {
         check_run_to_completion("./test-inputs/Hierarchy.fir")
             .expect("hierarchy to run to completion");
     }
-
 
     #[test]
     fn rocket() {

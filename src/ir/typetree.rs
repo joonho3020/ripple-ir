@@ -361,8 +361,11 @@ impl TypeTree {
                 Self::ref_identifier_chain_recursive(parent, chain);
                 chain.push_back(Identifier::ID(id.clone()));
             }
-            Reference::RefIdxExpr(_parent, _addr) => {
-                panic!("Reference identifier chain got recursive addressing {:?}", reference);
+            Reference::RefIdxExpr(parent, _addr) => {
+                // This is the same case as RefIdxInt except that
+                // we are doing dynamic indexing
+                Self::ref_identifier_chain_recursive(parent, chain);
+                chain.push_back(Identifier::ID(Int::from(0)));
             }
         }
     }
@@ -593,11 +596,6 @@ impl TypeTree {
     /// Given some TypeTrees with their names, create a new TypeTree that takes
     /// the given ones as a subtree
     pub fn merge_trees(ttrees: IndexMap<&Identifier, &Self>) -> Self {
-        // If there is only one subtree, then just return it
-        if ttrees.len() == 1 {
-            return (*ttrees.first().unwrap().1).clone();
-        }
-
         let mut ret = Self::default();
 
         let root_node = TypeTreeNode::new(None, TypeDirection::default(), TypeTreeNodeType::Fields);

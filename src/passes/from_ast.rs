@@ -57,8 +57,10 @@ fn from_module(module: &Module) -> FirGraph {
     return ret;
 }
 
-fn from_ext_module(_module: &ExtModule) -> FirGraph {
-    let ret = FirGraph::new();
+fn from_ext_module(module: &ExtModule) -> FirGraph {
+    let mut ret = FirGraph::new();
+    let mut nm: NodeMap = NodeMap::default();
+    collect_graph_nodes_from_ports(&mut ret, &module.ports, &mut nm);
     return ret;
 }
 

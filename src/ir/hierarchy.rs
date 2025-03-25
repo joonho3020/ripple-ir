@@ -146,4 +146,21 @@ mod test {
                  &HierNode::from(Identifier::Name("Top".to_string()))]);
         Ok(())
     }
+
+    #[test]
+    fn rocket() -> Result<(), RippleIRErr> {
+        let source = std::fs::read_to_string("./test-inputs/chipyard.harness.TestHarness.RocketConfig.fir".to_string())?;
+        let circuit = parse_circuit(&source).expect("firrtl parser");
+
+        let mut fir = from_circuit(&circuit);
+        remove_unnecessary_phi(&mut fir);
+        check_phi_node_connections(&fir)?;
+
+        let plusarg_graph = fir.graphs.get(&Identifier::Name("plusarg_reader".to_string())).unwrap();
+        plusarg_graph.export_graphviz("./test-outputs/plusargs.fir.pdf", None, None, false)?;
+
+        let h = Hierarchy::new(&fir);
+        h.export_graphviz("./test-outputs/rocket.hier.pdf", None, None, false)?;
+        Ok(())
+    }
 }
