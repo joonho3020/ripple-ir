@@ -7,6 +7,11 @@ use crate::ir::*;
 
 pub fn from_fir(fir: &FirIR) -> RippleIR {
     let mut ret = RippleIR::new(fir.name.clone());
+
+    // Create instance hierarchy
+    ret.hierarchy.build_from_fir(fir);
+
+    // Convert FIR graph into Ripple graph
     for (name, fgraph) in fir.graphs.iter() {
         let rg = from_fir_graph(fgraph);
         ret.graphs.insert(name.clone(), rg);

@@ -1,12 +1,13 @@
 use chirrtl_parser::ast::Identifier;
 use petgraph::graph::{Graph, NodeIndex};
+use petgraph::algo::toposort;
 use indexmap::IndexMap;
 
 use super::firir::{FirIR, FirNodeType};
 use crate::common::graphviz::*;
 use crate::impl_clean_display;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HierNode(Identifier);
 
 impl From<Identifier> for HierNode {
@@ -17,7 +18,7 @@ impl From<Identifier> for HierNode {
 
 impl_clean_display!(HierNode);
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HierEdge(Identifier);
 
 impl From<Identifier> for HierEdge {
@@ -41,20 +42,19 @@ pub struct Hierarchy {
 }
 
 impl Hierarchy {
-    pub fn build_from_fir(fir: &FirIR) -> Self {
-        let mut ret = Self::default();
+    pub fn build_from_fir(&mut self, fir: &FirIR) {
         let mut module_node_map: IndexMap<&Identifier, NodeIndex> = IndexMap::new();
 
         for (module, fg) in fir.graphs.iter() {
             let hnode = HierNode(module.clone());
-            let nid = ret.graph.add_node(hnode);
+            let nid = self.graph.add_node(hnode);
             module_node_map.insert(module, nid);
 
             for id in fg.graph.node_indices() {
                 let node = fg.graph.node_weight(id).unwrap();
                 match &node.nt {
                     FirNodeType::Inst(child_module) => {
-                        ret.graph.add_edge(nid,
+                        self.graph.add_edge(nid,
                             *module_node_map.get(child_module).unwrap(),
                             HierEdge::from(node.name.as_ref().unwrap().clone()));
                     }
@@ -63,7 +63,19 @@ impl Hierarchy {
                 }
             }
         }
+    }
+
+    pub fn new(fir: &FirIR) -> Self {
+        let mut ret = Self::default();
+        ret.build_from_fir(fir);
         return ret;
+    }
+
+    /// Returns a iterator over the HierNodes in the module hierarchy
+    /// in a topological order (from leaf to top)
+    pub fn topo_order(&self) -> impl Iterator<Item = &HierNode> {
+        let sorted = toposort(&self.graph, None).expect("Hier graph is a DAG");
+        sorted.into_iter().rev().map(|id| self.graph.node_weight(id).unwrap())
     }
 }
 
@@ -106,7 +118,7 @@ mod test {
     use crate::passes::remove_unnecessary_phi::*;
     use crate::passes::check_phi_nodes::*;
 
-    use super::Hierarchy;
+    use super::*;
     use chirrtl_parser::parse_circuit;
 
     #[test]
@@ -119,7 +131,14 @@ mod test {
         remove_unnecessary_phi(&mut fir);
         check_phi_node_connections(&fir)?;
 
-        let _h = Hierarchy::build_from_fir(&fir);
+        let h = Hierarchy::new(&fir);
+        let hns: Vec<&HierNode> = h.topo_order().collect();
+
+        assert_eq!(hns,
+            vec![&HierNode::from(Identifier::Name("A".to_string())),
+                 &HierNode::from(Identifier::Name("C".to_string())),
+                 &HierNode::from(Identifier::Name("B".to_string())),
+                 &HierNode::from(Identifier::Name("Top".to_string()))]);
         Ok(())
     }
 }

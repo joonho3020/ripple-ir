@@ -5,6 +5,7 @@ pub mod hierarchy;
 
 use chirrtl_parser::ast::*;
 use derivative::Derivative;
+use hierarchy::Hierarchy;
 use petgraph::visit::EdgeRef;
 use petgraph::Direction::Incoming;
 use petgraph::Direction::Outgoing;
@@ -608,12 +609,17 @@ impl RippleGraph {
 #[derive(Debug, Clone)]
 pub struct RippleIR {
     pub name: Identifier,
-    pub graphs: IndexMap<Identifier, RippleGraph>
+    pub graphs: IndexMap<Identifier, RippleGraph>,
+    pub hierarchy: Hierarchy,
 }
 
 impl RippleIR {
     pub fn new(name: Identifier) -> Self {
-        Self { name, graphs: IndexMap::new() }
+        Self {
+            name,
+            graphs: IndexMap::new(),
+            hierarchy: Hierarchy::default(),
+        }
     }
 }
 
@@ -693,6 +699,7 @@ impl GraphViz for RippleGraph {
         for eid in self.graph.edge_indices() {
             let ep = self.graph.edge_endpoints(eid).unwrap();
             let w = self.graph.edge_weight(eid).unwrap();
+
             // Create graphviz edge
             let mut e = edge!(
                 node_id!(ep.0.index().to_string()) =>
@@ -700,9 +707,7 @@ impl GraphViz for RippleGraph {
 
             let edge_label_inner = format!("{}", w).to_string().replace('"', "");
             let edge_label = format!("\"{}\"", edge_label_inner);
-
-            e.attributes.push(
-                EdgeAttributes::label(edge_label));
+            e.attributes.push(EdgeAttributes::label(edge_label));
 
             // Add edge attribute if it exists
             if let Some(ea) = edge_attr {
