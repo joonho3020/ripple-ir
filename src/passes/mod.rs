@@ -4,4 +4,5 @@ pub mod from_fir;
 pub mod remove_unnecessary_phi;
 pub mod infer_typetree;
 pub mod check_ast_assumption;
+pub mod check_phi_nodes;
 pub mod runner;

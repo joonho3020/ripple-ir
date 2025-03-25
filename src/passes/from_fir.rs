@@ -48,20 +48,6 @@ impl NameSpace {
     }
 }
 
-fn single_edge(et: &FirEdgeType) -> bool {
-    match et {
-        FirEdgeType::MuxCond     |
-        FirEdgeType::Clock       |
-        FirEdgeType::Reset       |
-        FirEdgeType::DontCare    |
-        FirEdgeType::PhiSel      |
-        FirEdgeType::MemPortAddr => {
-            true
-        }
-        _ => false
-    }
-}
-
 fn from_fir_graph(fg: &FirGraph) -> RippleGraph {
     let mut rg = RippleGraph::new();
     let mut node_map: IndexMap<NodeIndex, RootTypeTreeKey> = IndexMap::new();
@@ -289,11 +275,6 @@ mod test {
 
 
     // TODO: add tests for cases where
-    // - Mux, primops
     // - There are references to expressions as array addresses
     // - There are instance hierarchies
-    // - SRAMs
-    //
-    // - Write pass that checks that the Phi nodes are all connected to their child node after
-    // from_ast
 }

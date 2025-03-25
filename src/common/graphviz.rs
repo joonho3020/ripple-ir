@@ -190,3 +190,17 @@ pub trait GraphViz {
         Ok(())
     }
 }
+
+#[macro_export]
+macro_rules! impl_clean_display {
+    ($t:ty) => {
+        impl std::fmt::Display for $t {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                let original = format!("{:?}", self);
+                let clean_for_dot = original.replace('"', "");
+                write!(f, "{}", clean_for_dot)
+            }
+        }
+    };
+}
+

@@ -1,6 +1,5 @@
 use chirrtl_parser::ast::*;
 use derivative::Derivative;
-use std::fmt::Display;
 use indexmap::IndexMap;
 use petgraph::graph::{Graph, NodeIndex};
 use crate::common::graphviz::*;
@@ -8,6 +7,7 @@ use crate::common::RippleIRErr;
 use crate::ir::typetree::TypeTree;
 use crate::ir::whentree::Condition;
 use crate::ir::PhiPriority;
+use crate::impl_clean_display;
 
 #[derive(Derivative, Clone)]
 #[derivative(Debug)]
@@ -59,13 +59,7 @@ pub enum FirNodeType {
     Phi,
 }
 
-impl Display for FirNode {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let original = format!("{:?}", self);
-        let clean_for_dot = original.replace('"', "");
-        write!(f, "{}", clean_for_dot)
-    }
-}
+impl_clean_display!(FirNode);
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct FirEdge {
@@ -100,13 +94,7 @@ pub enum FirEdgeType {
     ArrayAddr,
 }
 
-impl Display for FirEdge {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let original = format!("{:?}", self);
-        let clean_for_dot = original.replace('"', "");
-        write!(f, "{}", clean_for_dot)
-    }
-}
+impl_clean_display!(FirEdge);
 
 impl FirEdge {
     pub fn new(src: Expr, dst: Option<Reference>, et: FirEdgeType) -> Self {

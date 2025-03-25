@@ -36,28 +36,28 @@ pub fn from_circuit(ast: &Circuit) -> FirIR {
 }
 
 pub fn from_circuit_module(module: &CircuitModule) -> (&Identifier, FirGraph) {
-    let mut nodemap: NodeMap = NodeMap::default();
     match module {
         CircuitModule::Module(m) => {
-            (&m.name, from_module(m, &mut nodemap))
+            (&m.name, from_module(m))
         }
         CircuitModule::ExtModule(e) => {
-            (&e.name, from_ext_module(e, &mut nodemap))
+            (&e.name, from_ext_module(e))
         }
     }
 }
 
-fn from_module(module: &Module, nm: &mut NodeMap) -> FirGraph {
+fn from_module(module: &Module) -> FirGraph {
+    let mut nm: NodeMap = NodeMap::default();
     let mut ret = FirGraph::new();
-    collect_graph_nodes_from_ports(&mut ret, &module.ports, nm);
-    collect_graph_nodes_from_stmts(&mut ret, &module.stmts, nm);
-    connect_graph_edges_from_stmts(&mut ret, &module.stmts, nm);
-    connect_phi_in_edges_from_stmts(&mut ret, &module.stmts, nm);
-    connect_phi_node_sels(&mut ret, nm);
+    collect_graph_nodes_from_ports(&mut ret, &module.ports, &mut nm);
+    collect_graph_nodes_from_stmts(&mut ret, &module.stmts, &mut nm);
+    connect_graph_edges_from_stmts(&mut ret, &module.stmts, &mut nm);
+    connect_phi_in_edges_from_stmts(&mut ret, &module.stmts, &mut nm);
+    connect_phi_node_sels(&mut ret, &mut nm);
     return ret;
 }
 
-fn from_ext_module(module: &ExtModule, nm: &mut NodeMap) -> FirGraph {
+fn from_ext_module(_module: &ExtModule) -> FirGraph {
     let ret = FirGraph::new();
     return ret;
 }

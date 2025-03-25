@@ -337,8 +337,7 @@ fn infer_typetree_node(fg: &mut FirGraph, id: NodeIndex, name: &Identifier) {
 }
 
 pub fn check_typetree_inference(ir: &FirIR) -> Result<(), RippleIRErr> {
-    for (name, fg) in ir.graphs.iter() {
-        println!("{:?}", name);
+    for (_name, fg) in ir.graphs.iter() {
         check_typetree_inference_graph(fg)?;
     }
     return Ok(());
@@ -348,7 +347,9 @@ fn check_typetree_inference_graph(fg: &FirGraph) -> Result<(), RippleIRErr> {
     for id in fg.graph.node_indices() {
         let node = fg.graph.node_weight(id).unwrap();
         if !node.ttree.is_some() {
-            return Err(RippleIRErr::FirNodeError("Does not have a typetree".to_string(), node.clone()));
+            return Err(
+                RippleIRErr::TypeTreeInferenceError(
+                    format!("{:?} does not have a typetree", node.clone())));
         }
     }
     return Ok(());
@@ -358,12 +359,9 @@ fn check_typetree_inference_graph(fg: &FirGraph) -> Result<(), RippleIRErr> {
 mod test {
     use crate::common::RippleIRErr;
     use crate::passes::runner::run_passes_from_filepath;
-    use super::*;
 
     fn run_check_typetree_inference(input: &str) -> Result<(), RippleIRErr> {
         let ir = run_passes_from_filepath(input)?;
-        check_typetree_inference(&ir)?;
-
         for (_module, fg) in ir.graphs.iter() {
             for id in fg.graph.node_indices() {
                 let node = fg.graph.node_weight(id).unwrap();

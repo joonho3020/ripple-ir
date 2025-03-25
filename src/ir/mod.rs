@@ -1,13 +1,13 @@
 pub mod typetree;
 pub mod whentree;
 pub mod firir;
+pub mod hierarchy;
 
 use chirrtl_parser::ast::*;
 use derivative::Derivative;
 use petgraph::visit::EdgeRef;
 use petgraph::Direction::Incoming;
 use petgraph::Direction::Outgoing;
-use std::fmt::Display;
 use std::hash::Hash;
 use indexmap::{IndexMap, IndexSet};
 use petgraph::graph::{Graph, NodeIndex, EdgeIndex};
@@ -16,6 +16,7 @@ use crate::common::graphviz::*;
 use crate::ir::whentree::Condition;
 use crate::ir::typetree::*;
 use crate::ir::firir::*;
+use crate::impl_clean_display;
 
 #[derive(Debug, Default, Clone, PartialEq, Eq, Hash)]
 pub struct PhiPriority {
@@ -81,21 +82,8 @@ pub enum RippleNodeType {
     Phi,
 }
 
-impl Display for RippleNodeType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let original = format!("{:?}", self);
-        let clean_for_dot = original.replace('"', "");
-        write!(f, "{}", clean_for_dot)
-    }
-}
-
-impl Display for RippleNode {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let original = format!("{:?}\n{:?}\n{:?}", self.name, self.tpe, self.tg);
-        let clean_for_dot = original.replace('"', "");
-        write!(f, "{}", clean_for_dot)
-    }
-}
+impl_clean_display!(RippleNodeType);
+impl_clean_display!(RippleNode);
 
 impl From<&FirNodeType> for RippleNodeType {
     fn from(value: &FirNodeType) -> Self {
@@ -162,13 +150,7 @@ pub enum RippleEdgeType {
     ArrayAddr,
 }
 
-impl Display for RippleEdge {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let original = format!("{:?}", self.et);
-        let clean_for_dot = original.replace('"', "");
-        write!(f, "{}", clean_for_dot)
-    }
-}
+impl_clean_display!(RippleEdge);
 
 impl From<&FirEdgeType> for RippleEdgeType {
     fn from(value: &FirEdgeType) -> Self {
@@ -427,8 +409,6 @@ impl RippleGraph {
             }
         }
 
-        // TODO: Test for partial connections?
-
         for edge in edges {
             self.add_edge(edge.0, edge.1, edge.2);
         }
@@ -477,8 +457,6 @@ impl RippleGraph {
                     src_ref, src_key, src_leaves, dst_ref, dst_key, dst_leaves);
             }
         }
-
-        // TODO: Test for partial connections?
 
         for edge in edges {
             self.add_edge(edge.0, edge.1, edge.2);

@@ -10,6 +10,7 @@ use std::io::BufWriter;
 use std::hash::{Hash, Hasher};
 use crate::common::graphviz::*;
 use crate::common::RippleIRErr;
+use crate::impl_clean_display;
 
 /// - Direction in the perspective of the noding holding this `TypeTree`
 /// ```
@@ -79,13 +80,7 @@ impl TypeTreeNode {
     }
 }
 
-impl Display for TypeTreeNode {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let original = format!("{:?}", self);
-        let clean_for_dot = original.replace('"', "");
-        write!(f, "{}", clean_for_dot)
-    }
-}
+impl_clean_display!(TypeTreeNode);
 
 /// Used for representing a path in the `TypeTree`
 #[derive(Debug, Clone, Eq)]
