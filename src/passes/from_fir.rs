@@ -12,9 +12,10 @@ pub fn from_fir(fir: &FirIR) -> RippleIR {
     ret.hierarchy.build_from_fir(fir);
 
     // Convert FIR graph into Ripple graph
-    for (name, fgraph) in fir.graphs.iter() {
-        let rg = from_fir_graph(fgraph);
-        ret.graphs.insert(name.clone(), rg);
+    for hier in ret.hierarchy.topo_order() {
+        let fgraph = fir.graphs.get(hier.name()).unwrap();
+        let rgraph = from_fir_graph(fgraph);
+        ret.graphs.insert(hier.name().clone(), rgraph);
     }
     return ret;
 }
@@ -145,13 +146,19 @@ mod test {
     #[test]
     fn gcd() {
         run("./test-inputs/GCD.fir")
-            .expect("gcd ast assumption");
+            .expect("gcd");
     }
 
     #[test]
     fn decoupledmux() {
         run("./test-inputs/DecoupledMux.fir")
-            .expect("decoupledmux ast assumption");
+            .expect("decoupledmux");
+    }
+
+    #[test]
+    fn hierarchy() {
+        run("./test-inputs/Hierarchy.fir")
+            .expect("hierarchy");
     }
 
     fn traverse(module: &Identifier, rg: &RippleGraph, export: bool) -> Result<u32, RippleIRErr> {

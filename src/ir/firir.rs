@@ -113,6 +113,19 @@ impl FirGraph {
     pub fn new() -> Self {
         Self { graph: IRGraph::new() }
     }
+
+    /// Returns a TypeTree of all its IO signals
+    /// Useful for handling instances
+    pub fn io_typetree(&self) -> TypeTree {
+        let mut io_ttrees: IndexMap<&Identifier, &TypeTree> = IndexMap::new();
+        for id in self.graph.node_indices() {
+            let node = self.graph.node_weight(id).unwrap();
+            if node.nt == FirNodeType::Input || node.nt == FirNodeType::Output {
+                io_ttrees.insert(&node.name.as_ref().unwrap(), &node.ttree.as_ref().unwrap());
+            }
+        }
+        TypeTree::merge_trees(io_ttrees)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -167,5 +180,92 @@ impl GraphViz for FirGraph {
             edge_attr: Option<&EdgeAttributeMap>
     ) -> Result<String, std::io::Error> {
         DefaultGraphVizCore::graphviz_string(self, node_attr, edge_attr)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::common::RippleIRErr;
+    use crate::ir::typetree::{GroundType, TypeDirection, TypeTreeEdge, TypeTreeNode, TypeTreeNodeType};
+    use chirrtl_parser::ast::Identifier;
+    use chirrtl_parser::parse_circuit;
+    use crate::passes::from_ast::from_circuit;
+    use crate::passes::remove_unnecessary_phi::remove_unnecessary_phi;
+    use crate::passes::check_phi_nodes::check_phi_node_connections;
+    use crate::ir::TypeTree;
+
+    #[test]
+    fn io_typetree() -> Result<(), RippleIRErr> {
+        let source = std::fs::read_to_string("./test-inputs/GCD.fir")?;
+        let circuit = parse_circuit(&source).expect("firrtl parser");
+
+        let mut fir = from_circuit(&circuit);
+        remove_unnecessary_phi(&mut fir);
+        check_phi_node_connections(&fir)?;
+
+        for (_name, fg) in fir.graphs {
+            let mut io_typetree = fg.io_typetree();
+            io_typetree.flip();
+
+            let mut expect = TypeTree::default();
+            let root_id = expect.graph.add_node(TypeTreeNode::new(
+                    None, TypeDirection::Incoming, TypeTreeNodeType::Fields));
+            expect.root = Some(root_id);
+
+            let io_id = expect.graph.add_node(TypeTreeNode::new(
+                    Some(Identifier::Name("io".to_string())),
+                    TypeDirection::Outgoing,
+                    TypeTreeNodeType::Fields));
+
+            expect.graph.add_edge(root_id, io_id, TypeTreeEdge::default());
+
+            let value1_id = expect.graph.add_node(TypeTreeNode::new(
+                    Some(Identifier::Name("value1".to_string())),
+                    TypeDirection::Incoming,
+                    TypeTreeNodeType::Ground(GroundType::UInt)));
+
+            let value2_id = expect.graph.add_node(TypeTreeNode::new(
+                    Some(Identifier::Name("value2".to_string())),
+                    TypeDirection::Incoming,
+                    TypeTreeNodeType::Ground(GroundType::UInt)));
+
+            let loadingvalues_id = expect.graph.add_node(TypeTreeNode::new(
+                    Some(Identifier::Name("loadingValues".to_string())),
+                    TypeDirection::Incoming,
+                    TypeTreeNodeType::Ground(GroundType::UInt)));
+
+            let outputgcd_id = expect.graph.add_node(TypeTreeNode::new(
+                    Some(Identifier::Name("outputGCD".to_string())),
+                    TypeDirection::Outgoing,
+                    TypeTreeNodeType::Ground(GroundType::UInt)));
+
+            let outputvalid_id = expect.graph.add_node(TypeTreeNode::new(
+                    Some(Identifier::Name("outputValid".to_string())),
+                    TypeDirection::Outgoing,
+                    TypeTreeNodeType::Ground(GroundType::UInt)));
+
+            expect.graph.add_edge(io_id, value1_id, TypeTreeEdge::default());
+            expect.graph.add_edge(io_id, value2_id, TypeTreeEdge::default());
+            expect.graph.add_edge(io_id, loadingvalues_id, TypeTreeEdge::default());
+            expect.graph.add_edge(io_id, outputgcd_id, TypeTreeEdge::default());
+            expect.graph.add_edge(io_id, outputvalid_id, TypeTreeEdge::default());
+
+            let clock_id = expect.graph.add_node(
+                TypeTreeNode::new(Some(Identifier::Name("clock".to_string())),
+                TypeDirection::Incoming,
+                TypeTreeNodeType::Ground(GroundType::Clock)));
+
+            let reset_id = expect.graph.add_node(
+                TypeTreeNode::new(Some(Identifier::Name("reset".to_string())),
+                TypeDirection::Incoming,
+                TypeTreeNodeType::Ground(GroundType::UInt)));
+
+            expect.graph.add_edge(root_id, clock_id, TypeTreeEdge::default());
+            expect.graph.add_edge(root_id, reset_id, TypeTreeEdge::default());
+
+            assert!(io_typetree.eq(&expect));
+        }
+
+        Ok(())
     }
 }

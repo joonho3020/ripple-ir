@@ -66,11 +66,19 @@ pub enum TypeTreeNodeType {
     Array,
 }
 
+/// Node in the TypeTree
 #[derive(Debug, Clone, PartialEq, Hash)]
 pub struct TypeTreeNode {
+    /// Name of this node. The root of the tree will not have a name
     pub name: Option<Identifier>,
+
+    /// Direction of this node
     pub dir: TypeDirection,
+
+    /// NodeType
     pub tpe: TypeTreeNodeType,
+
+    /// Points to the Node in the flattened IR graph
     pub id: Option<NodeIndex>
 }
 
@@ -160,7 +168,7 @@ pub struct TypeTree {
 impl TypeTree {
     pub fn build_from_ground_type(gt: GroundType) -> Self {
         let mut ret = Self::default();
-        let node = TypeTreeNode::new(None, TypeDirection::Outgoing, TypeTreeNodeType::Ground(gt));
+        let node = TypeTreeNode::new(None, TypeDirection::default(), TypeTreeNodeType::Ground(gt));
         let root = ret.graph.add_node(node);
         ret.root = Some(root);
         return ret;
@@ -475,6 +483,7 @@ impl TypeTree {
                 q.push_back((cid, path));
             }
 
+            // Leaf node
             if num_childs == 0 {
                 ret.insert(nirc.1, nirc.0);
             }
@@ -579,6 +588,63 @@ impl TypeTree {
     /// Checks if two typetrees are equivalent
     pub fn eq(&self, other: &Self) -> bool {
         is_isomorphic(&self.graph, &other.graph)
+    }
+
+    /// Given some TypeTrees with their names, create a new TypeTree that takes
+    /// the given ones as a subtree
+    pub fn merge_trees(ttrees: IndexMap<&Identifier, &Self>) -> Self {
+        // If there is only one subtree, then just return it
+        if ttrees.len() == 1 {
+            return (*ttrees.first().unwrap().1).clone();
+        }
+
+        let mut ret = Self::default();
+
+        let root_node = TypeTreeNode::new(None, TypeDirection::default(), TypeTreeNodeType::Fields);
+        let root_id = ret.graph.add_node(root_node);
+        ret.root = Some(root_id);
+
+        for (name, ttree) in ttrees {
+            let mut node_id_map: IndexMap<NodeIndex, NodeIndex> = IndexMap::new();
+
+            // Add name to the subtree root
+            let root_id = ttree.root.unwrap();
+            let mut root = ttree.graph.node_weight(root_id).unwrap().clone();
+            root.name = Some(name.clone());
+
+            // Add the subtree root as a child to the root
+            let new_id = ret.graph.add_node(root);
+            ret.graph.add_edge(ret.root.unwrap(), new_id, TypeTreeEdge::default());
+            node_id_map.insert(root_id, new_id);
+
+            // Traverse the subtree and add all its childs
+            let mut q: VecDeque<NodeIndex> = VecDeque::new();
+            q.push_back(root_id);
+
+            while !q.is_empty() {
+                let id = q.pop_front().unwrap();
+                let new_id = *node_id_map.get(&id).unwrap();
+
+                let childs = ttree.graph.neighbors_directed(id, Outgoing);
+                for cid in childs {
+                    q.push_back(cid);
+
+                    let child = ttree.graph.node_weight(cid).unwrap();
+                    let new_child_id = ret.graph.add_node(child.clone());
+                    ret.graph.add_edge(new_id, new_child_id, TypeTreeEdge::default());
+                    node_id_map.insert(cid, new_child_id);
+                }
+            }
+        }
+        return ret;
+    }
+
+    /// Flips the directionality of all the TypeTreeNodes
+    pub fn flip(&mut self) {
+        for id in self.graph.node_indices() {
+            let node = self.graph.node_weight_mut(id).unwrap();
+            node.dir = node.dir.flip();
+        }
     }
 }
 

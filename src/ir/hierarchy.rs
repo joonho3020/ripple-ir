@@ -18,6 +18,12 @@ impl From<Identifier> for HierNode {
 
 impl_clean_display!(HierNode);
 
+impl HierNode {
+    pub fn name(&self) -> &Identifier {
+        &self.0
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HierEdge(Identifier);
 
@@ -127,7 +133,6 @@ mod test {
         let circuit = parse_circuit(&source).expect("firrtl parser");
 
         let mut fir = from_circuit(&circuit);
-
         remove_unnecessary_phi(&mut fir);
         check_phi_node_connections(&fir)?;
 

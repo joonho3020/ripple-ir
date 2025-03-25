@@ -6,13 +6,17 @@ use petgraph::visit::{EdgeRef, VisitMap, Visitable};
 use petgraph::Undirected;
 use petgraph::prelude::Dfs;
 use indexmap::IndexMap;
+use crate::common::graphviz::DefaultGraphVizCore;
 use crate::common::RippleIRErr;
 use crate::ir::firir::*;
+use crate::ir::hierarchy::Hierarchy;
 use crate::ir::typetree::*;
 
 pub fn infer_typetree(ir: &mut FirIR) {
-    for (name, fg) in ir.graphs.iter_mut() {
-        infer_typetree_graph(fg, name);
+    let hier = Hierarchy::new(ir);
+
+    for module in hier.topo_order() {
+        infer_typetree_graph(ir, module.name());
     }
 }
 
@@ -47,20 +51,28 @@ fn topo_start_node(nt: &FirNodeType) -> bool {
     }
 }
 
-fn infer_typetree_graph(fg: &mut FirGraph, name: &Identifier) {
+fn infer_typetree_graph(fir: &mut FirIR, name: &Identifier) {
     use crate::ir::typetree::GroundType::*;
 
+    let node_ids: Vec<NodeIndex> = fir.graphs.get(name).unwrap().node_indices().collect();
+
     // Take care of nodes with ground types and memory
-    for id in fg.graph.node_indices() {
+    for id in node_ids {
+        let fg = fir.graphs.get(name).unwrap();
         let nt = &fg.graph.node_weight(id).unwrap().nt;
         match nt {
-            FirNodeType::Invalid         => { set_ground_type(fg, id, Invalid); }
-            FirNodeType::DontCare        => { set_ground_type(fg, id, DontCare); }
-            FirNodeType::UIntLiteral(..) => { set_ground_type(fg, id, UInt); }
-            FirNodeType::SIntLiteral(..) => { set_ground_type(fg, id, SInt); }
-            FirNodeType::Inst(..)        => {
-                set_ground_type(fg, id, Inst);
-                todo!("Instance handling is not yet implemented for typetree inference");
+            FirNodeType::Invalid         => { set_ground_type(fir.graphs.get_mut(name).unwrap(), id, Invalid); }
+            FirNodeType::DontCare        => { set_ground_type(fir.graphs.get_mut(name).unwrap(), id, DontCare); }
+            FirNodeType::UIntLiteral(..) => { set_ground_type(fir.graphs.get_mut(name).unwrap(), id, UInt); }
+            FirNodeType::SIntLiteral(..) => { set_ground_type(fir.graphs.get_mut(name).unwrap(), id, SInt); }
+            FirNodeType::Inst(child_module_name)        => {
+                let child_module_name = child_module_name.clone();
+                let cg = fir.graphs.get(&child_module_name).unwrap();
+                let mut cg_io_ttree = cg.io_typetree();
+                cg_io_ttree.flip();
+
+                let node_mut = fir.graphs.get_mut(name).unwrap().graph.node_weight_mut(id).unwrap();
+                node_mut.ttree = Some(cg_io_ttree);
             }
             FirNodeType::CMem |
                 FirNodeType::SMem(..) => {
@@ -70,7 +82,7 @@ fn infer_typetree_graph(fg: &mut FirGraph, name: &Identifier) {
                 // Copy ttree to each port
                 let childs: Vec<NodeIndex> = fg.graph.neighbors_directed(id, Outgoing).collect();
                 for cid in childs {
-                    let child = fg.graph.node_weight_mut(cid).unwrap();
+                    let child = fir.graphs.get_mut(name).unwrap().graph.node_weight_mut(cid).unwrap();
                     match child.nt {
                         FirNodeType::InferMemPort |
                             FirNodeType::WriteMemPort |
@@ -89,7 +101,7 @@ fn infer_typetree_graph(fg: &mut FirGraph, name: &Identifier) {
 
                 let cid = childs[0];
                 let child_ttree = fg.graph.node_weight(cid).unwrap().ttree.clone();
-                let node_mut = fg.graph.node_weight_mut(id).unwrap();
+                let node_mut = fir.graphs.get_mut(name).unwrap().graph.node_weight_mut(id).unwrap();
                 node_mut.ttree = child_ttree;
 
                 assert!(node_mut.ttree.is_some());
@@ -98,6 +110,8 @@ fn infer_typetree_graph(fg: &mut FirGraph, name: &Identifier) {
             }
         }
     }
+
+    let fg = fir.graphs.get_mut(name).unwrap();
 
     // compute indeg for the entire graph
     let mut indeg: IndexMap<NodeIndex, u32> = IndexMap::new();
@@ -110,6 +124,8 @@ fn infer_typetree_graph(fg: &mut FirGraph, name: &Identifier) {
         *indeg.get_mut(&dst).unwrap() += 1;
     }
 
+    // Main type inference loop
+    // - Topo sort nodes in each CC, and perform type inference
     let undir_graph = fg.graph.clone().into_edge_type::<Undirected>();
     let mut visited = 0;
     let mut vis_map = fg.graph.visit_map();
@@ -153,7 +169,7 @@ fn infer_typetree_graph(fg: &mut FirGraph, name: &Identifier) {
             }
         }
 
-        // Infer in topo sorted order
+        // Infer type in topo sorted order
         for nidx in topo_sort_order.iter() {
             let node = fg.graph.node_weight(*nidx).unwrap();
             if node.ttree.is_some() {
@@ -360,13 +376,13 @@ mod test {
     use crate::common::RippleIRErr;
     use crate::passes::runner::run_passes_from_filepath;
 
-    fn run_check_typetree_inference(input: &str) -> Result<(), RippleIRErr> {
+    fn check_run_to_completion(input: &str) -> Result<(), RippleIRErr> {
         let ir = run_passes_from_filepath(input)?;
-        for (_module, fg) in ir.graphs.iter() {
+        for (module, fg) in ir.graphs.iter() {
+            println!("============= {:?} ==============", module);
             for id in fg.graph.node_indices() {
                 let node = fg.graph.node_weight(id).unwrap();
-                println!("-----------------------");
-                println!("{:?} {:?}", id, node);
+                println!("-------------------------------------");
                 node.ttree.as_ref().unwrap().print_tree();
             }
         }
@@ -375,26 +391,32 @@ mod test {
 
     #[test]
     fn gcd() {
-        run_check_typetree_inference("./test-inputs/GCD.fir")
-            .expect("gcd ast assumption");
+        check_run_to_completion("./test-inputs/GCD.fir")
+            .expect("gcd to run to completion");
     }
 
     #[test]
     fn decoupledmux() {
-        run_check_typetree_inference("./test-inputs/DecoupledMux.fir")
-            .expect("decoupledmux ast assumption");
+        check_run_to_completion("./test-inputs/DecoupledMux.fir")
+            .expect("decoupledmux to run to completion");
+    }
+
+    #[test]
+    fn hierarchy() {
+        check_run_to_completion("./test-inputs/Hierarchy.fir")
+            .expect("hierarchy to run to completion");
     }
 
 
     #[test]
     fn rocket() {
-        run_check_typetree_inference("./test-inputs/chipyard.harness.TestHarness.RocketConfig.fir")
-            .expect("rocket ast assumption");
+        check_run_to_completion("./test-inputs/chipyard.harness.TestHarness.RocketConfig.fir")
+            .expect("rocket to run to completion");
     }
 
     #[test]
     fn boom() {
-        run_check_typetree_inference("./test-inputs/chipyard.harness.TestHarness.LaregeBoomV3Config.fir")
-            .expect("rocket ast assumption");
+        check_run_to_completion("./test-inputs/chipyard.harness.TestHarness.LargeBoomV3Config.fir")
+            .expect("boom to run to completion");
     }
 }
