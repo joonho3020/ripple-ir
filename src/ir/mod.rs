@@ -13,6 +13,7 @@ use std::hash::Hash;
 use indexmap::{IndexMap, IndexSet};
 use petgraph::graph::{Graph, NodeIndex, EdgeIndex};
 use fixedbitset::FixedBitSet;
+use bimap::BiMap;
 use crate::common::graphviz::*;
 use crate::ir::whentree::Condition;
 use crate::ir::typetree::*;
@@ -291,14 +292,12 @@ pub struct RippleGraph {
     /// Graph of this IR
     pub graph: IRGraph,
 
-    /// Maps each node in `graph` to `AggNodeIndex`
-    pub id_to_agg_leaf: IndexMap<NodeIndex, AggNodeLeafIndex>,
+    /// Bi-directional map that ties a low level `graph` node to 
+    /// each aggregate node and vice-versa
+    pub flatid_aggleaf_bimap: BiMap<NodeIndex, AggNodeLeafIndex>,
 
-    /// Maps a key that represents a unique aggregate node `AggNodeIdentifier` to the `TypeTree`
-    pub agg_identifier_to_id: IndexMap<AggNodeIdentifier, AggNodeIndex>,
-
-    /// Maps a `TypeTree` to a `AggNodeIdentifier`
-    pub agg_id_to_identifier: IndexMap<AggNodeIndex, AggNodeIdentifier>,
+    /// Bi-directional map that contains metadata for each unique aggregate node
+    pub aggidty_aggid_bimap: BiMap<AggNodeIdentifier, AggNodeIndex>,
 
     /// `TypeTree`. Each represents an aggregate node (or it can be a single node
     /// for nodes with `GroundType`s)
@@ -309,44 +308,33 @@ impl RippleGraph {
     pub fn new() -> Self {
         Self {
             graph: IRGraph::new(),
-            id_to_agg_leaf: IndexMap::new(),
-            agg_identifier_to_id: IndexMap::new(),
-            agg_id_to_identifier: IndexMap::new(),
+            flatid_aggleaf_bimap: BiMap::new(),
+            aggidty_aggid_bimap: BiMap::new(),
             ttrees: vec![],
         }
+    }
+
+    pub fn check_metadata_consistency(&self) {
     }
 
     /// Removes a single low-level node from the IR
     pub fn remove_node(&mut self, id: NodeIndex) {
         let last_id = NodeIndex::new(self.graph.node_count() - 1);
+
+        // Remove node from the graph
         self.graph.remove_node(id);
 
-        // Remove id from id_to_agg_leaf
-        let agg_leaf = self.id_to_agg_leaf.swap_remove(&id).unwrap();
+        // Remove id from flatid_aggleaf_bimap
+        self.flatid_aggleaf_bimap.remove_by_left(&id).unwrap().1;
 
-        // Unmap the id from the typetree leaf
-        let ttree = self.ttrees.get_mut(agg_leaf.agg_id.to_usize()).unwrap();
-        for leaf_id in agg_leaf.leaf_ids {
-            ttree.graph.node_weight_mut(leaf_id).unwrap().id = None;
-        }
-
+        // Petgraph moved the last node to the removed node position
         if last_id != id {
-            // Remove the last id from id_to_agg_leaf
-            let last_agg_leaf = self.id_to_agg_leaf.swap_remove(&last_id).unwrap();
-
-            // Map the typetree leaf that had last_id to id
-            let last_ttree = self.ttrees.get_mut(last_agg_leaf.agg_id.to_usize()).unwrap();
-            for leaf_id in last_agg_leaf.leaf_ids.iter() {
-                last_ttree.graph.node_weight_mut(*leaf_id).unwrap().id = Some(id);
-            }
+            // Remove the last id from flatid_aggleaf_bimap
+            let last_agg_leaf = self.flatid_aggleaf_bimap.remove_by_left(&last_id).unwrap().1;
 
             // Map id to last_agg_leaf
-            self.id_to_agg_leaf.insert(id, last_agg_leaf);
+            self.flatid_aggleaf_bimap.insert(id, last_agg_leaf);
         }
-    }
-
-    fn add_node(&mut self, node: RippleNode) -> NodeIndex {
-        self.graph.add_node(node)
     }
 
     pub fn add_aggregate_node(
@@ -355,13 +343,13 @@ impl RippleGraph {
         ttree: &TypeTree,
         nt: RippleNodeType
     ) -> AggNodeIdentifier {
-        let mut my_ttree = ttree.clone();
+        let my_ttree = ttree.view().unwrap();
         let ttree_id = self.ttrees.len() as u32;
-        let leaves = my_ttree.all_leaves();
+        let leaves = my_ttree.leaves();
 
         // Add all the leaf nodes
-        for leaf_id in leaves {
-            let leaf = my_ttree.graph.node_weight(leaf_id).unwrap();
+        for leaf_id in leaves.iter() {
+            let leaf = my_ttree.get_node(*leaf_id).unwrap();
             let tg = match &leaf.tpe {
                 TypeTreeNodeType::Ground(x) => x,
                 _ => {
@@ -370,26 +358,38 @@ impl RippleGraph {
                 }
             };
 
-            let leaf_name = my_ttree.node_name(&name, leaf_id);
+            let leaf_name = my_ttree.node_name(&name, *leaf_id);
 
             // Insert new graph node
             let rgnode = RippleNode::new(Some(leaf_name), nt.clone(), tg.clone());
-            let rg_id = self.add_node(rgnode);
+            let rg_id = self.graph.add_node(rgnode);
 
-            // Add this node to the id_to_agg_leaf
-            self.id_to_agg_leaf.insert(rg_id, AggNodeLeafIndex::new(AggNodeIndex::from(ttree_id), vec![leaf_id]));
+            match nt {
+                RippleNodeType::SMem(..) => {
+                    println!("leaves {:?}", leaves);
+                    println!("flatid {:?}, ttree_id {:?} leaf_id {:?}",
+                        rg_id, ttree_id, leaf_id);
+                }
+                _ => { }
+            }
 
-            // Update ttree to point to this node
-            my_ttree.graph.node_weight_mut(leaf_id).unwrap().id = Some(rg_id);
+            // Add this node to the flatid_aggleaf_bimap
+            self.flatid_aggleaf_bimap.insert(
+                rg_id,
+                AggNodeLeafIndex::new(AggNodeIndex::from(ttree_id), vec![*leaf_id]));
         }
 
         // Add the type tree
-        self.ttrees.push(my_ttree);
+        self.ttrees.push(my_ttree.clone_ttree());
 
         let agg_identity = AggNodeIdentifier::new(name, nt);
-        self.agg_identifier_to_id.insert(agg_identity.clone(), ttree_id.into());
-        self.agg_id_to_identifier.insert(ttree_id.into(), agg_identity.clone());
+        self.aggidty_aggid_bimap.insert(agg_identity.clone(), ttree_id.into());
         return agg_identity;
+    }
+
+    pub fn flatid(&self, aggid: AggNodeIndex, leafid: NodeIndex) -> Option<&NodeIndex> {
+        let aggleafidx = AggNodeLeafIndex::new(aggid, vec![leafid]);
+        self.flatid_aggleaf_bimap.get_by_right(&aggleafidx)
     }
 
     pub fn add_edge(&mut self, src: NodeIndex, dst: NodeIndex, edge: RippleEdge) -> EdgeIndex {
@@ -404,12 +404,12 @@ impl RippleGraph {
         dst_ref: &Reference,
         et: RippleEdgeType
     ) {
-        let src_ttree_id = self.agg_identifier_to_id.get(src_identity).expect("to exist");
-        let src_ttree = self.ttrees.get(src_ttree_id.to_usize()).expect("to exist");
+        let src_aggid = self.aggidty_aggid_bimap.get_by_left(src_identity).expect("to exist");
+        let src_ttree = self.ttrees.get(src_aggid.to_usize()).expect("to exist").view().unwrap();
         let src_leaves = src_ttree.subtree_leaves_with_path(src_ref);
 
-        let dst_ttree_id = self.agg_identifier_to_id.get(dst_identity).expect("to exist");
-        let dst_ttree = self.ttrees.get(dst_ttree_id.to_usize()).expect("to exist");
+        let dst_aggid = self.aggidty_aggid_bimap.get_by_left(dst_identity).expect("to exist");
+        let dst_ttree = self.ttrees.get(dst_aggid.to_usize()).expect("to exist").view().unwrap();
         let dst_leaves = dst_ttree.subtree_leaves_with_path(dst_ref);
 
         assert!(src_leaves.len() == 1, "add_single_edge got multiple src_leaves {:?}", src_leaves);
@@ -417,30 +417,15 @@ impl RippleGraph {
 
         let mut edges: Vec<(NodeIndex, NodeIndex, RippleEdge)> = vec![];
         let (_src_path_identity, src_ttree_leaf_id) = src_leaves.first().unwrap();
-        let src_ttree_leaf = src_ttree.graph.node_weight(*src_ttree_leaf_id).unwrap();
+        let src_ttree_leaf = src_ttree.get_node(*src_ttree_leaf_id).unwrap();
+        let src_flatid = self.flatid(*src_aggid, *src_ttree_leaf_id).unwrap();
 
         for (_dst_path_identity, dst_ttree_leaf_id) in dst_leaves {
-            let dst_ttree_leaf = dst_ttree.graph.node_weight(dst_ttree_leaf_id).unwrap();
-
-            if dst_ttree_leaf.id.is_none() ||
-               src_ttree_leaf.id.is_none()
-            {
-                src_ttree.print_tree();
-                dst_ttree.print_tree();
-                println!("{:?} {:?} {:?} {:?}", src_identity, src_ref, dst_identity, dst_ref);
-                println!("dst_ttree_leaf {:?}", dst_ttree_leaf);
-            }
-
+            let dst_flatid = self.flatid(*dst_aggid, dst_ttree_leaf_id).unwrap();
             if src_ttree_leaf.dir == TypeDirection::Outgoing {
-                edges.push((
-                        src_ttree_leaf.id.unwrap(),
-                        dst_ttree_leaf.id.unwrap(),
-                        RippleEdge::new(None, et.clone())));
+                edges.push((*src_flatid, *dst_flatid, RippleEdge::new(None, et.clone())));
             } else {
-                edges.push((
-                        dst_ttree_leaf.id.unwrap(),
-                        src_ttree_leaf.id.unwrap(),
-                        RippleEdge::new(None, et.clone())));
+                edges.push((*dst_flatid, *src_flatid, RippleEdge::new(None, et.clone())));
             }
         }
 
@@ -458,33 +443,28 @@ impl RippleGraph {
         et: RippleEdgeType
     ) {
         // Get leaves of the src aggregate node
-        let src_ttree_id = self.agg_identifier_to_id.get(src_identity).expect("to exist");
-        let src_ttree = self.ttrees.get(src_ttree_id.to_usize()).expect("to exist");
+        let src_aggid = self.aggidty_aggid_bimap.get_by_left(src_identity).expect("to exist");
+        let src_ttree = self.ttrees.get(src_aggid.to_usize()).expect("to exist").view().unwrap();
         let src_leaves = src_ttree.subtree_leaves_with_path(src_ref);
 
         // Get leaves of the dst aggregate node
-        let dst_ttree_id = self.agg_identifier_to_id.get(dst_identity).expect("to exist");
-        let dst_ttree = self.ttrees.get(dst_ttree_id.to_usize()).expect("to exist");
+        let dst_aggid = self.aggidty_aggid_bimap.get_by_left(dst_identity).expect("to exist");
+        let dst_ttree = self.ttrees.get(dst_aggid.to_usize()).expect("to exist").view().unwrap();
         let dst_leaves = dst_ttree.subtree_leaves_with_path(dst_ref);
 
         let mut edges: Vec<(NodeIndex, NodeIndex, RippleEdge)> = vec![];
         for (src_path_identity, src_ttree_leaf_id) in src_leaves.iter() {
-            let src_ttree_leaf = src_ttree.graph.node_weight(*src_ttree_leaf_id).unwrap();
+            let src_ttree_leaf = src_ttree.get_node(*src_ttree_leaf_id).unwrap();
+            let src_flatid = self.flatid(*src_aggid, *src_ttree_leaf_id).unwrap();
 
             // If there is a matching path in the dst aggregate node, add an edge
             if dst_leaves.contains_key(src_path_identity) {
                 let dst_ttree_leaf_id = dst_leaves.get(src_path_identity).unwrap();
-                let dst_ttree_leaf = dst_ttree.graph.node_weight(*dst_ttree_leaf_id).unwrap();
+                let dst_flatid = self.flatid(*dst_aggid, *dst_ttree_leaf_id).unwrap();
                 if src_ttree_leaf.dir == TypeDirection::Outgoing {
-                    edges.push((
-                        src_ttree_leaf.id.unwrap(),
-                        dst_ttree_leaf.id.unwrap(),
-                        RippleEdge::new(None, et.clone())));
+                    edges.push((*src_flatid, *dst_flatid, RippleEdge::new(None, et.clone())));
                 } else {
-                    edges.push((
-                        dst_ttree_leaf.id.unwrap(),
-                        src_ttree_leaf.id.unwrap(),
-                        RippleEdge::new(None, et.clone())));
+                    edges.push((*dst_flatid, *src_flatid, RippleEdge::new(None, et.clone())));
                 }
             } else {
                 println!("EdgeType {:?}", et);
@@ -507,34 +487,32 @@ impl RippleGraph {
         et: RippleEdgeType
     ) {
         // Get leaves of the src aggregate node
-        let src_ttree_id = self.agg_identifier_to_id.get(src_identity).expect("to exist");
-        let src_ttree = self.ttrees.get(src_ttree_id.to_usize()).expect("to exist");
+        let src_aggid = self.aggidty_aggid_bimap.get_by_left(src_identity).expect("to exist");
+        let src_ttree = self.ttrees.get(src_aggid.to_usize()).expect("to exist").view().unwrap();
         let src_ttree_array_entry = src_ttree.subtree_array_element();
         let src_leaves = src_ttree_array_entry.subtree_leaves_with_path(src_ref);
+        src_ttree.print_tree();
+        println!("src_leaves {:?}", src_leaves);
 
         // Get leaves of the dst aggregate node
-        let dst_ttree_id = self.agg_identifier_to_id.get(dst_identity).expect("to exist");
-        let dst_ttree = self.ttrees.get(dst_ttree_id.to_usize()).expect("to exist");
+        let dst_aggid = self.aggidty_aggid_bimap.get_by_left(dst_identity).expect("to exist");
+        let dst_ttree = self.ttrees.get(dst_aggid.to_usize()).expect("to exist").view().unwrap();
         let dst_leaves = dst_ttree.subtree_leaves_with_path(dst_ref);
 
         let mut edges: Vec<(NodeIndex, NodeIndex, RippleEdge)> = vec![];
         for (src_path_key, src_ttree_leaf_id) in src_leaves.iter() {
-            let src_ttree_leaf = src_ttree_array_entry.graph.node_weight(*src_ttree_leaf_id).unwrap();
+            let src_ttree_leaf = src_ttree_array_entry.get_node(*src_ttree_leaf_id).unwrap();
+            src_ttree.print_tree();
+            let src_flatid = self.flatid(*src_aggid, *src_ttree_leaf_id).expect(&format!("WTF src_ref: {:?} src_identity: {:?} src_agg_id: {:?} src_leaf_id: {:?} {:#?}", src_ref, src_identity, src_aggid, src_ttree_leaf_id, self.flatid_aggleaf_bimap));
 
             // If there is a matching path in the dst aggregate node, add an edge
             if dst_leaves.contains_key(src_path_key) {
                 let dst_ttree_leaf_id = dst_leaves.get(src_path_key).unwrap();
-                let dst_ttree_leaf = dst_ttree.graph.node_weight(*dst_ttree_leaf_id).unwrap();
+                let dst_flatid = self.flatid(*dst_aggid, *dst_ttree_leaf_id).unwrap();
                 if src_ttree_leaf.dir == TypeDirection::Outgoing {
-                    edges.push((
-                        src_ttree_leaf.id.unwrap(),
-                        dst_ttree_leaf.id.unwrap(),
-                        RippleEdge::new(None, et.clone())));
+                    edges.push((*src_flatid, *dst_flatid, RippleEdge::new(None, et.clone())));
                 } else {
-                    edges.push((
-                        dst_ttree_leaf.id.unwrap(),
-                        src_ttree_leaf.id.unwrap(),
-                        RippleEdge::new(None, et.clone())));
+                    edges.push((*dst_flatid, *src_flatid, RippleEdge::new(None, et.clone())));
                 }
             } else {
                 panic!("Not connected src_ref {:?}\nsrc_identity {:?}\nsrc_leaves {:?}\ndst_ref {:?}\ndst_identity {:?}\ndst_leaves {:?}",
@@ -548,16 +526,17 @@ impl RippleGraph {
     }
 
     pub fn check_node_type(&self) {
-        for ttree in self.ttrees.iter() {
-            let leaf_ids = ttree.all_leaves();
+        for (aggid, ttree) in self.ttrees.iter().enumerate() {
+            let leaf_ids = ttree.view().unwrap().leaves();
             let mut prev_nt_opt: Option<RippleNodeType> = None;
             for leaf_id in leaf_ids {
-                let leaf = ttree.graph.node_weight(leaf_id).unwrap();
-                let ir_id = leaf.id.unwrap();
-                let ir_node = self.graph.node_weight(ir_id).unwrap();
+                let aggleafid = AggNodeLeafIndex::new(AggNodeIndex::from(aggid), vec![leaf_id]);
+                let flatid = self.flatid_aggleaf_bimap.get_by_right(&aggleafid).unwrap();
+
+                let ir_node = self.graph.node_weight(*flatid).unwrap();
                 if let Some(prev_nt) = prev_nt_opt.clone() {
                     if ir_node.tpe != prev_nt {
-                        ttree.print_tree();
+                        ttree.view().unwrap().print_tree();
                         panic!("Nodes under the same ttree has different types {:?} {:?}", ir_node, prev_nt);
                     }
                 } else {
@@ -574,64 +553,61 @@ impl RippleGraph {
     }
 
     pub fn node_weight_agg(&self, id: AggNodeIndex) -> (Option<&TypeTree>, Option<&AggNodeIdentifier>) {
-        (self.ttrees.get(id.to_usize()), self.agg_id_to_identifier.get(&id))
+        (self.ttrees.get(id.to_usize()), self.aggidty_aggid_bimap.get_by_right(&id))
     }
 
-    pub fn neighbors_agg(&self, id: AggNodeIndex) -> Vec<AggNodeIndex> {
-        let ttree = self.ttrees.get(id.to_usize()).unwrap();
-        let leaf_ids = ttree.all_leaves();
+    pub fn neighbors_agg(&self, agg_id: AggNodeIndex) -> Vec<AggNodeIndex> {
+        let ttree = self.ttrees.get(agg_id.to_usize()).unwrap();
+        let leaf_ids = ttree.view().unwrap().leaves();
 
         let mut neighbor_ttree_ids: IndexSet<AggNodeIndex> = IndexSet::new();
         for leaf_id in leaf_ids {
-            let leaf = ttree.graph.node_weight(leaf_id).unwrap();
-            let ir_id = leaf.id.unwrap();
-
+            let ir_id = *self.flatid(agg_id, leaf_id).unwrap();
             let neighbor_ids = self.graph.neighbors_directed(ir_id, Outgoing);
+
             for nid in neighbor_ids {
-                let neighbor_agg_leaf = self.id_to_agg_leaf.get(&nid).unwrap();
+                let neighbor_agg_leaf = self.flatid_aggleaf_bimap.get_by_left(&nid).unwrap();
                 neighbor_ttree_ids.insert(neighbor_agg_leaf.agg_id);
             }
 
             let neighbor_ids = self.graph.neighbors_directed(ir_id, Incoming);
             for nid in neighbor_ids {
-                let neighbor_agg_leaf = self.id_to_agg_leaf.get(&nid).unwrap();
+                let neighbor_agg_leaf = self.flatid_aggleaf_bimap.get_by_left(&nid).unwrap();
                 neighbor_ttree_ids.insert(neighbor_agg_leaf.agg_id);
             }
         }
         return neighbor_ttree_ids.iter().map(|x| *x).collect();
     }
 
-    pub fn neighbors_directed_agg(&self, id: AggNodeIndex, dir: petgraph::Direction) -> Vec<AggNodeIndex> {
-        let ttree = self.ttrees.get(id.to_usize()).unwrap();
-        let leaf_ids = ttree.all_leaves();
+    pub fn neighbors_directed_agg(&self, agg_id: AggNodeIndex, dir: petgraph::Direction) -> Vec<AggNodeIndex> {
+        let ttree = self.ttrees.get(agg_id.to_usize()).unwrap();
+        let leaf_ids = ttree.view().unwrap().leaves();
 
         let mut neighbor_ttree_ids: IndexSet<AggNodeIndex> = IndexSet::new();
         for leaf_id in leaf_ids {
-            let leaf = ttree.graph.node_weight(leaf_id).unwrap();
-            let ir_id = leaf.id.unwrap();
-
+            let ir_id = *self.flatid(agg_id, leaf_id).unwrap();
             let neighbor_ids = self.graph.neighbors_directed(ir_id, dir);
+
             for nid in neighbor_ids {
-                let neighbor_agg_leaf = self.id_to_agg_leaf.get(&nid).unwrap();
+                let neighbor_agg_leaf = self.flatid_aggleaf_bimap.get_by_left(&nid).unwrap();
                 neighbor_ttree_ids.insert(neighbor_agg_leaf.agg_id);
             }
         }
         return neighbor_ttree_ids.iter().map(|x| *x).collect();
     }
 
-    pub fn edges_directed_agg(&self, id: AggNodeIndex, dir: petgraph::Direction) -> IndexMap<AggEdgeIdentifier, Vec<EdgeIndex>> {
-        let ttree = self.ttrees.get(id.to_usize()).unwrap();
-        let leaf_ids = ttree.all_leaves();
+    pub fn edges_directed_agg(&self, agg_id: AggNodeIndex, dir: petgraph::Direction) -> IndexMap<AggEdgeIdentifier, Vec<EdgeIndex>> {
+        let ttree = self.ttrees.get(agg_id.to_usize()).unwrap();
+        let leaf_ids = ttree.view().unwrap().leaves();
 
         let mut ttree_edge_map: IndexMap<AggEdgeIdentifier, Vec<EdgeIndex>> = IndexMap::new();
         for leaf_id in leaf_ids {
-            let leaf = ttree.graph.node_weight(leaf_id).unwrap();
-            let ir_id = leaf.id.unwrap();
-
+            let ir_id = *self.flatid(agg_id, leaf_id).unwrap();
             let edge_ids = self.graph.edges_directed(ir_id, dir);
+
             for eid in edge_ids {
                 let (_src, dst) = self.graph.edge_endpoints(eid.id()).unwrap();
-                let neighbor_agg_id = self.id_to_agg_leaf.get(&dst).unwrap();
+                let neighbor_agg_id = self.flatid_aggleaf_bimap.get_by_left(&dst).unwrap();
                 let rir_edge = self.graph.edge_weight(eid.id()).unwrap();
 
                 let edge_map_key = AggEdgeIdentifier::new(neighbor_agg_id.agg_id, rir_edge.et.clone());
@@ -653,7 +629,7 @@ impl RippleGraph {
         eid: EdgeIndex,
         ttree_edge_map: &mut IndexMap<AggEdgeIdentifier, Vec<EdgeIndex>>
     ) {
-        let neighbor_agg_id = self.id_to_agg_leaf.get(&id).unwrap();
+        let neighbor_agg_id = self.flatid_aggleaf_bimap.get_by_left(&id).unwrap();
         let rir_edge = self.graph.edge_weight(eid).unwrap();
 
         let edge_map_key = AggEdgeIdentifier::new(neighbor_agg_id.agg_id, rir_edge.et.clone());
@@ -667,20 +643,20 @@ impl RippleGraph {
     }
 
     /// Returns undirected aggregate edges
-    pub fn edges_agg(&self, id: AggNodeIndex) -> IndexMap<AggEdgeIdentifier, Vec<EdgeIndex>> {
-        let ttree = self.ttrees.get(id.to_usize()).unwrap();
-        let leaf_ids = ttree.all_leaves();
+    pub fn edges_agg(&self, agg_id: AggNodeIndex) -> IndexMap<AggEdgeIdentifier, Vec<EdgeIndex>> {
+        let ttree = self.ttrees.get(agg_id.to_usize()).unwrap();
+        let leaf_ids = ttree.view().unwrap().leaves();
 
         let mut ttree_edge_map: IndexMap<AggEdgeIdentifier, Vec<EdgeIndex>> = IndexMap::new();
         for leaf_id in leaf_ids {
-            let leaf = ttree.graph.node_weight(leaf_id).unwrap();
-            let ir_id = leaf.id.unwrap();
+            let ir_id = *self.flatid(agg_id, leaf_id).unwrap();
 
             let edge_ids = self.graph.edges_directed(ir_id, Outgoing);
             for eid in edge_ids {
                 let (_src, dst) = self.graph.edge_endpoints(eid.id()).unwrap();
                 self.add_flat_edge_to_agg_edge(dst, eid.id(), &mut ttree_edge_map);
             }
+
             let edge_ids = self.graph.edges_directed(ir_id, Incoming);
             for eid in edge_ids {
                 let (src, _dst) = self.graph.edge_endpoints(eid.id()).unwrap();
@@ -742,14 +718,14 @@ impl GraphViz for RippleGraph {
         };
 
         // Add nodes
-        for (ttree_idx, ttree) in self.ttrees.iter().enumerate() {
-            let leaves = ttree.all_leaves();
-            let root_info = self.agg_id_to_identifier.get(&AggNodeIndex::from(ttree_idx)).unwrap();
+        for (agg_id, ttree) in self.ttrees.iter().enumerate() {
+            let leaves = ttree.view().unwrap().leaves();
+            let root_info = self.aggidty_aggid_bimap.get_by_right(&AggNodeIndex::from(agg_id)).unwrap();
 
             // Create graphviz subgraph to group nodes together
             let subgraph_name = format!("\"cluster_{}_{}\"",
                 root_info.name,
-                ttree_idx).replace('"', "");
+                agg_id).replace('"', "");
             let mut subgraph = DotSubgraph {
                 id: Id::Plain(subgraph_name),
                 stmts: vec![]
@@ -757,8 +733,7 @@ impl GraphViz for RippleGraph {
 
             // Collect all flattened nodes under the current aggregate node
             for ttree_id in leaves.iter() {
-                let leaf = ttree.graph.node_weight(*ttree_id).unwrap();
-                let rir_id = leaf.id.unwrap();
+                let rir_id = *self.flatid(AggNodeIndex::from(agg_id), *ttree_id).unwrap();
                 let rir_node = self.graph.node_weight(rir_id).unwrap();
 
                 let node_label_inner = format!("{}", rir_node).to_string().replace('"', "");

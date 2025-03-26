@@ -7,37 +7,43 @@ use crate::ir::{typetree::GroundType, *};
 /// - Remove phi selection signals that are irrelevant
 pub fn cleanup_rir(rir: &mut RippleIR) {
     for (_name, rg) in rir.graphs.iter_mut() {
-        cleanup_rg(rg);
+        cleanup_rg_memory(rg);
     }
 }
 
-fn cleanup_rg(rg: &mut RippleGraph) {
+fn cleanup_rg_memory(rg: &mut RippleGraph) {
     let mut node_map: IndexMap<RippleNode, AggNodeIndex> = IndexMap::new();
 
     for agg_id in rg.node_indices_agg() {
         let node_agg = rg.node_weight_agg(agg_id);
 
         let ttree = node_agg.0.unwrap();
-        let all_leaves = ttree.all_leaves();
+        let all_leaves = ttree.view().unwrap().leaves();
 
         let mut all_graph_nodes: Vec<NodeIndex> = all_leaves.iter().map(|id| {
-            ttree.graph.node_weight(*id).unwrap().id.unwrap()
+            *rg.flatid(agg_id, *id).unwrap()
         }).collect();
         all_graph_nodes.sort();
 
         match node_agg.1.unwrap().nt {
-            RippleNodeType::SMem(..) => {
+            RippleNodeType::SMem(..) |
+            RippleNodeType::CMem => {
+                let gt = if node_agg.1.unwrap().nt == RippleNodeType::CMem {
+                    GroundType::CMem
+                } else {
+                    GroundType::SMem
+                };
                 let node = RippleNode::new(
                         Some(node_agg.1.unwrap().name.clone()),
                         node_agg.1.unwrap().nt.clone(),
-                        GroundType::SMem);
+                        gt);
 
                 // Add new node to the graph
                 let id = rg.graph.add_node(node.clone());
                 node_map.insert(node, agg_id);
 
                 // Add single memory node
-                rg.id_to_agg_leaf.insert(id, AggNodeLeafIndex::new(agg_id, all_leaves));
+                rg.flatid_aggleaf_bimap.insert(id, AggNodeLeafIndex::new(agg_id, all_leaves));
 
                 // Connect memory node to its ports
                 let agg_edges = rg.edges_directed_agg(agg_id, Outgoing);
@@ -53,29 +59,8 @@ fn cleanup_rg(rg: &mut RippleGraph) {
                 for id in all_graph_nodes.iter().rev() {
                     rg.remove_node(*id);
                 }
-
-                let ttree = rg.ttrees.get_mut(agg_id.to_usize()).unwrap();
-                for leaf_id in ttree.all_leaves() {
-                    let tnode = ttree.graph.node_weight_mut(leaf_id).unwrap();
-                    tnode.id = Some(id);
-                }
-            }
-            RippleNodeType::CMem => {
             }
             _ => { }
-        }
-    }
-
-    // Remap mapping from typetree nodes to this new single memory node
-    for id in rg.graph.node_indices() {
-        let node = rg.graph.node_weight(id).unwrap();
-        if node_map.contains_key(node) {
-            let agg_id = node_map.get(node).unwrap();
-            let ttree = rg.ttrees.get_mut(agg_id.to_usize()).unwrap();
-            for leaf_id in ttree.all_leaves() {
-                let tnode = ttree.graph.node_weight_mut(leaf_id).unwrap();
-                tnode.id = Some(id);
-            }
         }
     }
 }

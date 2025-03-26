@@ -70,7 +70,7 @@ fn collect_graph_nodes_from_ports(ir: &mut FirGraph, ports: &Ports, nm: &mut Nod
         match port.as_ref() {
             Port::Input(name, tpe, _info) => {
                 let typetree = TypeTree::build_from_type(tpe, TypeDirection::Outgoing);
-                let all_refs = typetree.all_possible_references(name.clone());
+                let all_refs = typetree.view().unwrap().all_possible_references(name.clone());
                 let id = ir.graph.add_node(
                     FirNode::new(
                         Some(name.clone()),
@@ -86,7 +86,7 @@ fn collect_graph_nodes_from_ports(ir: &mut FirGraph, ports: &Ports, nm: &mut Nod
             }
             Port::Output(name, tpe, _info) => {
                 let typetree = TypeTree::build_from_type(tpe, TypeDirection::Incoming);
-                let all_refs = typetree.all_possible_references(name.clone());
+                let all_refs = typetree.view().unwrap().all_possible_references(name.clone());
                 let id = ir.graph.add_node(
                     FirNode::new(
                         Some(name.clone()),

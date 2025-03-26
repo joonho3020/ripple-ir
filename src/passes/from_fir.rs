@@ -212,10 +212,9 @@ mod test {
 
             let mut node_attributes = NodeAttributeMap::default();
             let src_ttree: &TypeTree = rg.ttrees.get(agg_id.to_usize()).unwrap();
-            let leaf_ids = src_ttree.all_leaves();
+            let leaf_ids = src_ttree.view().unwrap().leaves();
             for leaf_id in leaf_ids {
-                let leaf = src_ttree.graph.node_weight(leaf_id).unwrap();
-                let rg_id = leaf.id.unwrap();
+                let rg_id = *rg.flatid(agg_id, leaf_id).unwrap();
                 node_attributes.insert(rg_id, NodeAttributes::color(color_name::green));
             }
 
@@ -228,10 +227,9 @@ mod test {
                         let mut cur_node_attributes = node_attributes.clone();
 
                         let dst_ttree: &TypeTree= rg.ttrees.get(edge_key.dst_id.to_usize()).unwrap();
-                        let leaf_ids = dst_ttree.all_leaves();
+                        let leaf_ids = dst_ttree.view().unwrap().leaves();
                         for leaf_id in leaf_ids {
-                            let leaf = dst_ttree.graph.node_weight(leaf_id).unwrap();
-                            let rg_id = leaf.id.unwrap();
+                            let rg_id = *rg.flatid(edge_key.dst_id, leaf_id).unwrap();
                             cur_node_attributes.insert(rg_id, NodeAttributes::color(color_name::blue));
                         }
 

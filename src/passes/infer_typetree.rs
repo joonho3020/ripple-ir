@@ -77,7 +77,7 @@ fn infer_typetree_graph(fir: &mut FirIR, name: &Identifier) {
             FirNodeType::CMem |
                 FirNodeType::SMem(..) => {
                 let ttree = fg.graph.node_weight(id).unwrap().ttree.clone();
-                let ttree_array_entry = ttree.as_ref().unwrap().subtree_array_element();
+                let ttree_view = ttree.as_ref().unwrap().view().unwrap();
 
                 // Copy ttree to each port
                 let childs: Vec<NodeIndex> = fg.graph.neighbors_directed(id, Outgoing).collect();
@@ -87,7 +87,7 @@ fn infer_typetree_graph(fir: &mut FirIR, name: &Identifier) {
                         FirNodeType::InferMemPort |
                             FirNodeType::WriteMemPort |
                             FirNodeType::ReadMemPort => {
-                            child.ttree = Some(ttree_array_entry.clone());
+                            child.ttree = Some(ttree_view.subtree_array_element().clone_ttree());
                         }
                         _ => {
                             panic!("{:?} Unexpected child node {:?} for memory", name, child);
@@ -217,18 +217,15 @@ fn infer_typetree_node(fg: &mut FirGraph, id: NodeIndex, name: &Identifier) {
             let true_node  = fg.graph.node_weight(true_ep.1.0).unwrap().clone();
             let false_node = fg.graph.node_weight(false_ep.1.0).unwrap();
 
-            let true_type_tree  =  true_node.ttree.as_ref().unwrap().subtree_from_expr(&true_ep.0.src);
-            let false_type_tree = false_node.ttree.as_ref().unwrap().subtree_from_expr(&false_ep.0.src);
+            let true_ttree_view = true_node.ttree.as_ref().unwrap().view().unwrap();
+            let true_ttree_subtree = true_ttree_view.subtree_from_expr(&true_ep.0.src).unwrap();
 
-            if !TypeTree::eq(&true_type_tree, &false_type_tree) {
-                let true_printer = TypeTreePrinter::new(
-                    &true_type_tree.graph, true_type_tree.root.unwrap());
-                let _ = true_printer.print();
+            let false_ttree_view = false_node.ttree.as_ref().unwrap().view().unwrap();
+            let false_ttree_subtree = false_ttree_view.subtree_from_expr(&false_ep.0.src).unwrap();
 
-                let false_printer = TypeTreePrinter::new(
-                    &false_type_tree.graph, false_type_tree.root.unwrap());
-                let _ = false_printer.print();
-
+            if !true_ttree_subtree.eq(&false_ttree_subtree) {
+                true_ttree_subtree.print_tree();
+                false_ttree_subtree.print_tree();
                 panic!("{:?}: Mux true and false drivers have different types {:?} {:?} {:?} {:?}",
                     name,
                     true_node,
@@ -238,7 +235,7 @@ fn infer_typetree_node(fg: &mut FirGraph, id: NodeIndex, name: &Identifier) {
             }
 
             let node_mut = fg.graph.node_weight_mut(id).unwrap();
-            node_mut.ttree = Some(true_type_tree);
+            node_mut.ttree = Some(true_ttree_subtree.clone_ttree());
         }
         FirNodeType::PrimOp2Expr(..) => {
             let incoming = fg.graph.edges_directed(id, Incoming)
@@ -260,18 +257,15 @@ fn infer_typetree_node(fg: &mut FirGraph, id: NodeIndex, name: &Identifier) {
             let op0_node = fg.graph.node_weight(op0_ep.1.0).unwrap().clone();
             let op1_node = fg.graph.node_weight(op1_ep.1.0).unwrap();
 
-            let op0_type_tree = op0_node.ttree.as_ref().unwrap().subtree_from_expr(&op0_ep.0.src);
-            let op1_type_tree = op1_node.ttree.as_ref().unwrap().subtree_from_expr(&op1_ep.0.src);
+            let op0_type_tree_view = op0_node.ttree.as_ref().unwrap().view().unwrap();
+            let op0_type_tree = op0_type_tree_view.subtree_from_expr(&op0_ep.0.src).unwrap();
 
-            if !TypeTree::eq(&op0_type_tree, &op1_type_tree) {
-                let op0_printer = TypeTreePrinter::new(
-                    &op0_type_tree.graph, op0_type_tree.root.unwrap());
-                let _ = op0_printer.print();
+            let op1_type_tree_view = op1_node.ttree.as_ref().unwrap().view().unwrap();
+            let op1_type_tree = op1_type_tree_view.subtree_from_expr(&op1_ep.0.src).unwrap();
 
-                let op1_printer = TypeTreePrinter::new(
-                    &op1_type_tree.graph, op1_type_tree.root.unwrap());
-                let _ = op1_printer.print();
-
+            if !op0_type_tree.eq(&op1_type_tree) {
+                op0_type_tree.print_tree();
+                op1_type_tree.print_tree();
                 panic!("{:?}: PrimOp2Expr op0 and op1 drivers have different types {:?} {:?} {:?} {:?}",
                     name,
                     op0_node,
@@ -281,7 +275,7 @@ fn infer_typetree_node(fg: &mut FirGraph, id: NodeIndex, name: &Identifier) {
             }
 
             let node_mut = fg.graph.node_weight_mut(id).unwrap();
-            node_mut.ttree = Some(op0_type_tree);
+            node_mut.ttree = Some(op0_type_tree.clone_ttree());
         }
         FirNodeType::PrimOp1Expr(op) => {
             let incoming = fg.graph.edges_directed(id, Incoming)
@@ -304,7 +298,8 @@ fn infer_typetree_node(fg: &mut FirGraph, id: NodeIndex, name: &Identifier) {
 
             let op0_ep = *op0_edge_vec.get(0).unwrap();
             let op0_node = fg.graph.node_weight(op0_ep.1.0).unwrap().clone();
-            let op0_type_tree = op0_node.ttree.as_ref().unwrap().subtree_from_expr(&op0_ep.0.src);
+            let op0_type_tree_view = op0_node.ttree.as_ref().unwrap().view().unwrap();
+            let op0_type_tree = op0_type_tree_view.subtree_from_expr(&op0_ep.0.src).unwrap();
 
             let node_mut = fg.graph.node_weight_mut(id).unwrap();
 
@@ -322,7 +317,7 @@ fn infer_typetree_node(fg: &mut FirGraph, id: NodeIndex, name: &Identifier) {
                     set_ground_type(fg, id, GroundType::AsyncReset);
                 }
                 _ => {
-                    node_mut.ttree = Some(op0_type_tree);
+                    node_mut.ttree = Some(op0_type_tree.clone_ttree());
                 }
             }
         }
@@ -341,10 +336,11 @@ fn infer_typetree_node(fg: &mut FirGraph, id: NodeIndex, name: &Identifier) {
 
             let op0_ep = *op0_edge_vec.get(0).unwrap();
             let op0_node = fg.graph.node_weight(op0_ep.1.0).unwrap().clone();
-            let op0_type_tree = op0_node.ttree.as_ref().unwrap().subtree_from_expr(&op0_ep.0.src);
+            let op0_type_tree_view = op0_node.ttree.as_ref().unwrap().view().unwrap();
+            let op0_type_tree = op0_type_tree_view.subtree_from_expr(&op0_ep.0.src).unwrap();
 
             let node_mut = fg.graph.node_weight_mut(id).unwrap();
-            node_mut.ttree = Some(op0_type_tree);
+            node_mut.ttree = Some(op0_type_tree.clone_ttree());
         }
         _ => {
             panic!("{:?}: Called infer_typetree_node on unexpected node type {:?}", name, node);
