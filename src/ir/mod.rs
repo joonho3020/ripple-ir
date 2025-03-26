@@ -280,7 +280,7 @@ impl RippleGraph {
         }
     }
 
-    pub fn add_node(&mut self, node: RippleNode) -> NodeIndex {
+    fn add_node(&mut self, node: RippleNode) -> NodeIndex {
         self.graph.add_node(node)
     }
 
