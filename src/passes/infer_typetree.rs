@@ -71,11 +71,6 @@ fn infer_typetree_graph(fir: &mut FirIR, name: &Identifier) {
                 let mut cg_io_ttree = cg.io_typetree();
                 cg_io_ttree.flip();
 
-                if child_module_name == Identifier::Name("plusarg_reader".to_string()) {
-                    println!("Module {:?} node id {:?}", name, id);
-                    cg_io_ttree.print_tree();
-                }
-
                 let node_mut = fir.graphs.get_mut(name).unwrap().graph.node_weight_mut(id).unwrap();
                 node_mut.ttree = Some(cg_io_ttree);
             }

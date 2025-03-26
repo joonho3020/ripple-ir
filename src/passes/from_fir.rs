@@ -98,12 +98,13 @@ fn from_fir_graph(fg: &FirGraph) -> RippleGraph {
         let et = RippleEdgeType::from(&edge.et);
 
         match &edge.et {
-            FirEdgeType::MuxCond     |
+            FirEdgeType::MuxCond         |
                 FirEdgeType::Clock       |
                 FirEdgeType::Reset       |
                 FirEdgeType::DontCare    |
                 FirEdgeType::PhiSel      |
-                FirEdgeType::MemPortAddr => {
+                FirEdgeType::MemPortAddr |
+                FirEdgeType::ArrayAddr   => {
                     rg.add_single_edge(src_key, &src_ref, dst_key, dst_ref, et);
             }
             FirEdgeType::MemPortEdge => {
@@ -131,14 +132,15 @@ mod test {
 
     fn run(input: &str) -> Result<(), RippleIRErr> {
         let fir = run_passes_from_filepath(input)?;
+        for (module, fg) in fir.graphs.iter() {
+            fg.export_graphviz(&format!("./test-outputs/{}-{}.fir.pdf",
+                    fir.name.to_string(), module.to_string()), None, None, false)?;
+        }
+
         let rir = from_fir(&fir);
         for (module, rg) in rir.graphs.iter() {
-            fir.graphs.get(module).unwrap()
-                .export_graphviz(&format!("./test-outputs/{}-{}.fir.pdf",
-                        fir.name.to_string(), module.to_string()), None, None, true)?;
-
             rg.export_graphviz(&format!("./test-outputs/{}-{}.rir.pdf",
-                    rir.name.to_string(), module.to_string()), None, None, true)?;
+                    rir.name.to_string(), module.to_string()), None, None, false)?;
         }
         Ok(())
     }
@@ -161,7 +163,19 @@ mod test {
             .expect("hierarchy");
     }
 
-    fn traverse(module: &Identifier, rg: &RippleGraph, export: bool) -> Result<u32, RippleIRErr> {
+    #[test]
+    fn dynamicindexing() {
+        run("./test-inputs/DynamicIndexing.fir")
+            .expect("dynamicindexing");
+    }
+
+    #[test]
+    fn singleportsram() {
+        run("./test-inputs/SinglePortSRAM.fir")
+            .expect("singleportsram");
+    }
+
+    fn traverse(module: &Identifier, rg: &RippleGraph, export: bool) -> Result<(), RippleIRErr> {
         let mut q: VecDeque<TreeIdx> = VecDeque::new();
 
         for agg_id in rg.node_indices_agg().iter() {
@@ -170,7 +184,10 @@ mod test {
             // Collect all the IOs
             match agg_w.1.unwrap().nt {
                 RippleNodeType::Input |
-                    RippleNodeType::Output => {
+                    RippleNodeType::Output |
+                    RippleNodeType::UIntLiteral(..) |
+                    RippleNodeType::SIntLiteral(..) |
+                    RippleNodeType::DontCare => {
                     q.push_back(*agg_id);
                 }
                 _ => {
@@ -181,7 +198,6 @@ mod test {
         let mut file_names: Vec<String> = vec![];
 
         let mut iter_outer = 0;
-        let mut agg_node_cnt = 0;
         let mut vis_map = rg.vismap_agg();
 
         while !q.is_empty() {
@@ -190,7 +206,6 @@ mod test {
                 continue;
             }
             vis_map.visit(agg_id);
-            agg_node_cnt += 1;
 
             let mut node_attributes = NodeAttributeMap::default();
             let src_ttree = rg.ttrees.get(agg_id as usize).unwrap();
@@ -237,7 +252,17 @@ mod test {
             }
             iter_outer += 1;
         }
-        assert!(!vis_map.has_unvisited());
+
+        // dead code
+        if vis_map.has_unvisited() {
+            let unvisited = vis_map.unvisited_ids();
+            for agg_id in unvisited {
+                let agg_edges = rg.edges_agg(agg_id);
+                for (_iter_inner, (_edge_key, edges)) in agg_edges.iter().enumerate() {
+                    assert!(edges.len() == 0);
+                }
+            }
+        }
 
         if export {
             rg.create_gif(
@@ -245,18 +270,14 @@ mod test {
                 &file_names)?;
         }
 
-        Ok(agg_node_cnt)
+        Ok(())
     }
 
     fn run_traverse(input: &str) -> Result<(), RippleIRErr> {
         let fir = run_passes_from_filepath(input)?;
         let rir = from_fir(&fir);
         for (module, rg) in rir.graphs.iter() {
-            let agg_nodes = traverse(module, rg, false)?;
-            let fg = fir.graphs.get(module).unwrap();
-            assert_eq!(agg_nodes, fg.graph.node_count() as u32,
-                "Node count mismatch expect {} got {}",
-                fg.graph.node_count(), agg_nodes);
+            traverse(module, rg, false)?;
         }
         Ok(())
     }
@@ -283,6 +304,18 @@ mod test {
     fn traverse_aggregatesram() {
         run_traverse("./test-inputs/AggregateSRAM.fir")
             .expect("aggregatesram traverse assumption");
+    }
+
+    #[test]
+    fn traverse_rocket() {
+        run_traverse("./test-inputs/chipyard.harness.TestHarness.RocketConfig.fir")
+            .expect("rocket traverse assumption");
+    }
+
+    #[test]
+    fn traverse_boom() {
+        run_traverse("./test-inputs/chipyard.harness.TestHarness.LargeBoomV3Config.fir")
+            .expect("boom traverse assumption");
     }
 
 

@@ -208,6 +208,10 @@ impl AggVisMap {
     pub fn has_unvisited(&self) -> bool {
         self.visited.count_zeroes(..) > 0
     }
+
+    pub fn unvisited_ids(&self) -> Vec<TreeIdx> {
+        self.visited.zeroes().map(|x| x as TreeIdx).collect()
+    }
 }
 
 type IRGraph = Graph<RippleNode, RippleEdge>;
@@ -295,7 +299,10 @@ impl RippleGraph {
             let leaf = my_ttree.graph.node_weight(leaf_id).unwrap();
             let tg = match &leaf.tpe {
                 TypeTreeNodeType::Ground(x) => x,
-                _ => panic!("Type tree leaves doesn't have Ground, got {:?}", leaf)
+                _ => {
+                    // Empty aggregate type, add a invalid ground type
+                    &GroundType::Invalid
+                }
             };
 
             let leaf_name = my_ttree.node_name(&name, leaf_id);
@@ -349,6 +356,16 @@ impl RippleGraph {
 
         for (_dst_path_key, dst_ttree_leaf_id) in dst_leaves {
             let dst_ttree_leaf = dst_ttree.graph.node_weight(dst_ttree_leaf_id).unwrap();
+
+            if dst_ttree_leaf.id.is_none() ||
+               src_ttree_leaf.id.is_none()
+            {
+                src_ttree.print_tree();
+                dst_ttree.print_tree();
+                println!("{:?} {:?} {:?} {:?}", src_key, src_ref, dst_key, dst_ref);
+                println!("dst_ttree_leaf {:?}", dst_ttree_leaf);
+            }
+
             if src_ttree_leaf.dir == TypeDirection::Outgoing {
                 edges.push((
                         src_ttree_leaf.id.unwrap(),
@@ -405,6 +422,7 @@ impl RippleGraph {
                         RippleEdge::new(None, et.clone())));
                 }
             } else {
+                println!("EdgeType {:?}", et);
                 panic!("Not connected src_ref {:?}\nsrc_key {:?}\nsrc_leaves {:?}\ndst_ref {:?}\ndst_key {:?}\ndst_leaves {:?}",
                     src_ref, src_key, src_leaves, dst_ref, dst_key, dst_leaves);
             }

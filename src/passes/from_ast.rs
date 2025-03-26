@@ -478,7 +478,8 @@ fn add_graph_edge_from_stmt(ir: &mut FirGraph, stmt: &Stmt, nm: &mut NodeMap) {
                     let dst_id = nm.node_map.get(&root_ref)
                         .expect(&format!("Invalidate expr not found in {:?}", expr));
 
-                    let phiout_edge = FirEdge::new(expr.clone(), None, FirEdgeType::PhiOut);
+                    let root_expr = Expr::Reference(root_ref.clone());
+                    let phiout_edge = FirEdge::new(root_expr, None, FirEdgeType::PhiOut);
                     ir.graph.add_edge(*phi_id, *dst_id, phiout_edge);
                     nm.phi_connected.insert(root_ref);
                 }
