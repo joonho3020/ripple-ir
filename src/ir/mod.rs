@@ -36,7 +36,7 @@ impl PhiPriority {
     }
 }
 
-#[derive(Derivative, Clone)]
+#[derive(Derivative, Clone, PartialEq, Eq, Hash)]
 #[derivative(Debug)]
 pub struct RippleNode {
     pub name: Option<Identifier>,
@@ -249,15 +249,21 @@ impl From<AggNodeIndex> for usize {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct TypeTreeInfo {
-    leaf_id: NodeIndex,
-    tree_id: AggNodeIndex,
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct AggNodeLeafIndex {
+    /// Aggregate node id
+    pub agg_id: AggNodeIndex,
+
+    /// Vec of leaf nodes that this graph node corresponds to
+    /// - Usually length is 1
+    /// - For memory or array types, a single graph node can correspond to multiple leaf nodes
+    /// in a TypeTree
+    pub leaf_ids: Vec<NodeIndex>,
 }
 
-impl TypeTreeInfo {
-    pub fn new(leaf_id: NodeIndex, tree_id: AggNodeIndex) -> Self {
-        Self { leaf_id, tree_id }
+impl AggNodeLeafIndex {
+    pub fn new(agg_id: AggNodeIndex, leaf_ids: Vec<NodeIndex>) -> Self {
+        Self { agg_id, leaf_ids }
     }
 }
 
@@ -285,9 +291,8 @@ pub struct RippleGraph {
     /// Graph of this IR
     pub graph: IRGraph,
 
-    /// Maps each node in `graph` to the `TypeTree` (`TypeTreeInfo.tree_id`)
-    /// and the `NodeIndex` (`TypeTreeInfo.leaf_id`) within the `TypeTree`
-    pub ttree_idx_map: IndexMap<NodeIndex, TypeTreeInfo>,
+    /// Maps each node in `graph` to `AggNodeIndex`
+    pub id_to_agg_leaf: IndexMap<NodeIndex, AggNodeLeafIndex>,
 
     /// Maps a key that represents a unique aggregate node `AggNodeIdentifier` to the `TypeTree`
     pub agg_identifier_to_id: IndexMap<AggNodeIdentifier, AggNodeIndex>,
@@ -304,10 +309,39 @@ impl RippleGraph {
     pub fn new() -> Self {
         Self {
             graph: IRGraph::new(),
-            ttree_idx_map: IndexMap::new(),
+            id_to_agg_leaf: IndexMap::new(),
             agg_identifier_to_id: IndexMap::new(),
             agg_id_to_identifier: IndexMap::new(),
             ttrees: vec![],
+        }
+    }
+
+    /// Removes a single low-level node from the IR
+    pub fn remove_node(&mut self, id: NodeIndex) {
+        let last_id = NodeIndex::new(self.graph.node_count() - 1);
+        self.graph.remove_node(id);
+
+        // Remove id from id_to_agg_leaf
+        let agg_leaf = self.id_to_agg_leaf.swap_remove(&id).unwrap();
+
+        // Unmap the id from the typetree leaf
+        let ttree = self.ttrees.get_mut(agg_leaf.agg_id.to_usize()).unwrap();
+        for leaf_id in agg_leaf.leaf_ids {
+            ttree.graph.node_weight_mut(leaf_id).unwrap().id = None;
+        }
+
+        if last_id != id {
+            // Remove the last id from id_to_agg_leaf
+            let last_agg_leaf = self.id_to_agg_leaf.swap_remove(&last_id).unwrap();
+
+            // Map the typetree leaf that had last_id to id
+            let last_ttree = self.ttrees.get_mut(last_agg_leaf.agg_id.to_usize()).unwrap();
+            for leaf_id in last_agg_leaf.leaf_ids.iter() {
+                last_ttree.graph.node_weight_mut(*leaf_id).unwrap().id = Some(id);
+            }
+
+            // Map id to last_agg_leaf
+            self.id_to_agg_leaf.insert(id, last_agg_leaf);
         }
     }
 
@@ -342,8 +376,8 @@ impl RippleGraph {
             let rgnode = RippleNode::new(Some(leaf_name), nt.clone(), tg.clone());
             let rg_id = self.add_node(rgnode);
 
-            // Add this node to the ttree_idx_map
-            self.ttree_idx_map.insert(rg_id, TypeTreeInfo::new(leaf_id, ttree_id.into()));
+            // Add this node to the id_to_agg_leaf
+            self.id_to_agg_leaf.insert(rg_id, AggNodeLeafIndex::new(AggNodeIndex::from(ttree_id), vec![leaf_id]));
 
             // Update ttree to point to this node
             my_ttree.graph.node_weight_mut(leaf_id).unwrap().id = Some(rg_id);
@@ -552,10 +586,16 @@ impl RippleGraph {
             let leaf = ttree.graph.node_weight(leaf_id).unwrap();
             let ir_id = leaf.id.unwrap();
 
-            let neighbor_ids = self.graph.neighbors(ir_id);
+            let neighbor_ids = self.graph.neighbors_directed(ir_id, Outgoing);
             for nid in neighbor_ids {
-                let neighbor_ttree_idx = self.ttree_idx_map.get(&nid).unwrap();
-                neighbor_ttree_ids.insert(neighbor_ttree_idx.tree_id);
+                let neighbor_agg_leaf = self.id_to_agg_leaf.get(&nid).unwrap();
+                neighbor_ttree_ids.insert(neighbor_agg_leaf.agg_id);
+            }
+
+            let neighbor_ids = self.graph.neighbors_directed(ir_id, Incoming);
+            for nid in neighbor_ids {
+                let neighbor_agg_leaf = self.id_to_agg_leaf.get(&nid).unwrap();
+                neighbor_ttree_ids.insert(neighbor_agg_leaf.agg_id);
             }
         }
         return neighbor_ttree_ids.iter().map(|x| *x).collect();
@@ -572,8 +612,8 @@ impl RippleGraph {
 
             let neighbor_ids = self.graph.neighbors_directed(ir_id, dir);
             for nid in neighbor_ids {
-                let neighbor_ttree_idx = self.ttree_idx_map.get(&nid).unwrap();
-                neighbor_ttree_ids.insert(neighbor_ttree_idx.tree_id);
+                let neighbor_agg_leaf = self.id_to_agg_leaf.get(&nid).unwrap();
+                neighbor_ttree_ids.insert(neighbor_agg_leaf.agg_id);
             }
         }
         return neighbor_ttree_ids.iter().map(|x| *x).collect();
@@ -591,10 +631,10 @@ impl RippleGraph {
             let edge_ids = self.graph.edges_directed(ir_id, dir);
             for eid in edge_ids {
                 let (_src, dst) = self.graph.edge_endpoints(eid.id()).unwrap();
-                let neighbor_ttree_idx = self.ttree_idx_map.get(&dst).unwrap();
+                let neighbor_agg_id = self.id_to_agg_leaf.get(&dst).unwrap();
                 let rir_edge = self.graph.edge_weight(eid.id()).unwrap();
 
-                let edge_map_key = AggEdgeIdentifier::new(neighbor_ttree_idx.tree_id, rir_edge.et.clone());
+                let edge_map_key = AggEdgeIdentifier::new(neighbor_agg_id.agg_id, rir_edge.et.clone());
                 if !ttree_edge_map.contains_key(&edge_map_key) {
                     ttree_edge_map.insert(edge_map_key.clone(), vec![]);
                 }
@@ -613,10 +653,10 @@ impl RippleGraph {
         eid: EdgeIndex,
         ttree_edge_map: &mut IndexMap<AggEdgeIdentifier, Vec<EdgeIndex>>
     ) {
-        let neighbor_ttree_idx = self.ttree_idx_map.get(&id).unwrap();
+        let neighbor_agg_id = self.id_to_agg_leaf.get(&id).unwrap();
         let rir_edge = self.graph.edge_weight(eid).unwrap();
 
-        let edge_map_key = AggEdgeIdentifier::new(neighbor_ttree_idx.tree_id, rir_edge.et.clone());
+        let edge_map_key = AggEdgeIdentifier::new(neighbor_agg_id.agg_id, rir_edge.et.clone());
         if !ttree_edge_map.contains_key(&edge_map_key) {
             ttree_edge_map.insert(edge_map_key.clone(), vec![]);
         }
