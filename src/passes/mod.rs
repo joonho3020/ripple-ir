@@ -6,3 +6,4 @@ pub mod infer_typetree;
 pub mod check_ast_assumption;
 pub mod check_phi_nodes;
 pub mod runner;
+pub mod cleanup_rir;

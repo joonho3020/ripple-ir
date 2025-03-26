@@ -56,7 +56,7 @@ impl NameSpace {
 
 fn from_fir_graph(fg: &FirGraph) -> RippleGraph {
     let mut rg = RippleGraph::new();
-    let mut node_map: IndexMap<NodeIndex, RootTypeTreeKey> = IndexMap::new();
+    let mut node_map: IndexMap<NodeIndex, AggNodeIdentifier> = IndexMap::new();
     let mut ns = NameSpace::new(fg);
 
     // Create nodes
@@ -126,6 +126,7 @@ mod test {
 
     use crate::common::graphviz::*;
     use crate::common::RippleIRErr;
+    use crate::ir::typetree::TypeTree;
     use crate::passes::runner::run_passes_from_filepath;
     use crate::common::graphviz::GraphViz;
     use crate::passes::runner::run_rir_passes;
@@ -178,7 +179,7 @@ mod test {
     }
 
     fn traverse(module: &Identifier, rg: &RippleGraph, export: bool) -> Result<(), RippleIRErr> {
-        let mut q: VecDeque<TreeIdx> = VecDeque::new();
+        let mut q: VecDeque<AggNodeIndex> = VecDeque::new();
 
         for agg_id in rg.node_indices_agg().iter() {
             let agg_w = rg.node_weight_agg(*agg_id);
@@ -210,7 +211,7 @@ mod test {
             vis_map.visit(agg_id);
 
             let mut node_attributes = NodeAttributeMap::default();
-            let src_ttree = rg.ttrees.get(agg_id as usize).unwrap();
+            let src_ttree: &TypeTree = rg.ttrees.get(agg_id.to_usize()).unwrap();
             let leaf_ids = src_ttree.all_leaves();
             for leaf_id in leaf_ids {
                 let leaf = src_ttree.graph.node_weight(leaf_id).unwrap();
@@ -220,13 +221,13 @@ mod test {
 
             let agg_edges = rg.edges_agg(agg_id);
             for (iter_inner, (edge_key, edges)) in agg_edges.iter().enumerate() {
-                if !vis_map.is_visited(edge_key.dst_tree) {
-                    q.push_back(edge_key.dst_tree);
+                if !vis_map.is_visited(edge_key.dst_id) {
+                    q.push_back(edge_key.dst_id);
 
                     if export {
                         let mut cur_node_attributes = node_attributes.clone();
 
-                        let dst_ttree = rg.ttrees.get(edge_key.dst_tree as usize).unwrap();
+                        let dst_ttree: &TypeTree= rg.ttrees.get(edge_key.dst_id.to_usize()).unwrap();
                         let leaf_ids = dst_ttree.all_leaves();
                         for leaf_id in leaf_ids {
                             let leaf = dst_ttree.graph.node_weight(leaf_id).unwrap();
