@@ -128,9 +128,11 @@ mod test {
     use crate::common::RippleIRErr;
     use crate::passes::runner::run_passes_from_filepath;
     use crate::common::graphviz::GraphViz;
+    use crate::passes::runner::run_rir_passes;
+    use crate::timeit;
     use super::*;
 
-    fn run(input: &str) -> Result<(), RippleIRErr> {
+    fn run_simple(input: &str) -> Result<(), RippleIRErr> {
         let fir = run_passes_from_filepath(input)?;
         for (module, fg) in fir.graphs.iter() {
             fg.export_graphviz(&format!("./test-outputs/{}-{}.fir.pdf",
@@ -147,31 +149,31 @@ mod test {
 
     #[test]
     fn gcd() {
-        run("./test-inputs/GCD.fir")
+        run_simple("./test-inputs/GCD.fir")
             .expect("gcd");
     }
 
     #[test]
     fn decoupledmux() {
-        run("./test-inputs/DecoupledMux.fir")
+        run_simple("./test-inputs/DecoupledMux.fir")
             .expect("decoupledmux");
     }
 
     #[test]
     fn hierarchy() {
-        run("./test-inputs/Hierarchy.fir")
+        run_simple("./test-inputs/Hierarchy.fir")
             .expect("hierarchy");
     }
 
     #[test]
     fn dynamicindexing() {
-        run("./test-inputs/DynamicIndexing.fir")
+        run_simple("./test-inputs/DynamicIndexing.fir")
             .expect("dynamicindexing");
     }
 
     #[test]
     fn singleportsram() {
-        run("./test-inputs/SinglePortSRAM.fir")
+        run_simple("./test-inputs/SinglePortSRAM.fir")
             .expect("singleportsram");
     }
 
@@ -221,22 +223,22 @@ mod test {
                 if !vis_map.is_visited(edge_key.dst_tree) {
                     q.push_back(edge_key.dst_tree);
 
-                    let mut cur_node_attributes = node_attributes.clone();
-
-                    let dst_ttree = rg.ttrees.get(edge_key.dst_tree as usize).unwrap();
-                    let leaf_ids = dst_ttree.all_leaves();
-                    for leaf_id in leaf_ids {
-                        let leaf = dst_ttree.graph.node_weight(leaf_id).unwrap();
-                        let rg_id = leaf.id.unwrap();
-                        cur_node_attributes.insert(rg_id, NodeAttributes::color(color_name::blue));
-                    }
-
-                    let mut edge_attributes = EdgeAttributeMap::default();
-                    for eid in edges {
-                        edge_attributes.insert(*eid, NodeAttributes::color(color_name::red));
-                    }
-
                     if export {
+                        let mut cur_node_attributes = node_attributes.clone();
+
+                        let dst_ttree = rg.ttrees.get(edge_key.dst_tree as usize).unwrap();
+                        let leaf_ids = dst_ttree.all_leaves();
+                        for leaf_id in leaf_ids {
+                            let leaf = dst_ttree.graph.node_weight(leaf_id).unwrap();
+                            let rg_id = leaf.id.unwrap();
+                            cur_node_attributes.insert(rg_id, NodeAttributes::color(color_name::blue));
+                        }
+
+                        let mut edge_attributes = EdgeAttributeMap::default();
+                        for eid in edges {
+                            edge_attributes.insert(*eid, NodeAttributes::color(color_name::red));
+                        }
+
                         let out_name = format!(
                             "./test-outputs/{}-{}-{}.traverse.agg.pdf",
                             module, iter_outer, iter_inner);
@@ -275,10 +277,14 @@ mod test {
 
     fn run_traverse(input: &str) -> Result<(), RippleIRErr> {
         let fir = run_passes_from_filepath(input)?;
-        let rir = from_fir(&fir);
-        for (module, rg) in rir.graphs.iter() {
-            traverse(module, rg, false)?;
-        }
+        let rir = run_rir_passes(&fir)?;
+
+        timeit!("Aggregate Traversal", {
+            for (module, rg) in rir.graphs.iter() {
+                traverse(module, rg, false)?;
+            }
+        });
+
         Ok(())
     }
 

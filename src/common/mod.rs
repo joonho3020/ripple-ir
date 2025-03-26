@@ -17,3 +17,14 @@ pub enum RippleIRErr {
     #[error("PhiNodeError: {0}")]
     PhiNodeError(String),
 }
+
+#[macro_export]
+macro_rules! timeit {
+    ($label:expr, $block:expr) => {{
+        let start = std::time::Instant::now();
+        let result = $block;
+        let elapsed = start.elapsed();
+        println!("{} took: {:?}", $label, elapsed);
+        result
+    }};
+}
