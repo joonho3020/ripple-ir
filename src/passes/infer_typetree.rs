@@ -237,7 +237,7 @@ fn infer_typetree_node(fg: &mut FirGraph, id: NodeIndex, name: &Identifier) {
             let node_mut = fg.graph.node_weight_mut(id).unwrap();
             node_mut.ttree = Some(true_ttree_subtree.clone_ttree());
         }
-        FirNodeType::PrimOp2Expr(..) => {
+        FirNodeType::PrimOp2Expr(op) => {
             let incoming = fg.graph.edges_directed(id, Incoming)
                 .map(|x|
                     (
@@ -263,7 +263,8 @@ fn infer_typetree_node(fg: &mut FirGraph, id: NodeIndex, name: &Identifier) {
             let op1_type_tree_view = op1_node.ttree.as_ref().unwrap().view().unwrap();
             let op1_type_tree = op1_type_tree_view.subtree_from_expr(&op1_ep.0.src).unwrap();
 
-            if !op0_type_tree.eq(&op1_type_tree) {
+            if !op0_type_tree.eq(&op1_type_tree) && op != PrimOp2Expr::Dshr {
+                op0_type_tree_view.subtree_from_expr(&op0_ep.0.src).unwrap().print_tree();
                 op0_type_tree.print_tree();
                 op1_type_tree.print_tree();
                 panic!("{:?}: PrimOp2Expr op0 and op1 drivers have different types {:?} {:?} {:?} {:?}",
@@ -274,8 +275,26 @@ fn infer_typetree_node(fg: &mut FirGraph, id: NodeIndex, name: &Identifier) {
                     op1_ep.0);
             }
 
-            let node_mut = fg.graph.node_weight_mut(id).unwrap();
-            node_mut.ttree = Some(op0_type_tree.clone_ttree());
+            match op {
+                PrimOp2Expr::Eq  |
+                PrimOp2Expr::Neq |
+                PrimOp2Expr::Lt  |
+                PrimOp2Expr::Leq |
+                PrimOp2Expr::Gt  |
+                PrimOp2Expr::Geq |
+                PrimOp2Expr::And |
+                PrimOp2Expr::Or  |
+                PrimOp2Expr::Xor |
+                PrimOp2Expr::Cat => {
+                    assert!(op0_type_tree.is_ground_type());
+                    set_ground_type(fg, id, GroundType::UInt);
+                }
+                _ => {
+                    let node_mut = fg.graph.node_weight_mut(id).unwrap();
+                    node_mut.ttree = Some(op0_type_tree.clone_ttree());
+                }
+            }
+
         }
         FirNodeType::PrimOp1Expr(op) => {
             let incoming = fg.graph.edges_directed(id, Incoming)
@@ -301,28 +320,41 @@ fn infer_typetree_node(fg: &mut FirGraph, id: NodeIndex, name: &Identifier) {
             let op0_type_tree_view = op0_node.ttree.as_ref().unwrap().view().unwrap();
             let op0_type_tree = op0_type_tree_view.subtree_from_expr(&op0_ep.0.src).unwrap();
 
-            let node_mut = fg.graph.node_weight_mut(id).unwrap();
-
             match op {
                 PrimOp1Expr::AsUInt => {
+                    assert!(op0_type_tree.is_ground_type());
                     set_ground_type(fg, id, GroundType::UInt);
                 }
                 PrimOp1Expr::AsSInt => {
+                    assert!(op0_type_tree.is_ground_type());
                     set_ground_type(fg, id, GroundType::SInt);
                 }
                 PrimOp1Expr::AsClock => {
+                    assert!(op0_type_tree.is_ground_type());
                     set_ground_type(fg, id, GroundType::Clock);
                 }
                 PrimOp1Expr::AsAsyncReset => {
+                    assert!(op0_type_tree.is_ground_type());
                     set_ground_type(fg, id, GroundType::AsyncReset);
                 }
+                PrimOp1Expr::Cvt => {
+                    assert!(op0_type_tree.is_ground_type());
+                    set_ground_type(fg, id, GroundType::SInt);
+                }
+                PrimOp1Expr::Not  |
+                PrimOp1Expr::Andr |
+                PrimOp1Expr::Orr  |
+                PrimOp1Expr::Xorr => {
+                    assert!(op0_type_tree.is_ground_type());
+                    set_ground_type(fg, id, GroundType::UInt);
+                }
                 _ => {
+                    let node_mut = fg.graph.node_weight_mut(id).unwrap();
                     node_mut.ttree = Some(op0_type_tree.clone_ttree());
                 }
             }
         }
-        FirNodeType::PrimOp1Expr1Int(..) |
-            FirNodeType::PrimOp1Expr2Int(..) => {
+        FirNodeType::PrimOp1Expr1Int(op, ..) => {
             let incoming = fg.graph.edges_directed(id, Incoming)
                 .map(|x|
                     (
@@ -339,8 +371,40 @@ fn infer_typetree_node(fg: &mut FirGraph, id: NodeIndex, name: &Identifier) {
             let op0_type_tree_view = op0_node.ttree.as_ref().unwrap().view().unwrap();
             let op0_type_tree = op0_type_tree_view.subtree_from_expr(&op0_ep.0.src).unwrap();
 
-            let node_mut = fg.graph.node_weight_mut(id).unwrap();
-            node_mut.ttree = Some(op0_type_tree.clone_ttree());
+            assert!(op0_type_tree.is_ground_type());
+            match op {
+                PrimOp1Expr1Int::Head |
+                    PrimOp1Expr1Int::Tail |
+                    PrimOp1Expr1Int::BitSel => {
+                        assert!(op0_type_tree.is_ground_type());
+                        set_ground_type(fg, id, GroundType::UInt);
+                }
+                _ => {
+                    let node_mut = fg.graph.node_weight_mut(id).unwrap();
+                    node_mut.ttree = Some(op0_type_tree.clone_ttree());
+                }
+            }
+
+        }
+        FirNodeType::PrimOp1Expr2Int(..) => {
+            let incoming = fg.graph.edges_directed(id, Incoming)
+                .map(|x|
+                    (
+                        fg.graph.edge_weight(x.id()).unwrap(),
+                        fg.graph.edge_endpoints(x.id()).unwrap()
+                    )
+                );
+
+            let op0_edge_vec: Vec<EdgeWeightEpTuple> = incoming
+                .filter(|x| x.0.et == FirEdgeType::Operand0).collect();
+
+            let op0_ep = *op0_edge_vec.get(0).unwrap();
+            let op0_node = fg.graph.node_weight(op0_ep.1.0).unwrap().clone();
+            let op0_type_tree_view = op0_node.ttree.as_ref().unwrap().view().unwrap();
+            let op0_type_tree = op0_type_tree_view.subtree_from_expr(&op0_ep.0.src).unwrap();
+
+            assert!(op0_type_tree.is_ground_type());
+            set_ground_type(fg, id, GroundType::UInt);
         }
         _ => {
             panic!("{:?}: Called infer_typetree_node on unexpected node type {:?}", name, node);

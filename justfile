@@ -28,6 +28,10 @@ test_only name:
   RUST_BACKTRACE=1 cargo nextest run --release {{name}} --nocapture
 
 [group: 'test']
+test_only_debug name:
+  RUST_BACKTRACE=full cargo nextest run {{name}} --nocapture
+
+[group: 'test']
 list:
   cargo nextest list
 

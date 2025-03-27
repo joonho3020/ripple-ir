@@ -1,16 +1,12 @@
 use chirrtl_parser::ast::*;
 use std::fmt::{Debug, Display};
+use std::cmp::Ordering;
 use std::collections::VecDeque;
 use petgraph::{graph::{Graph, NodeIndex}, Direction::{Outgoing, Incoming}};
-use petgraph::algo::is_isomorphic;
 use petgraph::graph::Neighbors;
-use ptree::{TreeItem, Style, write_tree, print_tree};
 use indexmap::IndexMap;
-use std::fs::File;
-use std::io::BufWriter;
 use std::hash::{Hash, Hasher};
 use crate::common::graphviz::*;
-use crate::common::RippleIRErr;
 use crate::impl_clean_display;
 
 /// - Direction in the perspective of the noding holding this `TypeTree`
@@ -68,7 +64,7 @@ pub enum TypeTreeNodeType {
 }
 
 /// Node in the TypeTree
-#[derive(Debug, Clone, PartialEq, Hash, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Hash, Eq, Ord)]
 pub struct TypeTreeNode {
     /// Name of this node. The root of the tree will not have a name
     pub name: Option<Identifier>,
@@ -83,6 +79,25 @@ pub struct TypeTreeNode {
 impl TypeTreeNode {
     pub fn new(name: Option<Identifier>, dir: TypeDirection, tpe: TypeTreeNodeType) -> Self {
         Self { name, dir, tpe }
+    }
+}
+
+impl PartialEq for TypeTreeNode {
+    fn eq(&self, other: &Self) -> bool {
+        (self.name == other.name) && (self.tpe == other.tpe)
+    }
+}
+
+impl PartialOrd for TypeTreeNode {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        // Compare only dir, tpe, and id — ignore name
+        Some((
+            &self.name,
+            &self.tpe,
+        ).cmp(&(
+            &other.name,
+            &other.tpe,
+        )))
     }
 }
 
@@ -174,6 +189,39 @@ impl<'a> SubTreeView<'a> {
         Self { ttree, root }
     }
 
+    pub fn from_subtree(subtree: &'a SubTreeView<'a>, root: NodeIndex) -> Self {
+        Self { ttree: subtree.ttree(), root }
+    }
+
+    pub fn root_node(&self) -> Option<TypeTreeNode> {
+        let mut node = self.ttree.graph.node_weight(self.root).unwrap().clone();
+        node.name = None;
+        Some(node)
+    }
+
+    pub fn get_node(&self, id: NodeIndex) -> Option<TypeTreeNode> {
+        if id == self.root {
+            self.root_node()
+        } else {
+            Some(self.ttree.graph.node_weight(id).unwrap().clone())
+        }
+    }
+
+    pub fn childs(&self, id: NodeIndex) -> Neighbors<TypeTreeEdge> {
+        self.ttree.graph.neighbors_directed(id, Outgoing)
+    }
+
+    pub fn parents(&self, id: NodeIndex) -> Neighbors<TypeTreeEdge> {
+        self.ttree.graph.neighbors_directed(id, Incoming)
+    }
+
+    pub fn is_ground_type(&self) -> bool {
+        match self.root_node().unwrap().tpe {
+            TypeTreeNodeType::Ground(..) => { true }
+            _ => { false }
+        }
+    }
+
     pub fn ttree(&self) -> &'a TypeTree {
         self.ttree
     }
@@ -212,34 +260,8 @@ impl<'a> SubTreeView<'a> {
         return ret;
     }
 
-    pub fn from_subtree(subtree: &'a SubTreeView<'a>, root: NodeIndex) -> Self {
-        Self { ttree: subtree.ttree(), root }
-    }
-
-    pub fn root_node(&self) -> Option<TypeTreeNode> {
-        let mut node = self.ttree.graph.node_weight(self.root).unwrap().clone();
-        node.name = None;
-        Some(node)
-    }
-
-    pub fn get_node(&self, id: NodeIndex) -> Option<TypeTreeNode> {
-        if id == self.root {
-            self.root_node()
-        } else {
-            Some(self.ttree.graph.node_weight(id).unwrap().clone())
-        }
-    }
-
-    pub fn childs(&self, id: NodeIndex) -> Neighbors<TypeTreeEdge> {
-        self.ttree.graph.neighbors_directed(id, Outgoing)
-    }
-
-    pub fn parents(&self, id: NodeIndex) -> Neighbors<TypeTreeEdge> {
-        self.ttree.graph.neighbors_directed(id, Incoming)
-    }
-
     fn print_tree_recursive(&self, id: NodeIndex, depth: usize) {
-        println!("{}{:?}", "  ".repeat(depth), self.ttree.graph.node_weight(id).unwrap());
+        println!("{}{:?}", "  ".repeat(depth), self.get_node(id).unwrap());
 
         for child in self.childs(id) {
             self.print_tree_recursive(child, depth + 1);
@@ -536,7 +558,7 @@ impl<'a> SubTreeView<'a> {
                         false
                     } else {
                         childs.sort_by_key(|&i| self.get_node(i).unwrap());
-                        other_childs.sort_by_key(|&i| self.get_node(i).unwrap());
+                        other_childs.sort_by_key(|&i| other.get_node(i).unwrap());
 
                         for (s_child, o_child) in childs.into_iter().zip(other_childs.into_iter()) {
                             if !self.eq_recursive(s_child, other, o_child) {
@@ -638,11 +660,6 @@ impl TypeTree {
         }
     }
 
-    /// Checks if two typetrees are equivalent
-    pub fn eq(&self, other: &Self) -> bool {
-        is_isomorphic(&self.graph, &other.graph)
-    }
-
     /// Given some TypeTrees with their names, create a new TypeTree that takes
     /// the given ones as a subtree
     pub fn merge_trees(ttrees: IndexMap<&Identifier, &Self>) -> Self {
@@ -733,55 +750,6 @@ impl GraphViz for TypeTree {
         edge_attr: Option<&EdgeAttributeMap>
     ) -> Result<String, std::io::Error> {
         DefaultGraphVizCore::graphviz_string(self, node_attr, edge_attr)
-    }
-}
-
-/// Helper struct for printing the `TypeTree`
-#[derive(Clone)]
-pub struct TypeTreePrinter<'a> {
-    pub tree: &'a Graph<TypeTreeNode, TypeTreeEdge>,
-    pub idx: NodeIndex,
-}
-
-impl<'a> TypeTreePrinter<'a> {
-    pub fn new(tree: &'a Graph<TypeTreeNode, TypeTreeEdge>, idx: NodeIndex) -> Self {
-        Self {
-            tree,
-            idx,
-        }
-    }
-
-    pub fn write_to_file(&self, file: &str) -> Result<(), RippleIRErr> {
-        let file = File::create(file)?;
-        let writer = BufWriter::new(file);
-        write_tree(self, writer)?;
-        Ok(())
-    }
-
-    pub fn print(&self) -> Result<(), RippleIRErr> {
-        print_tree(self)?;
-        Ok(())
-    }
-}
-
-impl<'a> TreeItem for TypeTreePrinter<'a> {
-    type Child = Self;
-
-    fn write_self<W: std::io::Write>(&self, f: &mut W, style: &Style) -> std::io::Result<()> {
-        if let Some(w) = self.tree.node_weight(self.idx) {
-            write!(f, "{} {:?}", style.paint(w), self.idx)
-        } else {
-            Ok(())
-        }
-    }
-
-    fn children(&self) -> std::borrow::Cow<[Self::Child]> {
-        let v: Vec<_> = self.tree
-            .neighbors_directed(self.idx, Outgoing)
-            .map(|i| TypeTreePrinter::new(self.tree, i))
-            .collect();
-        let v_rev: Vec<_> = v.iter().map(|x| x.clone()).rev().collect();
-        std::borrow::Cow::from(v_rev)
     }
 }
 
