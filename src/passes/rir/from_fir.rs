@@ -111,7 +111,7 @@ fn from_fir_graph(fg: &FirGraph) -> RippleGraph {
                 rg.add_aggregate_mem_edge(src_key, &src_ref, dst_key, dst_ref, et);
             }
             _ => {
-                rg.add_aggregate_edge(src_key, &src_ref, dst_key, dst_ref, et);
+                rg.add_edge_agg(*agg_src_id, *agg_dst_id, &src_ref, dst_ref, AggEdge::new(et));
             }
         }
     }

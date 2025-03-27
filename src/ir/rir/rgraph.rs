@@ -18,13 +18,13 @@ use crate::impl_clean_display;
 
 #[derive(Derivative, Clone, PartialEq, Eq, Hash)]
 #[derivative(Debug)]
-pub struct RippleNode {
+pub struct RippleNodeInfo {
     pub name: Option<Identifier>,
     pub tpe: RippleNodeType,
     pub tg: GroundType
 }
 
-impl RippleNode {
+impl RippleNodeInfo {
     pub fn new(name: Option<Identifier>, tpe: RippleNodeType, tg: GroundType) -> Self {
         Self { name, tpe, tg }
     }
@@ -64,7 +64,7 @@ pub enum RippleNodeType {
 }
 
 impl_clean_display!(RippleNodeType);
-impl_clean_display!(RippleNode);
+impl_clean_display!(RippleNodeInfo);
 
 impl From<&FirNodeType> for RippleNodeType {
     fn from(value: &FirNodeType) -> Self {
@@ -92,6 +92,12 @@ impl From<&FirNodeType> for RippleNodeType {
             FirNodeType::Phi => Self::Phi,
         }
     }
+}
+
+#[derive(Derivative, Clone, PartialEq, Eq, Hash)]
+pub struct RippleNode {
+    pub info: RippleNodeInfo,
+    pub id: Ripple
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -159,6 +165,11 @@ type IRGraph = Graph<RippleNode, RippleEdge>;
 
 #[derive(Debug, Clone)]
 pub struct RippleGraph {
+    agg_node_idx_gen: IndexGen,
+    agg_edge_idx_gen: IndexGen,
+    node_idx_gen: IndexGen,
+    edge_idx_gen: IndexGen,
+
     /// Graph of this IR
     pub graph: IRGraph,
 
@@ -168,14 +179,21 @@ pub struct RippleGraph {
 
     /// map that contains metadata for each unique aggregate node
     pub agg_nodes: Vec<AggNode>,
+
+    pub agg_edges: Vec<AggEdge>,
 }
 
 impl RippleGraph {
     pub fn new() -> Self {
         Self {
+            agg_node_idx_gen: IndexGen::new(),
+            agg_edge_idx_gen: IndexGen::new(),
+            node_idx_gen: IndexGen::new(),
+            edge_idx_gen: IndexGen::new(),
             graph: IRGraph::new(),
             flatid_aggleaf_bimap: BiMap::new(),
             agg_nodes: vec![],
+            agg_edges: vec![],
         }
     }
 
@@ -185,9 +203,6 @@ impl RippleGraph {
 
     /// Removes a single low-level node from the IR
     pub fn remove_node(&mut self, id: NodeIndex) {
-        println!("remove {:?}", id);
-        println!("flatid_aggleaf_bimap {:?}", self.flatid_aggleaf_bimap);
-
         let last_id = NodeIndex::new(self.graph.node_count() - 1);
 
         // Remove node from the graph
@@ -208,10 +223,7 @@ impl RippleGraph {
         }
     }
 
-    pub fn add_node_agg(
-        &mut self,
-        node: AggNode,
-    ) -> AggNodeIndex {
+    pub fn add_node_agg(&mut self, node: AggNode) -> AggNodeIndex {
         let my_ttree = node.ttree.view().unwrap();
         let agg_id = self.agg_nodes.len() as u32;
         let leaves = my_ttree.leaves();
@@ -255,7 +267,51 @@ impl RippleGraph {
         self.flatid_aggleaf_bimap.get_by_right(&aggleafidx)
     }
 
-    pub fn add_single_src_multi_dst_edge_agg(
+    pub fn add_fanout_edge_agg(&mut self, src: AggNodeIndex, dst: AggNodeIndex, edge: AggEdge) {
+    }
+
+    pub fn add_edge_agg(
+        &mut self,
+        src_agg_id: AggNodeIndex,
+        dst_agg_id: AggNodeIndex,
+        src_ref: &Reference,
+        dst_ref: &Reference,
+        edge: AggEdge
+    ) -> AggEdgeIndex {
+        let src_agg_node = self.agg_nodes.get(src_agg_id.to_usize()).unwrap();
+        let src_ttree = src_agg_node.ttree.view().unwrap();
+        let src_leaves = src_ttree.subtree_leaves_with_path(src_ref);
+
+        let dst_agg_node = self.agg_nodes.get(dst_agg_id.to_usize()).unwrap();
+        let dst_ttree = dst_agg_node.ttree.view().unwrap();
+        let dst_leaves = dst_ttree.subtree_leaves_with_path(dst_ref);
+
+        let mut edges: Vec<(NodeIndex, NodeIndex, RippleEdge)> = vec![];
+        for (src_path_identity, src_ttree_leaf_id) in src_leaves.iter() {
+            let src_ttree_leaf = src_ttree.get_node(*src_ttree_leaf_id).unwrap();
+            let src_flatid = self.flatid(src_agg_id, *src_ttree_leaf_id).unwrap();
+
+            // If there is a matching path in the dst aggregate node, add an edge
+            if dst_leaves.contains_key(src_path_identity) {
+                let dst_ttree_leaf_id = dst_leaves.get(src_path_identity).unwrap();
+                let dst_flatid = self.flatid(dst_agg_id, *dst_ttree_leaf_id).unwrap();
+                if src_ttree_leaf.dir == TypeDirection::Outgoing {
+                    edges.push((*src_flatid, *dst_flatid, RippleEdge::new(None, edge.et.clone())));
+                } else {
+                    edges.push((*dst_flatid, *src_flatid, RippleEdge::new(None, edge.et.clone())));
+                }
+            } else {
+                panic!("Not connected src_ref {:?}\nsrc_id {:?}\nsrc_leaves {:?}\ndst_ref {:?}\ndst_identity {:?}\ndst_leaves {:?}",
+                    src_ref, src_agg_id, src_leaves, dst_ref, dst_agg_id, dst_leaves);
+            }
+        }
+
+        for edge in edges {
+            self.graph.add_edge(edge.0, edge.1, edge.2);
+        }
+    }
+
+    pub fn add_single_edge(
         &mut self,
         src_identity: &AggNode,
         src_ref: &Reference,

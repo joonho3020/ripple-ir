@@ -21,3 +21,24 @@ impl PhiPriority {
     }
 }
 
+/// Generates unique indices
+#[derive(Debug, Default, Clone)]
+pub struct IndexGen {
+    next_index: u32,
+}
+
+impl IndexGen {
+    pub fn new() -> Self {
+        Self { next_index: 0 }
+    }
+
+    /// Generate a new unique index of type `T` that implements `From<u32>`
+    pub fn generate<T>(&mut self) -> T
+    where
+        T: From<u32>,
+    {
+        let idx = self.next_index;
+        self.next_index += 1;
+        T::from(idx)
+    }
+}

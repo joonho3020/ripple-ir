@@ -24,45 +24,6 @@ impl AggNode {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct AggEdge {
-    pub dst_id: AggNodeIndex,
-    pub et: RippleEdgeType,
-}
-
-impl AggEdge {
-    pub fn new(dst_id: AggNodeIndex, et: RippleEdgeType) -> Self {
-        Self { dst_id, et }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct AggVisMap {
-    visited: FixedBitSet
-}
-
-impl AggVisMap {
-    pub fn new(num_bits: u32) -> Self {
-        Self { visited: FixedBitSet::with_capacity(num_bits as usize) }
-    }
-
-    pub fn is_visited(&self, id: AggNodeIndex) -> bool {
-        self.visited.contains(id.into())
-    }
-
-    pub fn visit(&mut self, id: AggNodeIndex) {
-        self.visited.set(id.into(), true);
-    }
-
-    pub fn has_unvisited(&self) -> bool {
-        self.visited.count_zeroes(..) > 0
-    }
-
-    pub fn unvisited_ids(&self) -> Vec<AggNodeIndex> {
-        self.visited.zeroes().map(|x| x.into()).collect()
-    }
-}
-
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct AggNodeIndex(u32);
 
@@ -110,3 +71,77 @@ impl AggNodeLeafIndex {
         Self { agg_id, leaf_id }
     }
 }
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct AggEdge {
+    pub et: RippleEdgeType,
+    pub src_ref: Reference,
+    pub dst_ref: Reference,
+}
+
+impl AggEdge {
+    pub fn new(et: RippleEdgeType) -> Self {
+        Self { et }
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub struct AggEdgeIndex(u32);
+
+impl AggEdgeIndex {
+    pub fn to_usize(&self) -> usize {
+        self.0 as usize
+    }
+}
+
+impl Into<u32> for AggEdgeIndex {
+    fn into(self) -> u32 {
+        self.0 as u32
+    }
+}
+
+impl From<u32> for AggEdgeIndex {
+    fn from(value: u32) -> Self {
+        Self(value)
+    }
+}
+
+impl From<usize> for AggEdgeIndex {
+    fn from(value: usize) -> Self {
+        Self(value as u32)
+    }
+}
+
+impl From<AggEdgeIndex> for usize {
+    fn from(value: AggEdgeIndex) -> Self {
+        value.0 as usize
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct AggVisMap {
+    visited: FixedBitSet
+}
+
+impl AggVisMap {
+    pub fn new(num_bits: u32) -> Self {
+        Self { visited: FixedBitSet::with_capacity(num_bits as usize) }
+    }
+
+    pub fn is_visited(&self, id: AggNodeIndex) -> bool {
+        self.visited.contains(id.into())
+    }
+
+    pub fn visit(&mut self, id: AggNodeIndex) {
+        self.visited.set(id.into(), true);
+    }
+
+    pub fn has_unvisited(&self) -> bool {
+        self.visited.count_zeroes(..) > 0
+    }
+
+    pub fn unvisited_ids(&self) -> Vec<AggNodeIndex> {
+        self.visited.zeroes().map(|x| x.into()).collect()
+    }
+}
+
