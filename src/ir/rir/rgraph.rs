@@ -490,7 +490,7 @@ impl GraphViz for RippleGraph {
             // Create graphviz subgraph to group nodes together
             let subgraph_name = format!("\"cluster_{}_{}\"",
                 agg_node.name,
-                agg_id).replace('"', "");
+                agg_id.to_usize()).replace('"', "");
             let mut subgraph = DotSubgraph {
                 id: Id::Plain(subgraph_name),
                 stmts: vec![]
