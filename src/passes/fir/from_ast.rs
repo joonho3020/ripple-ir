@@ -1,8 +1,8 @@
 use crate::ir::whentree::WhenTree;
-use crate::ir::typetree::{TypeDirection, TypeTree};
+use crate::ir::typetree::typetree::{TypeDirection, TypeTree};
 use crate::ir::firir::*;
 use crate::ir::PhiPriority;
-use crate::passes::check_ast_assumption::*;
+use crate::passes::ast::check_ast_assumption::*;
 use chirrtl_parser::ast::*;
 use petgraph::graph::NodeIndex;
 use indexmap::{IndexMap, IndexSet};
@@ -600,9 +600,11 @@ fn connect_phi_node_sels(ir: &mut FirGraph, nm: &mut NodeMap) {
     }
 }
 
+
+
 #[cfg(test)]
-mod test {
-    use super::*;
+mod from_ast_test {
+    use crate::passes::fir::from_ast::{from_circuit, from_circuit_module};
     use crate::common::graphviz::GraphViz;
     use crate::common::RippleIRErr;
     use chirrtl_parser::parse_circuit;

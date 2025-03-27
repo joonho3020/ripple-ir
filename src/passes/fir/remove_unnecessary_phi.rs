@@ -1,5 +1,8 @@
 use crate::ir::firir::*;
-use petgraph::{graph::{NodeIndex, EdgeIndex}, visit::EdgeRef, Direction::{Incoming, Outgoing}};
+use petgraph::{
+    graph::{NodeIndex, EdgeIndex},
+    visit::EdgeRef, Direction::{Incoming, Outgoing}
+};
 
 pub fn remove_unnecessary_phi(ir: &mut FirIR) {
     for (_id, rg) in ir.graphs.iter_mut() {
@@ -108,8 +111,8 @@ mod test {
     use crate::{
         common::graphviz::GraphViz,
         common::RippleIRErr,
-        passes::from_ast::from_circuit,
-        passes::check_phi_nodes::check_phi_node_connections,
+        passes::fir::from_ast::from_circuit,
+        passes::fir::check_phi_nodes::check_phi_node_connections,
     };
     use chirrtl_parser::parse_circuit;
 

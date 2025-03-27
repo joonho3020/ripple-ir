@@ -120,9 +120,9 @@ impl GraphViz for Hierarchy {
 #[cfg(test)]
 mod test {
     use crate::common::RippleIRErr;
-    use crate::passes::from_ast::from_circuit;
-    use crate::passes::remove_unnecessary_phi::*;
-    use crate::passes::check_phi_nodes::*;
+    use crate::passes::fir::from_ast::from_circuit;
+    use crate::passes::fir::remove_unnecessary_phi::*;
+    use crate::passes::fir::check_phi_nodes::*;
 
     use super::*;
     use chirrtl_parser::parse_circuit;

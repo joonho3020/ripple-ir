@@ -126,7 +126,7 @@ mod test {
 
     use crate::common::graphviz::*;
     use crate::common::RippleIRErr;
-    use crate::ir::typetree::TypeTree;
+    use crate::ir::typetree::typetree::TypeTree;
     use crate::passes::runner::run_passes_from_filepath;
     use crate::common::graphviz::GraphViz;
     use crate::passes::runner::run_rir_passes;

@@ -1,6 +1,6 @@
 use petgraph::{graph::NodeIndex, Direction::Outgoing};
 use indexmap::IndexMap;
-use crate::ir::{typetree::GroundType, *};
+use crate::ir::{typetree::typetree::GroundType, *};
 
 /// Cleanup
 /// - Array and memory nodes
@@ -72,7 +72,7 @@ mod test {
     use crate::common::RippleIRErr;
     use crate::passes::runner::run_passes_from_filepath;
     use crate::common::graphviz::GraphViz;
-    use crate::passes::from_fir::from_fir;
+    use crate::passes::rir::from_fir::from_fir;
     use super::*;
 
     fn run_simple(input: &str) -> Result<(), RippleIRErr> {

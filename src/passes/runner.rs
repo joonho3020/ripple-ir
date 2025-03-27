@@ -1,15 +1,15 @@
 use crate::ir::firir::FirIR;
 use crate::ir::RippleIR;
-use crate::passes::from_ast::from_circuit;
-use crate::passes::from_fir::from_fir;
-use crate::passes::remove_unnecessary_phi::remove_unnecessary_phi;
+use crate::passes::fir::from_ast::from_circuit;
+use crate::passes::fir::infer_typetree::*;
+use crate::passes::fir::remove_unnecessary_phi::remove_unnecessary_phi;
+use crate::passes::fir::check_phi_nodes::check_phi_node_connections;
+use crate::passes::rir::from_fir::from_fir;
 use crate::common::RippleIRErr;
-use crate::passes::infer_typetree::*;
 use crate::timeit;
 use chirrtl_parser::ast::Circuit;
 use chirrtl_parser::parse_circuit;
 
-use super::check_phi_nodes::check_phi_node_connections;
 
 /// Run the AST to graph conversion and export the graph form
 pub fn run_passes_from_filepath(name: &str) -> Result<FirIR, RippleIRErr> {

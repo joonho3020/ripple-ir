@@ -4,7 +4,7 @@ use indexmap::IndexMap;
 use petgraph::graph::{Graph, NodeIndex};
 use crate::common::graphviz::*;
 use crate::common::RippleIRErr;
-use crate::ir::typetree::TypeTree;
+use crate::ir::typetree::typetree::*;
 use crate::ir::whentree::Condition;
 use crate::ir::PhiPriority;
 use crate::impl_clean_display;
@@ -186,13 +186,12 @@ impl GraphViz for FirGraph {
 #[cfg(test)]
 mod test {
     use crate::common::RippleIRErr;
-    use crate::ir::typetree::{GroundType, TypeDirection, TypeTreeEdge, TypeTreeNode, TypeTreeNodeType};
+    use crate::ir::typetree::typetree::*;
     use chirrtl_parser::ast::Identifier;
     use chirrtl_parser::parse_circuit;
-    use crate::passes::from_ast::from_circuit;
-    use crate::passes::remove_unnecessary_phi::remove_unnecessary_phi;
-    use crate::passes::check_phi_nodes::check_phi_node_connections;
-    use crate::ir::TypeTree;
+    use crate::passes::fir::from_ast::from_circuit;
+    use crate::passes::fir::remove_unnecessary_phi::remove_unnecessary_phi;
+    use crate::passes::fir::check_phi_nodes::check_phi_node_connections;
 
     #[test]
     fn io_typetree() -> Result<(), RippleIRErr> {

@@ -16,7 +16,7 @@ use fixedbitset::FixedBitSet;
 use bimap::BiMap;
 use crate::common::graphviz::*;
 use crate::ir::whentree::Condition;
-use crate::ir::typetree::*;
+use crate::ir::typetree::typetree::*;
 use crate::ir::firir::*;
 use crate::impl_clean_display;
 
