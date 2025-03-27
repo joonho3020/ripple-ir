@@ -364,23 +364,20 @@ impl RippleGraph {
             let rgnode = RippleNode::new(Some(leaf_name), nt.clone(), tg.clone());
             let rg_id = self.graph.add_node(rgnode);
 
-            match nt {
-                RippleNodeType::SMem(..) => {
-                    println!("leaves {:?}", leaves);
-                    println!("flatid {:?}, ttree_id {:?} leaf_id {:?}",
-                        rg_id, ttree_id, leaf_id);
-                }
-                _ => { }
-            }
+            let anli = AggNodeLeafIndex::new(AggNodeIndex::from(ttree_id), vec![*leaf_id]);
+            let prev_len = self.flatid_aggleaf_bimap.len();
 
             // Add this node to the flatid_aggleaf_bimap
             self.flatid_aggleaf_bimap.insert(
                 rg_id,
-                AggNodeLeafIndex::new(AggNodeIndex::from(ttree_id), vec![*leaf_id]));
+                anli);
+
+            let after_len = self.flatid_aggleaf_bimap.len();
+            assert!(after_len == prev_len + 1);
         }
 
         // Add the type tree
-        self.ttrees.push(my_ttree.clone_ttree());
+        self.ttrees.push(ttree.clone());
 
         let agg_identity = AggNodeIdentifier::new(name, nt);
         self.aggidty_aggid_bimap.insert(agg_identity.clone(), ttree_id.into());
@@ -452,8 +449,20 @@ impl RippleGraph {
         let dst_ttree = self.ttrees.get(dst_aggid.to_usize()).expect("to exist").view().unwrap();
         let dst_leaves = dst_ttree.subtree_leaves_with_path(dst_ref);
 
+// println!("------------------------------------------------");
+// println!("src_identity {:?} src_ref {:?} dst_identity {:?} dst_ref {:?}",
+// src_identity, src_ref, dst_identity, dst_ref);
+
+// src_ttree.print_tree();
+// println!("src_leaves_id {:?}", src_ttree.leaves());
+// println!("src_leaves {:?}", src_leaves);
+// println!("dst_leaves {:?}", dst_leaves);
+// println!("flatid_aggleaf_bimap {:?}", self.flatid_aggleaf_bimap);
+
         let mut edges: Vec<(NodeIndex, NodeIndex, RippleEdge)> = vec![];
         for (src_path_identity, src_ttree_leaf_id) in src_leaves.iter() {
+// println!("src_aggid {:?} leafid {:?}", src_aggid, src_ttree_leaf_id);
+
             let src_ttree_leaf = src_ttree.get_node(*src_ttree_leaf_id).unwrap();
             let src_flatid = self.flatid(*src_aggid, *src_ttree_leaf_id).unwrap();
 
@@ -491,8 +500,6 @@ impl RippleGraph {
         let src_ttree = self.ttrees.get(src_aggid.to_usize()).expect("to exist").view().unwrap();
         let src_ttree_array_entry = src_ttree.subtree_array_element();
         let src_leaves = src_ttree_array_entry.subtree_leaves_with_path(src_ref);
-        src_ttree.print_tree();
-        println!("src_leaves {:?}", src_leaves);
 
         // Get leaves of the dst aggregate node
         let dst_aggid = self.aggidty_aggid_bimap.get_by_left(dst_identity).expect("to exist");
@@ -502,7 +509,6 @@ impl RippleGraph {
         let mut edges: Vec<(NodeIndex, NodeIndex, RippleEdge)> = vec![];
         for (src_path_key, src_ttree_leaf_id) in src_leaves.iter() {
             let src_ttree_leaf = src_ttree_array_entry.get_node(*src_ttree_leaf_id).unwrap();
-            src_ttree.print_tree();
             let src_flatid = self.flatid(*src_aggid, *src_ttree_leaf_id).expect(&format!("WTF src_ref: {:?} src_identity: {:?} src_agg_id: {:?} src_leaf_id: {:?} {:#?}", src_ref, src_identity, src_aggid, src_ttree_leaf_id, self.flatid_aggleaf_bimap));
 
             // If there is a matching path in the dst aggregate node, add an edge
