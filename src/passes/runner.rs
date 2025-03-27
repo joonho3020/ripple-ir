@@ -1,5 +1,5 @@
 use crate::ir::firir::FirIR;
-use crate::ir::RippleIR;
+use crate::ir::rir::rir::RippleIR;
 use crate::passes::fir::from_ast::from_circuit;
 use crate::passes::fir::infer_typetree::*;
 use crate::passes::fir::remove_unnecessary_phi::remove_unnecessary_phi;

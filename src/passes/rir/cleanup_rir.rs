@@ -1,6 +1,10 @@
-use petgraph::{graph::NodeIndex, Direction::Outgoing};
+use petgraph::{graph::NodeIndex, Direction::{Incoming, Outgoing}};
 use indexmap::IndexMap;
-use crate::ir::{typetree::typetree::GroundType, *};
+use crate::ir::typetree::typetree::GroundType;
+use crate::ir::rir::{
+    rgraph::*,
+    rir::*,
+    agg::*};
 
 /// Cleanup
 /// - Array and memory nodes
@@ -11,9 +15,10 @@ pub fn cleanup_rir(rir: &mut RippleIR) {
     }
 }
 
+/// Remove all flat nodes that represent the memory node array and
+/// replace it with a single node
 fn cleanup_rg_memory(rg: &mut RippleGraph) {
     let mut node_map: IndexMap<RippleNode, AggNodeIndex> = IndexMap::new();
-
     for agg_id in rg.node_indices_agg() {
         let node_agg = rg.node_weight_agg(agg_id);
 
@@ -64,6 +69,16 @@ fn cleanup_rg_memory(rg: &mut RippleGraph) {
             }
             _ => { }
         }
+    }
+}
+
+/// Similar to cleanup_rg_memory except that this is for combinational memory arrays.
+/// Possible when:
+/// - All incoming edges are of type RippleEdgeType::ArrayAddr
+fn cleanup_rg_array(rg: &mut RippleGraph) {
+    for agg_id in rg.node_indices_agg() {
+        let node_agg = rg.node_weight_agg(agg_id);
+        let agg_edges = rg.edges_directed_agg(agg_id, Incoming);
     }
 }
 

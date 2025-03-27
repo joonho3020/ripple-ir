@@ -1,9 +1,8 @@
 use chirrtl_parser::ast::*;
-use firir::FirGraph;
 use indexmap::{IndexMap, IndexSet};
 use petgraph::graph::NodeIndex;
-use crate::ir::firir::{FirEdgeType, FirIR};
-use crate::ir::*;
+use crate::ir::firir::*;
+use crate::ir::rir::{rgraph::*, rir::*, agg::*};
 
 pub fn from_fir(fir: &FirIR) -> RippleIR {
     let mut ret = RippleIR::new(fir.name.clone());
@@ -56,7 +55,7 @@ impl NameSpace {
 
 fn from_fir_graph(fg: &FirGraph) -> RippleGraph {
     let mut rg = RippleGraph::new();
-    let mut node_map: IndexMap<NodeIndex, AggNodeIdentifier> = IndexMap::new();
+    let mut node_map: IndexMap<NodeIndex, AggNode> = IndexMap::new();
     let mut ns = NameSpace::new(fg);
 
     // Create nodes
@@ -322,8 +321,4 @@ mod test {
         run_traverse("./test-inputs/chipyard.harness.TestHarness.LargeBoomV3Config.fir")
             .expect("boom traverse assumption");
     }
-
-
-    // TODO: add tests for cases where
-    // - There are references to expressions as array addresses
 }
