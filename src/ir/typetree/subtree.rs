@@ -5,6 +5,8 @@ use petgraph::{graph::NodeIndex, Direction::{Outgoing, Incoming}};
 use std::collections::VecDeque;
 use indexmap::IndexMap;
 
+pub type LeavesWithPath = IndexMap<TypeTreeNodePath, TTreeNodeIndex>;
+
 #[derive(Debug)]
 pub struct SubTreeView<'a> {
     ttree: &'a TypeTree,
@@ -217,12 +219,11 @@ impl<'a> SubTreeView<'a> {
         }
     }
 
-    pub fn leaves_with_path(&self) -> IndexMap<TypeTreeNodePath, TTreeNodeIndex> {
-        let mut ret = IndexMap::new();
-
+    pub fn leaves_with_path(&self) -> LeavesWithPath {
+        let mut ret = LeavesWithPath::new();
         let mut q: VecDeque<(TTreeNodeIndex, TypeTreeNodePath)> = VecDeque::new();
-        let n = self.root_node().unwrap();
 
+        let n = self.root_node().unwrap();
         q.push_back((self.root, TypeTreeNodePath::new(n.dir, n.tpe.clone(), None)));
 
         while !q.is_empty() {
@@ -247,13 +248,13 @@ impl<'a> SubTreeView<'a> {
     }
 
     /// Given a `reference`, returns all the subtree leaf nodes along with the path to each node
-    pub fn subtree_leaves_with_path(&self, reference: &Reference) -> IndexMap<TypeTreeNodePath, TTreeNodeIndex> {
+    pub fn subtree_leaves_with_path(&self, reference: &Reference) -> LeavesWithPath {
         let subtree_root_opt = self.subtree_root(reference);
         if let Some(subtree_root) = subtree_root_opt {
             let subtree = SubTreeView::from_subtree(self, subtree_root);
             subtree.leaves_with_path()
         } else {
-            IndexMap::new()
+            LeavesWithPath::new()
         }
     }
 

@@ -2,7 +2,7 @@ use chirrtl_parser::ast::*;
 use indexmap::{IndexMap, IndexSet};
 use petgraph::graph::NodeIndex;
 use crate::ir::firir::*;
-use crate::ir::rir::{rgraph::*, rir::*, agg::*};
+use crate::ir::rir::{rgraph::*, rir::*, agg::*, rnode::*, redge::*};
 
 pub fn from_fir(fir: &FirIR) -> RippleIR {
     let mut ret = RippleIR::new(fir.name.clone());
@@ -68,7 +68,7 @@ fn from_fir_graph(fg: &FirGraph) -> RippleGraph {
         };
 
         let rir_nt = RippleNodeType::from(&node.nt);
-        let agg_node = AggNode::new(name, rir_nt, node.ttree.as_ref().unwrap().clone());
+        let agg_node = AggNodeData::new(name, rir_nt, node.ttree.clone());
         let agg_id = rg.add_node_agg(agg_node.clone());
         node_map.insert(id, agg_id);
     }
@@ -80,22 +80,25 @@ fn from_fir_graph(fg: &FirGraph) -> RippleGraph {
         let src = ep.0;
         let dst = ep.1;
 
-        let agg_src_id = node_map.get(&src).unwrap();
-        let agg_src_node = rg.node_weight_agg(*agg_src_id).unwrap();
-
-        let agg_dst_id = node_map.get(&dst).unwrap();
-        let agg_dst_node = rg.node_weight_agg(*agg_dst_id).unwrap();
-
+        let src_id = *node_map.get(&src).unwrap();
         let src_ref = match &edge.src {
             Expr::Reference(src_ref) => src_ref,
-            _ => &Reference::Ref(agg_src_node.name.clone())
+            _ => {
+                let agg_src_node = rg.node_weight_agg(src_id).unwrap();
+                &Reference::Ref(agg_src_node.name.clone())
+            }
         };
 
+        let dst_id = *node_map.get(&dst).unwrap();
         let dst_ref = match &edge.dst {
             Some(dst_ref) => dst_ref,
-            None => &Reference::Ref(agg_dst_node.name.clone()),
+            None => {
+                let agg_dst_node = rg.node_weight_agg(dst_id).unwrap();
+                &Reference::Ref(agg_dst_node.name.clone())
+            }
         };
-        let et = RippleEdgeType::from(&edge.et);
+
+        let agg_edge = AggEdgeData::new(RippleEdgeType::from(&edge.et));
 
         match &edge.et {
             FirEdgeType::MuxCond         |
@@ -105,32 +108,24 @@ fn from_fir_graph(fg: &FirGraph) -> RippleGraph {
                 FirEdgeType::PhiSel      |
                 FirEdgeType::MemPortAddr |
                 FirEdgeType::ArrayAddr   => {
-                    rg.add_single_edge(src_key, &src_ref, dst_key, dst_ref, et);
+                    rg.add_fanout_edge_agg(src_id, &src_ref, dst_id, dst_ref, agg_edge);
             }
             FirEdgeType::MemPortEdge => {
-                rg.add_aggregate_mem_edge(src_key, &src_ref, dst_key, dst_ref, et);
+                rg.add_mem_edge_agg(src_id, &src_ref, dst_id, dst_ref, agg_edge);
             }
             _ => {
-                rg.add_edge_agg(*agg_src_id, *agg_dst_id, &src_ref, dst_ref, AggEdge::new(et));
+                rg.add_edge_agg(src_id, &src_ref, dst_id, dst_ref, agg_edge);
             }
         }
     }
-
     return rg;
 }
 
 #[cfg(test)]
 mod test {
-    use std::collections::VecDeque;
-    use graphviz_rust::attributes::{NodeAttributes, color_name};
-
-    use crate::common::graphviz::*;
     use crate::common::RippleIRErr;
-    use crate::ir::typetree::typetree::TypeTree;
     use crate::passes::runner::run_passes_from_filepath;
     use crate::common::graphviz::GraphViz;
-    use crate::passes::runner::run_rir_passes;
-    use crate::timeit;
     use super::*;
 
     fn run_simple(input: &str) -> Result<(), RippleIRErr> {
@@ -176,150 +171,5 @@ mod test {
     fn singleportsram() {
         run_simple("./test-inputs/SinglePortSRAM.fir")
             .expect("singleportsram");
-    }
-
-    fn traverse(module: &Identifier, rg: &RippleGraph, export: bool) -> Result<(), RippleIRErr> {
-        let mut q: VecDeque<AggNodeIndex> = VecDeque::new();
-
-        for agg_id in rg.node_indices_agg().iter() {
-            let agg_w = rg.node_weight_agg(*agg_id);
-
-            // Collect all the IOs
-            match agg_w.1.unwrap().nt {
-                RippleNodeType::Input |
-                    RippleNodeType::Output |
-                    RippleNodeType::UIntLiteral(..) |
-                    RippleNodeType::SIntLiteral(..) |
-                    RippleNodeType::DontCare => {
-                    q.push_back(*agg_id);
-                }
-                _ => {
-                }
-            }
-        }
-
-        let mut file_names: Vec<String> = vec![];
-
-        let mut iter_outer = 0;
-        let mut vis_map = rg.vismap_agg();
-
-        while !q.is_empty() {
-            let agg_id = q.pop_front().unwrap();
-            if vis_map.is_visited(agg_id) {
-                continue;
-            }
-            vis_map.visit(agg_id);
-
-            let mut node_attributes = NodeAttributeMap::default();
-            let src_ttree: &TypeTree = rg.ttrees.get(agg_id.to_usize()).unwrap();
-            let leaf_ids = src_ttree.view().unwrap().leaves();
-            for leaf_id in leaf_ids {
-                let rg_id = *rg.flatid(agg_id, leaf_id).unwrap();
-                node_attributes.insert(rg_id, NodeAttributes::color(color_name::green));
-            }
-
-            let agg_edges = rg.edges_agg(agg_id);
-            for (iter_inner, (edge_key, edges)) in agg_edges.iter().enumerate() {
-                if !vis_map.is_visited(edge_key.dst_id) {
-                    q.push_back(edge_key.dst_id);
-
-                    if export {
-                        let mut cur_node_attributes = node_attributes.clone();
-
-                        let dst_ttree: &TypeTree= rg.ttrees.get(edge_key.dst_id.to_usize()).unwrap();
-                        let leaf_ids = dst_ttree.view().unwrap().leaves();
-                        for leaf_id in leaf_ids {
-                            let rg_id = *rg.flatid(edge_key.dst_id, leaf_id).unwrap();
-                            cur_node_attributes.insert(rg_id, NodeAttributes::color(color_name::blue));
-                        }
-
-                        let mut edge_attributes = EdgeAttributeMap::default();
-                        for eid in edges {
-                            edge_attributes.insert(*eid, NodeAttributes::color(color_name::red));
-                        }
-
-                        let out_name = format!(
-                            "./test-outputs/{}-{}-{}.traverse.agg.pdf",
-                            module, iter_outer, iter_inner);
-
-                        rg.export_graphviz(
-                            &out_name,
-                            Some(cur_node_attributes).as_ref(),
-                            Some(edge_attributes).as_ref(),
-                            false)?;
-                        file_names.push(out_name);
-                    }
-                }
-            }
-            iter_outer += 1;
-        }
-
-        // dead code
-        if vis_map.has_unvisited() {
-            let unvisited = vis_map.unvisited_ids();
-            for agg_id in unvisited {
-                let agg_edges = rg.edges_agg(agg_id);
-                for (_iter_inner, (_edge_key, edges)) in agg_edges.iter().enumerate() {
-                    assert!(edges.len() == 0);
-                }
-            }
-        }
-
-        if export {
-            rg.create_gif(
-                &format!("./test-outputs/{}.gif", module),
-                &file_names)?;
-        }
-
-        Ok(())
-    }
-
-    fn run_traverse(input: &str) -> Result<(), RippleIRErr> {
-        let fir = run_passes_from_filepath(input)?;
-        let rir = run_rir_passes(&fir)?;
-
-        timeit!("Aggregate Traversal", {
-            for (module, rg) in rir.graphs.iter() {
-                traverse(module, rg, false)?;
-            }
-        });
-
-        Ok(())
-    }
-
-    #[test]
-    fn traverse_gcd() {
-        run_traverse("./test-inputs/GCD.fir")
-            .expect("gcd traverse assumption");
-    }
-
-    #[test]
-    fn traverse_decoupledmux() {
-        run_traverse("./test-inputs/DecoupledMux.fir")
-            .expect("decoupledmux traverse assumption");
-    }
-
-    #[test]
-    fn traverse_singleportsram() {
-        run_traverse("./test-inputs/SinglePortSRAM.fir")
-            .expect("singleportsram traverse assumption");
-    }
-
-    #[test]
-    fn traverse_aggregatesram() {
-        run_traverse("./test-inputs/AggregateSRAM.fir")
-            .expect("aggregatesram traverse assumption");
-    }
-
-    #[test]
-    fn traverse_rocket() {
-        run_traverse("./test-inputs/chipyard.harness.TestHarness.RocketConfig.fir")
-            .expect("rocket traverse assumption");
-    }
-
-    #[test]
-    fn traverse_boom() {
-        run_traverse("./test-inputs/chipyard.harness.TestHarness.LargeBoomV3Config.fir")
-            .expect("boom traverse assumption");
     }
 }

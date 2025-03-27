@@ -1,12 +1,14 @@
 use fixedbitset::FixedBitSet;
 use chirrtl_parser::ast::*;
-use crate::ir::rir::rgraph::*;
+use crate::define_index_type;
+use crate::ir::rir::rnode::*;
+use crate::ir::rir::redge::*;
 use crate::ir::typetree::typetree::*;
 
 /// Can be used as a key to identify a `TypeTree` in `RippleGraph`
 /// Represents a unique aggregate node in the IR
 #[derive(Debug, Clone)]
-pub struct AggNode {
+pub struct AggNodeData {
     /// Identifier of the reference root
     pub name: Identifier,
 
@@ -15,47 +17,17 @@ pub struct AggNode {
     /// E.g., Phi and Reg nodes
     pub nt: RippleNodeType,
 
-    pub ttree: TypeTree
+    /// Used to tie nodew within a aggregate node together
+    pub ttree: Option<TypeTree>,
 }
 
-impl AggNode {
-    pub fn new(name: Identifier, nt: RippleNodeType, ttree: TypeTree) -> Self {
+impl AggNodeData {
+    pub fn new(name: Identifier, nt: RippleNodeType, ttree: Option<TypeTree>) -> Self {
         Self { name, nt, ttree }
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-pub struct AggNodeIndex(u32);
-
-impl AggNodeIndex {
-    pub fn to_usize(&self) -> usize {
-        self.0 as usize
-    }
-}
-
-impl Into<u32> for AggNodeIndex {
-    fn into(self) -> u32 {
-        self.0 as u32
-    }
-}
-
-impl From<u32> for AggNodeIndex {
-    fn from(value: u32) -> Self {
-        Self(value)
-    }
-}
-
-impl From<usize> for AggNodeIndex {
-    fn from(value: usize) -> Self {
-        Self(value as u32)
-    }
-}
-
-impl From<AggNodeIndex> for usize {
-    fn from(value: AggNodeIndex) -> Self {
-        value.0 as usize
-    }
-}
+define_index_type!(AggNodeIndex);
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct AggNodeLeafIndex {
@@ -73,50 +45,40 @@ impl AggNodeLeafIndex {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct AggEdge {
+pub struct AggEdgeData {
     pub et: RippleEdgeType,
-    pub src_ref: Reference,
-    pub dst_ref: Reference,
 }
 
-impl AggEdge {
+impl AggEdgeData {
     pub fn new(et: RippleEdgeType) -> Self {
         Self { et }
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-pub struct AggEdgeIndex(u32);
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct AggEdge {
+    pub id: AggEdgeIndex,
+    pub data: AggEdgeData,
+    pub src: AggNodeIndex,
+    pub dst: AggNodeIndex,
+    pub src_subtree_root: TTreeNodeIndex,
+    pub dst_subtree_root: Option<TTreeNodeIndex>,
+}
 
-impl AggEdgeIndex {
-    pub fn to_usize(&self) -> usize {
-        self.0 as usize
+impl AggEdge {
+    pub fn new(
+        id: AggEdgeIndex,
+        data: AggEdgeData,
+        src: AggNodeIndex,
+        dst: AggNodeIndex,
+        src_subtree_root: TTreeNodeIndex,
+        dst_subtree_root: Option<TTreeNodeIndex>,
+    ) -> Self {
+        Self { id, data, src, dst, src_subtree_root, dst_subtree_root }
     }
 }
 
-impl Into<u32> for AggEdgeIndex {
-    fn into(self) -> u32 {
-        self.0 as u32
-    }
-}
-
-impl From<u32> for AggEdgeIndex {
-    fn from(value: u32) -> Self {
-        Self(value)
-    }
-}
-
-impl From<usize> for AggEdgeIndex {
-    fn from(value: usize) -> Self {
-        Self(value as u32)
-    }
-}
-
-impl From<AggEdgeIndex> for usize {
-    fn from(value: AggEdgeIndex) -> Self {
-        value.0 as usize
-    }
-}
+define_index_type!(AggEdgeIndex);
 
 #[derive(Debug, Clone)]
 pub struct AggVisMap {
@@ -144,4 +106,3 @@ impl AggVisMap {
         self.visited.zeroes().map(|x| x.into()).collect()
     }
 }
-
