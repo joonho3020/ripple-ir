@@ -42,9 +42,6 @@ fn cleanup_rg_memory(rg: &mut RippleGraph) {
                 let id = rg.graph.add_node(node.clone());
                 node_map.insert(node, agg_id);
 
-                // Add single memory node
-                rg.flatid_aggleaf_bimap.insert(id, AggNodeLeafIndex::new(agg_id, all_leaves));
-
                 // Connect memory node to its ports
                 let agg_edges = rg.edges_directed_agg(agg_id, Outgoing);
                 for (_edge_identifier, edges) in agg_edges.iter() {
@@ -53,6 +50,11 @@ fn cleanup_rg_memory(rg: &mut RippleGraph) {
                         let ew = rg.graph.edge_weight(*eid).unwrap();
                         rg.add_edge(id, dst, ew.clone());
                     }
+                }
+
+                // Add single memory node
+                for leaf_id in all_leaves {
+                    rg.flatid_aggleaf_bimap.insert(id, AggNodeLeafIndex::new(agg_id, leaf_id));
                 }
 
                 // Remove existing nodes

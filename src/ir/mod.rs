@@ -255,16 +255,13 @@ pub struct AggNodeLeafIndex {
     /// Aggregate node id
     pub agg_id: AggNodeIndex,
 
-    /// Vec of leaf nodes that this graph node corresponds to
-    /// - Usually length is 1
-    /// - For memory or array types, a single graph node can correspond to multiple leaf nodes
-    /// in a TypeTree
-    pub leaf_ids: Vec<NodeIndex>,
+    /// `NodeIndex` of the `TypeTree` leaf node that this graph node corresponds to
+    pub leaf_id: TTreeNodeIndex,
 }
 
 impl AggNodeLeafIndex {
-    pub fn new(agg_id: AggNodeIndex, leaf_ids: Vec<NodeIndex>) -> Self {
-        Self { agg_id, leaf_ids }
+    pub fn new(agg_id: AggNodeIndex, leaf_id: TTreeNodeIndex) -> Self {
+        Self { agg_id, leaf_id }
     }
 }
 
@@ -315,19 +312,25 @@ impl RippleGraph {
     }
 
     pub fn check_metadata_consistency(&self) {
+        todo!("Check metadata consistency needs to be implemented");
     }
 
     /// Removes a single low-level node from the IR
     pub fn remove_node(&mut self, id: NodeIndex) {
+        println!("remove {:?}", id);
+        println!("flatid_aggleaf_bimap {:?}", self.flatid_aggleaf_bimap);
+
         let last_id = NodeIndex::new(self.graph.node_count() - 1);
 
         // Remove node from the graph
         self.graph.remove_node(id);
 
         // Remove id from flatid_aggleaf_bimap
-        self.flatid_aggleaf_bimap.remove_by_left(&id).unwrap().1;
+        if self.flatid_aggleaf_bimap.contains_left(&id) {
+            self.flatid_aggleaf_bimap.remove_by_left(&id).unwrap();
+        }
 
-        // Petgraph moved the last node to the removed node position
+        // Petgraph moves the last node to the removed node position
         if last_id != id {
             // Remove the last id from flatid_aggleaf_bimap
             let last_agg_leaf = self.flatid_aggleaf_bimap.remove_by_left(&last_id).unwrap().1;
@@ -364,7 +367,7 @@ impl RippleGraph {
             let rgnode = RippleNode::new(Some(leaf_name), nt.clone(), tg.clone());
             let rg_id = self.graph.add_node(rgnode);
 
-            let anli = AggNodeLeafIndex::new(AggNodeIndex::from(ttree_id), vec![*leaf_id]);
+            let anli = AggNodeLeafIndex::new(AggNodeIndex::from(ttree_id), *leaf_id);
             let prev_len = self.flatid_aggleaf_bimap.len();
 
             // Add this node to the flatid_aggleaf_bimap
@@ -384,8 +387,8 @@ impl RippleGraph {
         return agg_identity;
     }
 
-    pub fn flatid(&self, aggid: AggNodeIndex, leafid: NodeIndex) -> Option<&NodeIndex> {
-        let aggleafidx = AggNodeLeafIndex::new(aggid, vec![leafid]);
+    pub fn flatid(&self, aggid: AggNodeIndex, leafid: TTreeNodeIndex) -> Option<&NodeIndex> {
+        let aggleafidx = AggNodeLeafIndex::new(aggid, leafid);
         self.flatid_aggleaf_bimap.get_by_right(&aggleafidx)
     }
 
@@ -449,20 +452,8 @@ impl RippleGraph {
         let dst_ttree = self.ttrees.get(dst_aggid.to_usize()).expect("to exist").view().unwrap();
         let dst_leaves = dst_ttree.subtree_leaves_with_path(dst_ref);
 
-// println!("------------------------------------------------");
-// println!("src_identity {:?} src_ref {:?} dst_identity {:?} dst_ref {:?}",
-// src_identity, src_ref, dst_identity, dst_ref);
-
-// src_ttree.print_tree();
-// println!("src_leaves_id {:?}", src_ttree.leaves());
-// println!("src_leaves {:?}", src_leaves);
-// println!("dst_leaves {:?}", dst_leaves);
-// println!("flatid_aggleaf_bimap {:?}", self.flatid_aggleaf_bimap);
-
         let mut edges: Vec<(NodeIndex, NodeIndex, RippleEdge)> = vec![];
         for (src_path_identity, src_ttree_leaf_id) in src_leaves.iter() {
-// println!("src_aggid {:?} leafid {:?}", src_aggid, src_ttree_leaf_id);
-
             let src_ttree_leaf = src_ttree.get_node(*src_ttree_leaf_id).unwrap();
             let src_flatid = self.flatid(*src_aggid, *src_ttree_leaf_id).unwrap();
 
@@ -536,7 +527,7 @@ impl RippleGraph {
             let leaf_ids = ttree.view().unwrap().leaves();
             let mut prev_nt_opt: Option<RippleNodeType> = None;
             for leaf_id in leaf_ids {
-                let aggleafid = AggNodeLeafIndex::new(AggNodeIndex::from(aggid), vec![leaf_id]);
+                let aggleafid = AggNodeLeafIndex::new(AggNodeIndex::from(aggid), leaf_id);
                 let flatid = self.flatid_aggleaf_bimap.get_by_right(&aggleafid).unwrap();
 
                 let ir_node = self.graph.node_weight(*flatid).unwrap();
@@ -738,29 +729,30 @@ impl GraphViz for RippleGraph {
             };
 
             // Collect all flattened nodes under the current aggregate node
-            for ttree_id in leaves.iter() {
-                let rir_id = *self.flatid(AggNodeIndex::from(agg_id), *ttree_id).unwrap();
-                let rir_node = self.graph.node_weight(rir_id).unwrap();
+            for leaf_id in leaves.iter() {
+                let rir_id_opt = self.flatid(AggNodeIndex::from(agg_id), *leaf_id);
+                if let Some(rir_id) = rir_id_opt {
+                    let rir_node = self.graph.node_weight(*rir_id).unwrap();
 
-                let node_label_inner = format!("{}", rir_node).to_string().replace('"', "");
-                let node_label = format!("\"{}\"", node_label_inner);
+                    let node_label_inner = format!("{}", rir_node).to_string().replace('"', "");
+                    let node_label = format!("\"{}\"", node_label_inner);
 
+                    // Create graphviz node
+                    let mut gv_node = DotNode {
+                        id: DotNodeId(Id::Plain(rir_id.index().to_string()), None),
+                        attributes: vec![
+                            NodeAttributes::label(node_label)
+                        ],
+                    };
 
-                // Create graphviz node
-                let mut gv_node = DotNode {
-                    id: DotNodeId(Id::Plain(rir_id.index().to_string()), None),
-                    attributes: vec![
-                        NodeAttributes::label(node_label)
-                    ],
-                };
-
-                // Add node attribute if it exists
-                if let Some(na) = node_attr {
-                    if na.contains_key(&rir_id) {
-                        gv_node.attributes.push(na.get(&rir_id).unwrap().clone());
+                    // Add node attribute if it exists
+                    if let Some(na) = node_attr {
+                        if na.contains_key(rir_id) {
+                            gv_node.attributes.push(na.get(rir_id).unwrap().clone());
+                        }
                     }
+                    subgraph.stmts.push(DotStmt::from(gv_node));
                 }
-                subgraph.stmts.push(DotStmt::from(gv_node));
             }
             g.add_stmt(DotStmt::from(DotSubgraph::from(subgraph)));
         }

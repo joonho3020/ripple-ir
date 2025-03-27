@@ -168,6 +168,8 @@ impl Display for TypeTreeEdge {
 
 type Tree = Graph<TypeTreeNode, TypeTreeEdge>;
 
+pub type TTreeNodeIndex = NodeIndex;
+
 /// A tree that represents the type of an aggregate node
 #[derive(Debug, Default, Clone)]
 pub struct TypeTree {
@@ -185,11 +187,11 @@ pub struct SubTreeView<'a> {
 }
 
 impl<'a> SubTreeView<'a> {
-    pub fn new(ttree: &'a TypeTree, root: NodeIndex) -> Self {
+    pub fn new(ttree: &'a TypeTree, root: TTreeNodeIndex) -> Self {
         Self { ttree, root }
     }
 
-    pub fn from_subtree(subtree: &'a SubTreeView<'a>, root: NodeIndex) -> Self {
+    pub fn from_subtree(subtree: &'a SubTreeView<'a>, root: TTreeNodeIndex) -> Self {
         Self { ttree: subtree.ttree(), root }
     }
 
@@ -199,7 +201,7 @@ impl<'a> SubTreeView<'a> {
         Some(node)
     }
 
-    pub fn get_node(&self, id: NodeIndex) -> Option<TypeTreeNode> {
+    pub fn get_node(&self, id: TTreeNodeIndex) -> Option<TypeTreeNode> {
         if id == self.root {
             self.root_node()
         } else {
@@ -207,11 +209,11 @@ impl<'a> SubTreeView<'a> {
         }
     }
 
-    pub fn childs(&self, id: NodeIndex) -> Neighbors<TypeTreeEdge> {
+    pub fn childs(&self, id: TTreeNodeIndex) -> Neighbors<TypeTreeEdge> {
         self.ttree.graph.neighbors_directed(id, Outgoing)
     }
 
-    pub fn parents(&self, id: NodeIndex) -> Neighbors<TypeTreeEdge> {
+    pub fn parents(&self, id: TTreeNodeIndex) -> Neighbors<TypeTreeEdge> {
         self.ttree.graph.neighbors_directed(id, Incoming)
     }
 
@@ -226,9 +228,12 @@ impl<'a> SubTreeView<'a> {
         self.ttree
     }
 
+    /// Clones a `SubTreeView` into a `TypeTree`
+    /// - TTreeNodeIndex is not preserved between this instance and the cloned child. Must be careful
+    /// when using this API around stuff that contains metadata about TTreeNodeIndex of `TypeTree`s
     pub fn clone_ttree(&self) -> TypeTree {
-        type NewId = NodeIndex;
-        type OldId = NodeIndex;
+        type NewId = TTreeNodeIndex;
+        type OldId = TTreeNodeIndex;
         type IdTuple = (OldId, Option<NewId>);
 
         let mut q: VecDeque<IdTuple> = VecDeque::new();
@@ -260,7 +265,7 @@ impl<'a> SubTreeView<'a> {
         return ret;
     }
 
-    fn print_tree_recursive(&self, id: NodeIndex, depth: usize) {
+    fn print_tree_recursive(&self, id: TTreeNodeIndex, depth: usize) {
         println!("{}{:?}", "  ".repeat(depth), self.get_node(id).unwrap());
 
         for child in self.childs(id) {
@@ -284,7 +289,7 @@ impl<'a> SubTreeView<'a> {
     /// this function will return: `[ io, io.a, io.b, io.b.c, io.b.d ]`
     pub fn all_possible_references(&self, root_name: Identifier) -> Vec<Reference> {
         let mut ret = vec![];
-        let mut q: VecDeque<(NodeIndex, Reference)> = VecDeque::new();
+        let mut q: VecDeque<(TTreeNodeIndex, Reference)> = VecDeque::new();
         q.push_back((self.root, Reference::Ref(root_name)));
 
         while !q.is_empty() {
@@ -310,7 +315,7 @@ impl<'a> SubTreeView<'a> {
         return ret;
     }
 
-    fn id_identifier_chain_recursive(&self, id: NodeIndex, chain: &mut String) {
+    fn id_identifier_chain_recursive(&self, id: TTreeNodeIndex, chain: &mut String) {
         for pid in self.parents(id) {
             self.id_identifier_chain_recursive(pid, chain);
         }
@@ -340,7 +345,7 @@ impl<'a> SubTreeView<'a> {
     }
 
     /// Returns a stringified node name of a node in a tree
-    pub fn node_name(&self, root_name: &Identifier, id: NodeIndex) -> Identifier {
+    pub fn node_name(&self, root_name: &Identifier, id: TTreeNodeIndex) -> Identifier {
         let mut ret = root_name.to_string();
         self.id_identifier_chain_recursive(id, &mut ret);
         return Identifier::Name(ret);
@@ -348,9 +353,9 @@ impl<'a> SubTreeView<'a> {
 
 
     /// Returns all leaf node indices of this subtree
-    pub fn leaves(&self) -> Vec<NodeIndex> {
+    pub fn leaves(&self) -> Vec<TTreeNodeIndex> {
         let mut ret = vec![];
-        let mut q: VecDeque<NodeIndex> = VecDeque::new();
+        let mut q: VecDeque<TTreeNodeIndex> = VecDeque::new();
         q.push_back(self.root);
 
         while !q.is_empty() {
@@ -377,7 +382,7 @@ impl<'a> SubTreeView<'a> {
     ///   $ $ x x
     /// ```
     /// - If the matching reference path is `o`-`o`, return leaves marked `$`
-    pub fn subtree_leaves(&self, reference: &Reference) -> Vec<NodeIndex> {
+    pub fn subtree_leaves(&self, reference: &Reference) -> Vec<TTreeNodeIndex> {
         let subtree_root_opt = self.subtree_root(reference);
         if let Some(subtree_root) = subtree_root_opt {
             let subtree = SubTreeView::from_subtree(self, subtree_root);
@@ -387,10 +392,10 @@ impl<'a> SubTreeView<'a> {
         }
     }
 
-    pub fn leaves_with_path(&self) -> IndexMap<TypeTreeNodePath, NodeIndex> {
+    pub fn leaves_with_path(&self) -> IndexMap<TypeTreeNodePath, TTreeNodeIndex> {
         let mut ret = IndexMap::new();
 
-        let mut q: VecDeque<(NodeIndex, TypeTreeNodePath)> = VecDeque::new();
+        let mut q: VecDeque<(TTreeNodeIndex, TypeTreeNodePath)> = VecDeque::new();
         let n = self.root_node().unwrap();
 
         q.push_back((self.root, TypeTreeNodePath::new(n.dir, n.tpe.clone(), None)));
@@ -417,7 +422,7 @@ impl<'a> SubTreeView<'a> {
     }
 
     /// Given a `reference`, returns all the subtree leaf nodes along with the path to each node
-    pub fn subtree_leaves_with_path(&self, reference: &Reference) -> IndexMap<TypeTreeNodePath, NodeIndex> {
+    pub fn subtree_leaves_with_path(&self, reference: &Reference) -> IndexMap<TypeTreeNodePath, TTreeNodeIndex> {
         let subtree_root_opt = self.subtree_root(reference);
         if let Some(subtree_root) = subtree_root_opt {
             let subtree = SubTreeView::from_subtree(self, subtree_root);
@@ -463,13 +468,13 @@ impl<'a> SubTreeView<'a> {
     ///        / \
     ///        c d
     /// ```
-    /// - When `reference` is `io.b`, it will return NodeIndex for `b`
-    pub fn subtree_root(&self, reference: &Reference) -> Option<NodeIndex> {
+    /// - When `reference` is `io.b`, it will return TTreeNodeIndex for `b`
+    pub fn subtree_root(&self, reference: &Reference) -> Option<TTreeNodeIndex> {
         let mut chain = Self::ref_identifier_chain(reference);
-        let mut q: VecDeque<NodeIndex> = VecDeque::new();
+        let mut q: VecDeque<TTreeNodeIndex> = VecDeque::new();
         q.push_back(self.root);
 
-        let mut subtree_root_opt: Option<NodeIndex> = None;
+        let mut subtree_root_opt: Option<TTreeNodeIndex> = None;
         while !q.is_empty() && !chain.is_empty() {
             let id = q.pop_front().unwrap();
             subtree_root_opt = Some(id);
@@ -543,7 +548,7 @@ impl<'a> SubTreeView<'a> {
         self.eq_recursive(self.root, other, other.root)
     }
 
-    fn eq_recursive(&self, id: NodeIndex, other: &SubTreeView, other_id: NodeIndex) -> bool {
+    fn eq_recursive(&self, id: TTreeNodeIndex, other: &SubTreeView, other_id: TTreeNodeIndex) -> bool {
         let node_opt = self.get_node(id);
         let other_node_opt = other.get_node(other_id);
 
@@ -552,8 +557,8 @@ impl<'a> SubTreeView<'a> {
                 if node != other_node {
                     false
                 } else {
-                    let mut childs: Vec<NodeIndex> = self.childs(id).collect();
-                    let mut other_childs: Vec<NodeIndex> = other.childs(other_id).collect();
+                    let mut childs: Vec<TTreeNodeIndex> = self.childs(id).collect();
+                    let mut other_childs: Vec<TTreeNodeIndex> = other.childs(other_id).collect();
                     if childs.len() != other_childs.len() {
                         false
                     } else {
@@ -597,8 +602,8 @@ impl TypeTree {
         node_tpe: TypeTreeNodeType,
         name: Option<Identifier>,
         dir: TypeDirection,
-        parent_opt: Option<NodeIndex>,
-    ) -> NodeIndex {
+        parent_opt: Option<TTreeNodeIndex>,
+    ) -> TTreeNodeIndex {
         let child = self.graph.add_node(TypeTreeNode::new(name, dir, node_tpe));
         match parent_opt {
             Some(parent) => {
@@ -617,7 +622,7 @@ impl TypeTree {
         cur_tpe: &Type,
         name: Option<Identifier>,
         dir: TypeDirection,
-        parent_opt: Option<NodeIndex>
+        parent_opt: Option<TTreeNodeIndex>
     ) {
         match cur_tpe {
             Type::TypeGround(x) => {
@@ -670,7 +675,7 @@ impl TypeTree {
         ret.root = Some(root_id);
 
         for (name, ttree) in ttrees {
-            let mut node_id_map: IndexMap<NodeIndex, NodeIndex> = IndexMap::new();
+            let mut node_id_map: IndexMap<TTreeNodeIndex, TTreeNodeIndex> = IndexMap::new();
 
             // Add name to the subtree root
             let root_id = ttree.root.unwrap();
@@ -683,7 +688,7 @@ impl TypeTree {
             node_id_map.insert(root_id, new_id);
 
             // Traverse the subtree and add all its childs
-            let mut q: VecDeque<NodeIndex> = VecDeque::new();
+            let mut q: VecDeque<TTreeNodeIndex> = VecDeque::new();
             q.push_back(root_id);
 
             while !q.is_empty() {
@@ -726,7 +731,7 @@ impl DefaultGraphVizCore<TypeTreeNode, TypeTreeEdge> for TypeTree {
         self.graph.node_indices()
     }
 
-    fn node_weight(self: &Self, id: NodeIndex) -> Option<&TypeTreeNode> {
+    fn node_weight(self: &Self, id: TTreeNodeIndex) -> Option<&TypeTreeNode> {
         self.graph.node_weight(id)
     }
 
@@ -734,7 +739,7 @@ impl DefaultGraphVizCore<TypeTreeNode, TypeTreeEdge> for TypeTree {
         self.graph.edge_indices()
     }
 
-    fn edge_endpoints(self: &Self, id: petgraph::prelude::EdgeIndex) -> Option<(NodeIndex, NodeIndex)> {
+    fn edge_endpoints(self: &Self, id: petgraph::prelude::EdgeIndex) -> Option<(TTreeNodeIndex, TTreeNodeIndex)> {
         self.graph.edge_endpoints(id)
     }
 
@@ -772,11 +777,11 @@ mod test {
                             Port::Output(_name, tpe, _info) => {
                                 let tt = TypeTree::build_from_type(tpe, TypeDirection::Outgoing);
                                 let v = tt.view().unwrap();
-                                assert_eq!(v.node_name(&Identifier::Name("io".to_string()), NodeIndex::from(1)).to_string(), "io.value1".to_string());
-                                assert_eq!(v.node_name(&Identifier::Name("io".to_string()), NodeIndex::from(2)).to_string(), "io.value2".to_string());
-                                assert_eq!(v.node_name(&Identifier::Name("io".to_string()), NodeIndex::from(3)).to_string(), "io.loadingValues".to_string());
-                                assert_eq!(v.node_name(&Identifier::Name("io".to_string()), NodeIndex::from(4)).to_string(), "io.outputGCD".to_string());
-                                assert_eq!(v.node_name(&Identifier::Name("io".to_string()), NodeIndex::from(5)).to_string(), "io.outputValid".to_string());
+                                assert_eq!(v.node_name(&Identifier::Name("io".to_string()), TTreeNodeIndex::from(1)).to_string(), "io.value1".to_string());
+                                assert_eq!(v.node_name(&Identifier::Name("io".to_string()), TTreeNodeIndex::from(2)).to_string(), "io.value2".to_string());
+                                assert_eq!(v.node_name(&Identifier::Name("io".to_string()), TTreeNodeIndex::from(3)).to_string(), "io.loadingValues".to_string());
+                                assert_eq!(v.node_name(&Identifier::Name("io".to_string()), TTreeNodeIndex::from(4)).to_string(), "io.outputGCD".to_string());
+                                assert_eq!(v.node_name(&Identifier::Name("io".to_string()), TTreeNodeIndex::from(5)).to_string(), "io.outputValid".to_string());
                             }
                             _ => {
                             }
@@ -837,31 +842,31 @@ mod test {
 
                                 let root = Reference::Ref(Identifier::Name("io".to_string()));
                                 let subtree_root = v.subtree_root(&root);
-                                assert_eq!(subtree_root, Some(NodeIndex::from(0)));
+                                assert_eq!(subtree_root, Some(TTreeNodeIndex::from(0)));
 
                                 let g = Reference::RefDot(Box::new(root), Identifier::Name("g".to_string()));
                                 let subtree_root = v.subtree_root(&g);
-                                assert_eq!(subtree_root, Some(NodeIndex::from(1)));
+                                assert_eq!(subtree_root, Some(TTreeNodeIndex::from(1)));
 
                                 let g_name = v.node_name(&Identifier::Name("io".to_string()), subtree_root.unwrap());
                                 assert_eq!(g_name.to_string(), "io.g".to_string());
 
                                 let g1 = Reference::RefIdxInt(Box::new(g), Int::from(1));
                                 let subtree_root = v.subtree_root(&g1);
-                                assert_eq!(subtree_root, Some(NodeIndex::from(24)));
+                                assert_eq!(subtree_root, Some(TTreeNodeIndex::from(24)));
 
                                 let g1_name = v.node_name(&Identifier::Name("io".to_string()), subtree_root.unwrap());
                                 assert_eq!(g1_name.to_string(), "io.g[1]".to_string());
 
                                 let g1f = Reference::RefDot(Box::new(g1), Identifier::Name("f".to_string()));
                                 let subtree_root = v.subtree_root(&g1f);
-                                assert_eq!(subtree_root, Some(NodeIndex::from(42)));
+                                assert_eq!(subtree_root, Some(TTreeNodeIndex::from(42)));
 
                                 let g1f_name = v.node_name(&Identifier::Name("io".to_string()), subtree_root.unwrap());
                                 assert_eq!(g1f_name.to_string(), "io.g[1].f".to_string());
 
                                 let subtree_leaves = v.subtree_leaves(&g1f);
-                                assert_eq!(subtree_leaves, vec![NodeIndex::from(45), NodeIndex::from(44), NodeIndex::from(43)]);
+                                assert_eq!(subtree_leaves, vec![TTreeNodeIndex::from(45), TTreeNodeIndex::from(44), TTreeNodeIndex::from(43)]);
                             }
                             _ => {
                             }
@@ -899,27 +904,27 @@ mod test {
                                 let v = typetree.view().unwrap();
                                 let leaves_with_path = v.subtree_leaves_with_path(&g1f);
 
-                                let mut expect: IndexMap<TypeTreeNodePath, NodeIndex> = IndexMap::new();
+                                let mut expect: IndexMap<TypeTreeNodePath, TTreeNodeIndex> = IndexMap::new();
                                 expect.insert(
                                     TypeTreeNodePath::new(
                                         TypeDirection::Outgoing,
                                         TypeTreeNodeType::Ground(GroundType::UInt),
                                         Some(Reference::Ref(Identifier::ID(Int::from(2))))),
-                                    NodeIndex::from(45));
+                                    TTreeNodeIndex::from(45));
 
                                 expect.insert(
                                     TypeTreeNodePath::new(
                                         TypeDirection::Outgoing,
                                         TypeTreeNodeType::Ground(GroundType::UInt),
                                         Some(Reference::Ref(Identifier::ID(Int::from(1))))),
-                                    NodeIndex::from(44));
+                                    TTreeNodeIndex::from(44));
 
                                 expect.insert(
                                     TypeTreeNodePath::new(
                                         TypeDirection::Outgoing,
                                         TypeTreeNodeType::Ground(GroundType::UInt),
                                         Some(Reference::Ref(Identifier::ID(Int::from(0))))),
-                                    NodeIndex::from(43));
+                                    TTreeNodeIndex::from(43));
                                 assert_eq!(leaves_with_path, expect);
                             }
                             _ => {
