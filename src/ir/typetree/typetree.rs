@@ -179,6 +179,7 @@ pub struct TypeTree {
     /// NodeIndex of the root node
     pub root: Option<NodeIndex>
 }
+
 impl TypeTree {
     pub fn build_from_ground_type(gt: GroundType) -> Self {
         let mut ret = Self::default();

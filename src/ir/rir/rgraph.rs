@@ -166,12 +166,8 @@ pub struct RippleGraph {
     /// each aggregate node and vice-versa
     pub flatid_aggleaf_bimap: BiMap<NodeIndex, AggNodeLeafIndex>,
 
-    /// Bi-directional map that contains metadata for each unique aggregate node
-    pub aggidty_aggid_bimap: BiMap<AggNode, AggNodeIndex>,
-
-    /// `TypeTree`. Each represents an aggregate node (or it can be a single node
-    /// for nodes with `GroundType`s)
-    pub ttrees: Vec<TypeTree>,
+    /// map that contains metadata for each unique aggregate node
+    pub agg_nodes: Vec<AggNode>,
 }
 
 impl RippleGraph {
@@ -179,8 +175,7 @@ impl RippleGraph {
         Self {
             graph: IRGraph::new(),
             flatid_aggleaf_bimap: BiMap::new(),
-            aggidty_aggid_bimap: BiMap::new(),
-            ttrees: vec![],
+            agg_nodes: vec![],
         }
     }
 
@@ -213,14 +208,12 @@ impl RippleGraph {
         }
     }
 
-    pub fn add_aggregate_node(
+    pub fn add_node_agg(
         &mut self,
-        name: Identifier,
-        ttree: &TypeTree,
-        nt: RippleNodeType
-    ) -> AggNode {
-        let my_ttree = ttree.view().unwrap();
-        let ttree_id = self.ttrees.len() as u32;
+        node: AggNode,
+    ) -> AggNodeIndex {
+        let my_ttree = node.ttree.view().unwrap();
+        let agg_id = self.agg_nodes.len() as u32;
         let leaves = my_ttree.leaves();
 
         // Add all the leaf nodes
@@ -234,13 +227,13 @@ impl RippleGraph {
                 }
             };
 
-            let leaf_name = my_ttree.node_name(&name, *leaf_id);
+            let leaf_name = my_ttree.node_name(&node.name, *leaf_id);
 
             // Insert new graph node
-            let rgnode = RippleNode::new(Some(leaf_name), nt.clone(), tg.clone());
+            let rgnode = RippleNode::new(Some(leaf_name), node.nt.clone(), tg.clone());
             let rg_id = self.graph.add_node(rgnode);
 
-            let anli = AggNodeLeafIndex::new(AggNodeIndex::from(ttree_id), *leaf_id);
+            let anli = AggNodeLeafIndex::new(AggNodeIndex::from(agg_id), *leaf_id);
             let prev_len = self.flatid_aggleaf_bimap.len();
 
             // Add this node to the flatid_aggleaf_bimap
@@ -253,11 +246,8 @@ impl RippleGraph {
         }
 
         // Add the type tree
-        self.ttrees.push(ttree.clone());
-
-        let agg_identity = AggNode::new(name, nt);
-        self.aggidty_aggid_bimap.insert(agg_identity.clone(), ttree_id.into());
-        return agg_identity;
+        self.agg_nodes.push(node);
+        return AggNodeIndex::from(agg_id);
     }
 
     pub fn flatid(&self, aggid: AggNodeIndex, leafid: TTreeNodeIndex) -> Option<&NodeIndex> {
@@ -265,11 +255,7 @@ impl RippleGraph {
         self.flatid_aggleaf_bimap.get_by_right(&aggleafidx)
     }
 
-    pub fn add_edge(&mut self, src: NodeIndex, dst: NodeIndex, edge: RippleEdge) -> EdgeIndex {
-        self.graph.add_edge(src, dst, edge)
-    }
-
-    pub fn add_single_edge(
+    pub fn add_single_src_multi_dst_edge_agg(
         &mut self,
         src_identity: &AggNode,
         src_ref: &Reference,
@@ -303,7 +289,7 @@ impl RippleGraph {
         }
 
         for edge in edges {
-            self.add_edge(edge.0, edge.1, edge.2);
+            self.graph.add_edge(edge.0, edge.1, edge.2);
         }
     }
 
@@ -347,7 +333,7 @@ impl RippleGraph {
         }
 
         for edge in edges {
-            self.add_edge(edge.0, edge.1, edge.2);
+            self.graph.add_edge(edge.0, edge.1, edge.2);
         }
     }
 
@@ -391,7 +377,7 @@ impl RippleGraph {
         }
 
         for edge in edges {
-            self.add_edge(edge.0, edge.1, edge.2);
+            self.graph.add_edge(edge.0, edge.1, edge.2);
         }
     }
 
@@ -419,15 +405,16 @@ impl RippleGraph {
     /// Similar to node_indices in petgraph.
     /// Here, `AggNodeIndex` represents an aggregate node index
     pub fn node_indices_agg(&self) -> Vec<AggNodeIndex> {
-        (0..self.ttrees.len()).map(|x| AggNodeIndex::from(x)).collect()
+        (0..self.agg_nodes.len()).map(|x| AggNodeIndex::from(x)).collect()
     }
 
-    pub fn node_weight_agg(&self, id: AggNodeIndex) -> (Option<&TypeTree>, Option<&AggNode>) {
-        (self.ttrees.get(id.to_usize()), self.aggidty_aggid_bimap.get_by_right(&id))
+    pub fn node_weight_agg(&self, id: AggNodeIndex) -> Option<&AggNode> {
+        self.agg_nodes.get(id.to_usize())
     }
 
     pub fn neighbors_agg(&self, agg_id: AggNodeIndex) -> Vec<AggNodeIndex> {
-        let ttree = self.ttrees.get(agg_id.to_usize()).unwrap();
+        let agg_node = self.agg_nodes.get(agg_id.to_usize()).unwrap();
+        let ttree = &agg_node.ttree;
         let leaf_ids = ttree.view().unwrap().leaves();
 
         let mut neighbor_ttree_ids: IndexSet<AggNodeIndex> = IndexSet::new();
@@ -450,7 +437,8 @@ impl RippleGraph {
     }
 
     pub fn neighbors_directed_agg(&self, agg_id: AggNodeIndex, dir: petgraph::Direction) -> Vec<AggNodeIndex> {
-        let ttree = self.ttrees.get(agg_id.to_usize()).unwrap();
+        let agg_node = self.agg_nodes.get(agg_id.to_usize()).unwrap();
+        let ttree = &agg_node.ttree;
         let leaf_ids = ttree.view().unwrap().leaves();
 
         let mut neighbor_ttree_ids: IndexSet<AggNodeIndex> = IndexSet::new();

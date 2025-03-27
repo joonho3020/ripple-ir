@@ -55,7 +55,7 @@ impl NameSpace {
 
 fn from_fir_graph(fg: &FirGraph) -> RippleGraph {
     let mut rg = RippleGraph::new();
-    let mut node_map: IndexMap<NodeIndex, AggNode> = IndexMap::new();
+    let mut node_map: IndexMap<NodeIndex, AggNodeIndex> = IndexMap::new();
     let mut ns = NameSpace::new(fg);
 
     // Create nodes
@@ -67,12 +67,10 @@ fn from_fir_graph(fg: &FirGraph) -> RippleGraph {
             ns.next()
         };
 
-        let root_key = rg.add_aggregate_node(
-            name,
-            &node.ttree.as_ref().unwrap(),
-            RippleNodeType::from(&node.nt));
-
-        node_map.insert(id, root_key);
+        let rir_nt = RippleNodeType::from(&node.nt);
+        let agg_node = AggNode::new(name, rir_nt, node.ttree.as_ref().unwrap().clone());
+        let agg_id = rg.add_node_agg(agg_node.clone());
+        node_map.insert(id, agg_id);
     }
 
     // Add edges
@@ -82,17 +80,20 @@ fn from_fir_graph(fg: &FirGraph) -> RippleGraph {
         let src = ep.0;
         let dst = ep.1;
 
-        let src_key = node_map.get(&src).unwrap();
-        let dst_key = node_map.get(&dst).unwrap();
+        let agg_src_id = node_map.get(&src).unwrap();
+        let agg_src_node = rg.node_weight_agg(*agg_src_id).unwrap();
+
+        let agg_dst_id = node_map.get(&dst).unwrap();
+        let agg_dst_node = rg.node_weight_agg(*agg_dst_id).unwrap();
 
         let src_ref = match &edge.src {
             Expr::Reference(src_ref) => src_ref,
-            _ => &Reference::Ref(src_key.name.clone())
+            _ => &Reference::Ref(agg_src_node.name.clone())
         };
 
         let dst_ref = match &edge.dst {
             Some(dst_ref) => dst_ref,
-            None => &Reference::Ref(dst_key.name.clone()),
+            None => &Reference::Ref(agg_dst_node.name.clone()),
         };
         let et = RippleEdgeType::from(&edge.et);
 

@@ -3,6 +3,27 @@ use chirrtl_parser::ast::*;
 use crate::ir::rir::rgraph::*;
 use crate::ir::typetree::typetree::*;
 
+/// Can be used as a key to identify a `TypeTree` in `RippleGraph`
+/// Represents a unique aggregate node in the IR
+#[derive(Debug, Clone)]
+pub struct AggNode {
+    /// Identifier of the reference root
+    pub name: Identifier,
+
+    /// Need to identify the type of the node as multiple nodes can
+    /// use the same Identifier but have different `RippleNodeType`.
+    /// E.g., Phi and Reg nodes
+    pub nt: RippleNodeType,
+
+    pub ttree: TypeTree
+}
+
+impl AggNode {
+    pub fn new(name: Identifier, nt: RippleNodeType, ttree: TypeTree) -> Self {
+        Self { name, nt, ttree }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct AggEdge {
     pub dst_id: AggNodeIndex,
@@ -87,24 +108,5 @@ pub struct AggNodeLeafIndex {
 impl AggNodeLeafIndex {
     pub fn new(agg_id: AggNodeIndex, leaf_id: TTreeNodeIndex) -> Self {
         Self { agg_id, leaf_id }
-    }
-}
-
-/// Can be used as a key to identify a `TypeTree` in `RippleGraph`
-/// Represents a unique aggregate node in the IR
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct AggNode {
-    /// Identifier of the reference root
-    pub name: Identifier,
-
-    /// Need to identify the type of the node as multiple nodes can
-    /// use the same Identifier but have different `RippleNodeType`.
-    /// E.g., Phi and Reg nodes
-    pub nt: RippleNodeType,
-}
-
-impl AggNode {
-    pub fn new(name: Identifier, nt: RippleNodeType) -> Self {
-        Self { name, nt }
     }
 }

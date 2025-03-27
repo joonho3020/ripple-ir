@@ -53,7 +53,7 @@ fn cleanup_rg_memory(rg: &mut RippleGraph) {
                     for eid in edges {
                         let dst = rg.graph.edge_endpoints(*eid).unwrap().1;
                         let ew = rg.graph.edge_weight(*eid).unwrap();
-                        rg.add_edge(id, dst, ew.clone());
+                        rg.graph.add_edge(id, dst, ew.clone());
                     }
                 }
 
