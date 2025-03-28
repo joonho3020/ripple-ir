@@ -200,6 +200,23 @@ impl<'a> SubTreeView<'a> {
         return Identifier::Name(ret);
     }
 
+    pub fn all_ids(&self) -> Vec<TypeTreeNodeIndex> {
+        let mut ret = vec![];
+        let mut q: VecDeque<TypeTreeNodeIndex> = VecDeque::new();
+        let unique_root = *self.ttree.unique_id(self.root).unwrap();
+        q.push_back(unique_root);
+
+        while !q.is_empty() {
+            let id = q.pop_front().unwrap();
+            let childs = self.childs(id);
+            for cid in childs {
+                let unique_cid = *self.ttree.unique_id(cid).unwrap();
+                q.push_back(unique_cid);
+            }
+            ret.push(id);
+        }
+        return ret;
+    }
 
     /// Returns all leaf node indices of this subtree
     pub fn leaves(&self) -> Vec<TypeTreeNodeIndex> {

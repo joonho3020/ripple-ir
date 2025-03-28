@@ -31,7 +31,7 @@ impl AggNodeData {
 
 define_index_type!(AggNodeIndex);
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct AggNodeLeafIndex {
     /// Aggregate node id
     pub agg_id: AggNodeIndex,

@@ -1,10 +1,7 @@
-use petgraph::{graph::NodeIndex, Direction::{Incoming, Outgoing}};
-use indexmap::IndexMap;
-use crate::ir::typetree::typetree::GroundType;
-use crate::ir::rir::{
-    rgraph::*,
-    rir::*,
-    agg::*};
+use crate::ir::typetree::tnode::*;
+use crate::ir::rir::rnode::*;
+use crate::ir::rir::rgraph::*;
+use crate::ir::rir::rir::*;
 
 /// Cleanup
 /// - Array and memory nodes
@@ -18,54 +15,22 @@ pub fn cleanup_rir(rir: &mut RippleIR) {
 /// Remove all flat nodes that represent the memory node array and
 /// replace it with a single node
 fn cleanup_rg_memory(rg: &mut RippleGraph) {
-    let mut node_map: IndexMap<RippleNode, AggNodeIndex> = IndexMap::new();
     for agg_id in rg.node_indices_agg() {
-        let node_agg = rg.node_weight_agg(agg_id);
-
-        let ttree = node_agg.0.unwrap();
-        let all_leaves = ttree.view().unwrap().leaves();
-
-        let mut all_graph_nodes: Vec<NodeIndex> = all_leaves.iter().map(|id| {
-            *rg.flatid(agg_id, *id).unwrap()
-        }).collect();
-        all_graph_nodes.sort();
-
-        match node_agg.1.unwrap().nt {
+        let node_agg = rg.node_weight_agg(agg_id).unwrap();
+        match node_agg.nt {
             RippleNodeType::SMem(..) |
             RippleNodeType::CMem => {
-                let gt = if node_agg.1.unwrap().nt == RippleNodeType::CMem {
+                let gt = if node_agg.nt == RippleNodeType::CMem {
                     GroundType::CMem
                 } else {
                     GroundType::SMem
                 };
-                let node = RippleNode::new(
-                        Some(node_agg.1.unwrap().name.clone()),
-                        node_agg.1.unwrap().nt.clone(),
+                let node = RippleNodeData::new(
+                        Some(node_agg.name.clone()),
+                        node_agg.nt.clone(),
                         gt);
 
-                // Add new node to the graph
-                let id = rg.graph.add_node(node.clone());
-                node_map.insert(node, agg_id);
-
-                // Connect memory node to its ports
-                let agg_edges = rg.edges_directed_agg(agg_id, Outgoing);
-                for (_edge_identifier, edges) in agg_edges.iter() {
-                    for eid in edges {
-                        let dst = rg.graph.edge_endpoints(*eid).unwrap().1;
-                        let ew = rg.graph.edge_weight(*eid).unwrap();
-                        rg.graph.add_edge(id, dst, ew.clone());
-                    }
-                }
-
-                // Add single memory node
-                for leaf_id in all_leaves {
-                    rg.flatid_aggleaf_bimap.insert(id, AggNodeLeafIndex::new(agg_id, leaf_id));
-                }
-
-                // Remove existing nodes
-                for id in all_graph_nodes.iter().rev() {
-                    rg.remove_node(*id);
-                }
+                rg.merge_nodes_array_agg(agg_id, node);
             }
             _ => { }
         }
@@ -76,10 +41,10 @@ fn cleanup_rg_memory(rg: &mut RippleGraph) {
 /// Possible when:
 /// - All incoming edges are of type RippleEdgeType::ArrayAddr
 fn cleanup_rg_array(rg: &mut RippleGraph) {
-    for agg_id in rg.node_indices_agg() {
-        let node_agg = rg.node_weight_agg(agg_id);
-        let agg_edges = rg.edges_directed_agg(agg_id, Incoming);
-    }
+// for agg_id in rg.node_indices_agg() {
+// let node_agg = rg.node_weight_agg(agg_id);
+// let agg_edges = rg.edges_directed_agg(agg_id, Incoming);
+// }
 }
 
 #[cfg(test)]
@@ -92,22 +57,14 @@ mod test {
 
     fn run_simple(input: &str) -> Result<(), RippleIRErr> {
         let fir = run_passes_from_filepath(input)?;
-        for (module, fg) in fir.graphs.iter() {
-            fg.export_graphviz(&format!("./test-outputs/{}-{}.fir.pdf",
-                    fir.name.to_string(), module.to_string()), None, None, false)?;
-        }
-
         let mut rir = from_fir(&fir);
-        for (module, rg) in rir.graphs.iter() {
-            rg.export_graphviz(&format!("./test-outputs/{}-{}.rir.pdf",
-                    rir.name.to_string(), module.to_string()), None, None, false)?;
-        }
-
         cleanup_rir(&mut rir);
+
         for (module, rg) in rir.graphs.iter() {
             rg.export_graphviz(&format!("./test-outputs/{}-{}.rir.cleanup.pdf",
-                    rir.name.to_string(), module.to_string()), None, None, false)?;
+                    rir.name.to_string(), module.to_string()), None, None, true)?;
         }
+
         Ok(())
     }
 

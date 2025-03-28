@@ -52,7 +52,6 @@ impl From<&FirEdgeType> for RippleEdgeType {
     }
 }
 
-
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct RippleEdgeData {
     pub width: Option<Width>,
@@ -71,13 +70,13 @@ define_index_type!(RippleEdgeIndex);
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct RippleEdge {
-    pub info: RippleEdgeData,
+    pub data: RippleEdgeData,
     pub id: RippleEdgeIndex,
 }
 
 impl RippleEdge {
-    pub fn new(info: RippleEdgeData, id: RippleEdgeIndex) -> Self {
-        Self { info, id }
+    pub fn new(data: RippleEdgeData, id: RippleEdgeIndex) -> Self {
+        Self { data, id }
     }
 }
 

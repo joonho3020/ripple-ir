@@ -1,3 +1,5 @@
+pub mod rgraph_graphviz;
+
 use crate::ir::rir::rnode::*;
 use crate::ir::rir::redge::*;
 use crate::ir::IndexGen;
@@ -5,7 +7,6 @@ use crate::ir::rir::agg::*;
 use crate::ir::typetree::subtree::SubTreeView;
 use crate::ir::typetree::tnode::*;
 use crate::ir::typetree::subtree::LeavesWithPath;
-use crate::common::graphviz::*;
 use chirrtl_parser::ast::*;
 use petgraph::graph::Graph;
 use petgraph::graph::NodeIndex;
@@ -33,20 +34,20 @@ pub struct RippleGraph {
     edge_idx_gen: IndexGen,
 
     /// Graph of this IR
-    pub graph: IRGraph,
+    graph: IRGraph,
 
     /// Bi-directional map that ties a low level graph node to 
     /// each aggregate node and vice-versa
-    pub agg_node_map: BiMap<RippleNodeIndex, AggNodeLeafIndex>,
+    agg_node_map: BiMap<RippleNodeIndex, AggNodeLeafIndex>,
 
     /// map that contains metadata for each unique aggregate node
-    pub agg_nodes: IndexMap<AggNodeIndex, AggNodeData>,
+    agg_nodes: IndexMap<AggNodeIndex, AggNodeData>,
 
     /// Map that ties a low level graph edge to each aggregate edge
-    pub agg_edge_map: IndexMap<AggEdgeIndex, Vec<RippleEdgeIndex>>,
+    agg_edge_map: IndexMap<AggEdgeIndex, Vec<RippleEdgeIndex>>,
 
     /// map that contains metadata for each unique aggregate edges
-    pub agg_neighbors: IndexMap<AggNodeIndex, Vec<AggEdge>>,
+    agg_neighbors: IndexMap<AggNodeIndex, Vec<AggEdge>>,
 
     /// Cache that maps graph nodes to its aggregate node.
     /// - Must be updated correctly when removing nodes, or just invalidated and
@@ -119,7 +120,7 @@ impl RippleGraph {
 
     /// Given a aggregate node and its leafid in the `TypeTree`, return the
     /// NodeIndex in the graph
-    pub fn flatid(&self, aggid: AggNodeIndex, leafid: TypeTreeNodeIndex) -> Option<&NodeIndex> {
+    fn flatid(&self, aggid: AggNodeIndex, leafid: TypeTreeNodeIndex) -> Option<&NodeIndex> {
         let aggleafidx = AggNodeLeafIndex::new(aggid, leafid);
         self.node_map_cache.get_by_right(&aggleafidx)
     }
@@ -157,10 +158,10 @@ impl RippleGraph {
         sub_ttree.leaves()
     }
 
-    fn ttree_leaves(&self, id: AggNodeIndex) -> Vec<TypeTreeNodeIndex> {
+    fn ttree_all_ids(&self, id: AggNodeIndex) -> Vec<TypeTreeNodeIndex> {
         let agg_node = self.agg_nodes.get(&id).unwrap();
         let ttree = agg_node.ttree.as_ref().unwrap().view().unwrap();
-        ttree.leaves()
+        ttree.all_ids()
     }
 
     fn create_and_add_agg_edge(
@@ -420,8 +421,30 @@ impl RippleGraph {
     }
 
     pub fn flatids_under_agg(&self, agg_id: AggNodeIndex) -> Vec<NodeIndex> {
-        let leaves = self.ttree_leaves(agg_id);
-        leaves.iter().map(|leaf| *self.flatid(agg_id, *leaf).unwrap()).collect()
+        let ids = self.ttree_all_ids(agg_id);
+        ids.iter()
+            .map(|id| self.flatid(agg_id, *id))
+            .filter(|x| x.is_some())
+            .map(|x| *x.unwrap())
+            .collect()
+    }
+
+    fn collect_edge_ids(
+        &self,
+        ids: &Vec<&NodeIndex>,
+        valid: &IndexSet<&RippleEdgeIndex>,
+        dir: petgraph::Direction,
+        ret: &mut Vec<EdgeIndex>,
+    ) {
+        for id in ids {
+            let edges = self.graph.edges_directed(**id, dir);
+            for eid in edges {
+                let edge = self.graph.edge_weight(eid.id()).unwrap();
+                if valid.contains(&edge.id) {
+                    ret.push(eid.id());
+                }
+            }
+        }
     }
 
     pub fn flatedges_under_agg(&self, edge: &AggEdge) -> Vec<EdgeIndex> {
@@ -433,132 +456,105 @@ impl RippleGraph {
             .map(|leaf_id| self.flatid(edge.src, *leaf_id).unwrap())
             .collect();
 
-        fn collect_edge_ids(
-            rg: &RippleGraph,
-            ids: &Vec<&NodeIndex>,
-            valid: &IndexSet<&RippleEdgeIndex>,
-            dir: petgraph::Direction,
-            ret: &mut Vec<EdgeIndex>,
-        ) {
-            for id in ids {
-                let edges = rg.graph.edges_directed(**id, dir);
-                for eid in edges {
-                    let edge = rg.graph.edge_weight(eid.id()).unwrap();
-                    if valid.contains(&edge.id) {
-                        ret.push(eid.id());
-                    }
-                }
-            }
-        }
+        let mut ret = vec![];
+        self.collect_edge_ids(&src_ids, &unique_edge_ids, Outgoing, &mut ret);
+        self.collect_edge_ids(&src_ids, &unique_edge_ids, Incoming, &mut ret);
+        return ret;
+    }
+
+    pub fn flatedges_dir_under_agg(&self, edge: &AggEdge, dir: petgraph::Direction) -> Vec<EdgeIndex> {
+        let unique_edge_ids_vec = self.agg_edge_map.get(&edge.id).unwrap();
+        let unique_edge_ids: IndexSet<&RippleEdgeIndex> = IndexSet::from_iter(unique_edge_ids_vec);
+        let src_subtree_leaves = self.subttree_leaves(edge.src, edge.src_subtree_root);
+        let src_ids = src_subtree_leaves
+            .iter()
+            .map(|leaf_id| self.flatid(edge.src, *leaf_id).unwrap())
+            .collect();
 
         let mut ret = vec![];
-        collect_edge_ids(self, &src_ids, &unique_edge_ids, Outgoing, &mut ret);
-        collect_edge_ids(self, &src_ids, &unique_edge_ids, Incoming, &mut ret);
+        self.collect_edge_ids(&src_ids, &unique_edge_ids, dir, &mut ret);
         return ret;
     }
 
     pub fn vismap_agg(&self) -> AggVisMap {
         AggVisMap::new(self.agg_nodes.len() as u32)
     }
-}
 
-impl GraphViz for RippleGraph {
-    fn graphviz_string(
-        self: &Self,
-        node_attr: Option<&NodeAttributeMap>,
-        edge_attr: Option<&EdgeAttributeMap>
-    ) -> Result<String, std::io::Error> {
-        use graphviz_rust::{
-            attributes::{rankdir, EdgeAttributes, GraphAttributes, NodeAttributes},
-            dot_generator::{edge, id, node_id},
-            dot_structures::Id,
-            dot_structures::Stmt as DotStmt,
-            dot_structures::Subgraph as DotSubgraph,
-            dot_structures::Node as DotNode,
-            dot_structures::NodeId as DotNodeId,
-            dot_structures::*,
-            printer::{DotPrinter, PrinterContext}
-        };
+    pub fn add_node(&mut self, node: RippleNodeData) -> (RippleNodeIndex, NodeIndex) {
+        let unique_id = self.node_idx_gen.generate();
+        let node_with_id = RippleNode::new(node, unique_id);
+        let id = self.graph.add_node(node_with_id);
+        return (unique_id, id);
+    }
 
-        let mut g = graphviz_rust::dot_structures::Graph::DiGraph {
-            id: graphviz_rust::dot_generator::id!(""),
-            strict: false,
-            stmts: vec![
-                DotStmt::from(GraphAttributes::rankdir(rankdir::TB)),
-                DotStmt::from(GraphAttributes::splines(true)),
-                DotStmt::from(GraphAttributes::mindist(2.0)),
-                DotStmt::from(GraphAttributes::ranksep(5.0)),
-            ]
-        };
+    pub fn add_edge(&mut self, src: NodeIndex, dst: NodeIndex, edge: RippleEdgeData) -> (RippleEdgeIndex, EdgeIndex) {
+        let unique_id = self.edge_idx_gen.generate();
+        let edge_with_id = RippleEdge::new(edge, unique_id);
+        let id = self.graph.add_edge(src, dst, edge_with_id);
+        return (unique_id, id);
+    }
 
-        // Add nodes
-        for (agg_id, agg_node) in self.agg_nodes.iter() {
-            let ttree = agg_node.ttree.as_ref().unwrap();
-            let leaves = ttree.view().unwrap().leaves();
+    pub fn edge_endpoints(&self, id: EdgeIndex) -> Option<(NodeIndex, NodeIndex)> {
+        self.graph.edge_endpoints(id)
+    }
 
-            // Create graphviz subgraph to group nodes together
-            let subgraph_name = format!("\"cluster_{}_{}\"",
-                agg_node.name,
-                agg_id.to_usize()).replace('"', "");
-            let mut subgraph = DotSubgraph {
-                id: Id::Plain(subgraph_name),
-                stmts: vec![]
-            };
+    pub fn edge_weight(&self, id: EdgeIndex) -> Option<&RippleEdge> {
+        self.graph.edge_weight(id)
+    }
 
-            // Collect all flattened nodes under the current aggregate node
-            for leaf_id in leaves.iter() {
-                let rir_id_opt = self.flatid(*agg_id, *leaf_id);
-                if let Some(rir_id) = rir_id_opt {
-                    let rir_node = self.graph.node_weight(*rir_id).unwrap();
-                    let node_label_inner = format!("{}", rir_node).to_string().replace('"', "");
-                    let node_label = format!("\"{}\"", node_label_inner);
+    fn update_node_map_cache(&mut self) {
+        self.node_map_cache.clear();
+        for id in self.graph.node_indices() {
+            let rid = self.graph.node_weight(id).unwrap().id;
+            let aggleafidx = self.agg_node_map.get_by_left(&rid).unwrap();
+            self.node_map_cache.insert(id, *aggleafidx);
+        }
+    }
 
-                    // Create graphviz node
-                    let mut gv_node = DotNode {
-                        id: DotNodeId(Id::Plain(rir_id.index().to_string()), None),
-                        attributes: vec![
-                            NodeAttributes::label(node_label)
-                        ],
-                    };
+    /// Given an aggregate node, replace all the underlying flat nodes
+    /// into a single flat node
+    pub fn merge_nodes_array_agg(&mut self, id: AggNodeIndex, node: RippleNodeData) {
+        // Add new node to the graph
+        let (uid, gid) = self.add_node(node);
 
-                    // Add node attribute if it exists
-                    if let Some(na) = node_attr {
-                        if na.contains_key(rir_id) {
-                            gv_node.attributes.push(na.get(rir_id).unwrap().clone());
-                        }
-                    }
-                    subgraph.stmts.push(DotStmt::from(gv_node));
-                }
+        // Connect the new node to its existing edges
+        let agg_edges: Vec<AggEdge> = self.edges_agg(id).iter().map(|x| (**x).clone()).collect();
+        for agg_edge in agg_edges.iter() {
+            let edges = self.flatedges_dir_under_agg(agg_edge, Outgoing);
+
+            // Remove old RippleEdgeIndex's from agg_edge_map
+            self.agg_edge_map.get_mut(&agg_edge.id).unwrap().clear();
+
+            for eid in edges {
+                let dst = self.edge_endpoints(eid).unwrap().1;
+                let ew = self.edge_weight(eid).unwrap();
+                let (ueid, _) = self.add_edge(gid, dst, ew.data.clone());
+
+                // Add new RippleEdgeIndex's into agg_edge_map
+                self.agg_edge_map.get_mut(&agg_edge.id).unwrap().push(ueid);
             }
-            g.add_stmt(DotStmt::from(DotSubgraph::from(subgraph)));
         }
 
-        // Add edges
-        for eid in self.graph.edge_indices() {
-            let ep = self.graph.edge_endpoints(eid).unwrap();
-            let w = self.graph.edge_weight(eid).unwrap();
+        // Get unique node index of array element in typetree
+        let agg_node = self.node_weight_agg(id).unwrap();
+        let ttree = agg_node.ttree.as_ref().unwrap().view().unwrap();
+        let ttree_array_entry = ttree.subtree_array_element();
+        let ttree_node_id = ttree_array_entry.root_node().unwrap().id.unwrap();
 
-            // Create graphviz edge
-            let mut e = edge!(
-                node_id!(ep.0.index().to_string()) =>
-                node_id!(ep.1.index().to_string()));
+        // Add new RippleNodeIndex into agg_node_map
+        self.agg_node_map.insert(uid, AggNodeLeafIndex::new(id ,ttree_node_id));
 
-            let edge_label_inner = format!("{}", w).to_string().replace('"', "");
-            let edge_label = format!("\"{}\"", edge_label_inner);
-            e.attributes.push(EdgeAttributes::label(edge_label));
-
-            // Add edge attribute if it exists
-            if let Some(ea) = edge_attr {
-                if ea.contains_key(&eid) {
-                    e.attributes.push(ea.get(&eid).unwrap().clone());
-                }
-            }
-
-            g.add_stmt(Stmt::Edge(e));
+        // - Remove old RippleNodeIndex from agg_node_map
+        // - Remove nodes from the graph
+        let mut ids_under_agg = self.flatids_under_agg(id);
+        ids_under_agg.sort();
+        for nid in ids_under_agg.iter().rev() {
+            let agnli = self.node_map_cache.get_by_left(&nid).unwrap();
+            self.agg_node_map.remove_by_right(agnli);
+            self.graph.remove_node(*nid);
         }
 
-        // Export to pdf
-        let dot = g.print(&mut PrinterContext::new(true, 4, "\n".to_string(), 90));
-        Ok(dot)
+        // - Update node_map_cache
+        self.update_node_map_cache();
     }
 }

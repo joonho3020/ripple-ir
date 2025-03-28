@@ -89,13 +89,13 @@ define_index_type!(RippleNodeIndex);
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct RippleNode {
-    pub info: RippleNodeData,
+    pub data: RippleNodeData,
     pub id: RippleNodeIndex,
 }
 
 impl RippleNode {
-    pub fn new(info: RippleNodeData, id: RippleNodeIndex) -> Self {
-        Self { info, id }
+    pub fn new(data: RippleNodeData, id: RippleNodeIndex) -> Self {
+        Self { data, id }
     }
 }
 
