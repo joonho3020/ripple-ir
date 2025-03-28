@@ -11,6 +11,7 @@ use crate::common::RippleIRErr;
 use crate::ir::firir::*;
 use crate::ir::hierarchy::Hierarchy;
 use crate::ir::typetree::typetree::*;
+use crate::ir::typetree::tnode::*;
 
 pub fn infer_typetree(ir: &mut FirIR) {
     let hier = Hierarchy::new(ir);
@@ -52,7 +53,7 @@ fn topo_start_node(nt: &FirNodeType) -> bool {
 }
 
 fn infer_typetree_graph(fir: &mut FirIR, name: &Identifier) {
-    use crate::ir::typetree::typetree::GroundType::*;
+    use crate::ir::typetree::tnode::GroundType::*;
 
     let node_ids: Vec<NodeIndex> = fir.graphs.get(name).unwrap().node_indices().collect();
 

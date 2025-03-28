@@ -1,10 +1,10 @@
 use chirrtl_parser::ast::*;
 use derivative::Derivative;
 use std::hash::Hash;
-use crate::ir::typetree::typetree::*;
 use crate::ir::firir::*;
 use crate::impl_clean_display;
 use crate::define_index_type;
+use crate::ir::typetree::tnode::*;
 
 #[derive(Debug, Default, Clone, PartialEq, Eq, Hash)]
 pub enum RippleNodeType {

@@ -187,6 +187,8 @@ impl GraphViz for FirGraph {
 mod test {
     use crate::common::RippleIRErr;
     use crate::ir::typetree::typetree::*;
+    use crate::ir::typetree::tnode::*;
+    use crate::ir::typetree::tedge::*;
     use chirrtl_parser::ast::Identifier;
     use chirrtl_parser::parse_circuit;
     use crate::passes::fir::from_ast::from_circuit;

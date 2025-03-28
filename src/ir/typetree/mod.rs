@@ -1,5 +1,8 @@
 pub mod typetree;
 pub mod subtree;
+pub mod tnode;
+pub mod tedge;
+pub mod path;
 
 #[cfg(test)]
 mod test {
@@ -9,6 +12,8 @@ mod test {
     use crate::common::RippleIRErr;
     use crate::common::graphviz::*;
     use crate::ir::typetree::typetree::*;
+    use crate::ir::typetree::tnode::*;
+    use crate::ir::typetree::path::*;
 
     #[test]
     fn check_gcd_name() -> Result<(), RippleIRErr> {

@@ -1,5 +1,6 @@
 use crate::ir::whentree::WhenTree;
-use crate::ir::typetree::typetree::{TypeDirection, TypeTree};
+use crate::ir::typetree::typetree::TypeTree;
+use crate::ir::typetree::tnode::*;
 use crate::ir::firir::*;
 use crate::ir::PhiPriority;
 use crate::passes::ast::check_ast_assumption::*;

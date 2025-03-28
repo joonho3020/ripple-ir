@@ -4,6 +4,7 @@ use crate::ir::rir::IndexGen;
 use crate::ir::rir::agg::*;
 use crate::ir::typetree::subtree::SubTreeView;
 use crate::ir::typetree::typetree::*;
+use crate::ir::typetree::tnode::*;
 use crate::ir::typetree::subtree::LeavesWithPath;
 use crate::common::graphviz::*;
 use chirrtl_parser::ast::*;
