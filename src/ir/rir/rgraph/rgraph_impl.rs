@@ -502,9 +502,6 @@ impl RippleGraph {
         let ttree_array_entry = ttree.subtree_array_element();
         let ttree_node_id = ttree_array_entry.root_node().unwrap().id.unwrap();
 
-        // Add new RippleNodeIndex into agg_node_map
-        self.agg_node_map.insert(uid, AggNodeLeafIndex::new(id ,ttree_node_id));
-
         // - Remove old RippleNodeIndex from agg_node_map
         // - Remove nodes from the graph
         let mut ids_under_agg = self.flatids_under_agg(id);
@@ -514,6 +511,9 @@ impl RippleGraph {
             self.agg_node_map.remove_by_right(agnli);
             self.graph.remove_node(*nid);
         }
+
+        // Add new RippleNodeIndex into agg_node_map
+        self.agg_node_map.insert(uid, AggNodeLeafIndex::new(id ,ttree_node_id));
 
         // - Update node_map_cache
         self.update_node_map_cache();

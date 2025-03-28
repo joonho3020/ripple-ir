@@ -61,10 +61,10 @@ mod test {
         let mut rir = from_fir(&fir);
         cleanup_rir(&mut rir);
 
-        for (module, rg) in rir.graphs.iter() {
-            rg.export_graphviz(&format!("./test-outputs/{}-{}.rir.cleanup.pdf",
-                    rir.name.to_string(), module.to_string()), None, None, false)?;
-        }
+// for (module, rg) in rir.graphs.iter() {
+// rg.export_graphviz(&format!("./test-outputs/{}-{}.rir.cleanup.pdf",
+// rir.name.to_string(), module.to_string()), None, None, false)?;
+// }
 
         traverse_aggregate(rir, true)?;
 
@@ -74,6 +74,12 @@ mod test {
     #[test]
     fn singleportsram() {
         run_simple("./test-inputs/SinglePortSRAM.fir")
+            .expect("singleportsram");
+    }
+
+    #[test]
+    fn rocket() {
+        run_simple("./test-inputs/chipyard.harness.TestHarness.RocketConfig.fir")
             .expect("singleportsram");
     }
 }
