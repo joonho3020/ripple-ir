@@ -7,6 +7,7 @@ use super::firir::{FirIR, FirNodeType};
 use crate::common::graphviz::*;
 use crate::impl_clean_display;
 
+/// Represents a node in the `Hierarchy`
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HierNode(Identifier);
 
@@ -41,6 +42,8 @@ type DAG = Graph<HierNode, HierEdge>;
 #[derive(Debug, Default, Clone)]
 pub struct Hierarchy {
     /// Graph representing the hierarchy
+    /// - Nodes: modules
+    /// - Edges: instance name of the child node
     pub graph: DAG,
 
     /// NodeIndex of the root node

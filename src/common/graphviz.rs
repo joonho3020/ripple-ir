@@ -203,4 +203,3 @@ macro_rules! impl_clean_display {
         }
     };
 }
-

@@ -1,7 +1,6 @@
 use chirrtl_parser::ast::*;
 use indextree::{Arena, NodeId};
 
-
 /// Represents a chain of conditions in a decision tree (a.k.a mux tree)
 #[derive(Default, Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Condition {

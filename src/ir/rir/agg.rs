@@ -5,8 +5,9 @@ use crate::ir::rir::rnode::*;
 use crate::ir::rir::redge::*;
 use crate::ir::typetree::typetree::*;
 
-/// Can be used as a key to identify a `TypeTree` in `RippleGraph`
 /// Represents a unique aggregate node in the IR
+/// - Contains metadata to tie a group of flat nodes in the graph as a single
+/// aggregate node
 #[derive(Debug, Clone)]
 pub struct AggNodeData {
     /// Identifier of the reference root
@@ -55,6 +56,9 @@ impl AggEdgeData {
     }
 }
 
+/// Represents a unique aggregate edge in the IR
+/// - Contains metadata to tie a group of flat edges in the graph as a single
+/// aggregate edge
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct AggEdge {
     pub id: AggEdgeIndex,
@@ -80,6 +84,8 @@ impl AggEdge {
 
 define_index_type!(AggEdgeIndex);
 
+/// A datastructure used for tracking which aggregate nodes have been visited
+/// during a traversal
 #[derive(Debug, Clone)]
 pub struct AggVisMap {
     visited: FixedBitSet
@@ -90,18 +96,22 @@ impl AggVisMap {
         Self { visited: FixedBitSet::with_capacity(num_bits as usize) }
     }
 
+    /// Already visited agg-node with `id`
     pub fn is_visited(&self, id: AggNodeIndex) -> bool {
         self.visited.contains(id.into())
     }
 
+    /// Visit aggregate node with `id`
     pub fn visit(&mut self, id: AggNodeIndex) {
         self.visited.set(id.into(), true);
     }
 
+    /// Graph contains some unvisited agg-nodes
     pub fn has_unvisited(&self) -> bool {
         self.visited.count_zeroes(..) > 0
     }
 
+    /// List of indices of unvisited agg-nodes
     pub fn unvisited_ids(&self) -> Vec<AggNodeIndex> {
         self.visited.zeroes().map(|x| x.into()).collect()
     }
