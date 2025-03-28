@@ -46,7 +46,7 @@ pub struct RippleGraph {
     pub agg_edge_map: IndexMap<AggEdgeIndex, Vec<RippleEdgeIndex>>,
 
     /// map that contains metadata for each unique aggregate edges
-    pub agg_edges: IndexMap<AggNodeIndex, Vec<AggEdge>>,
+    pub agg_neighbors: IndexMap<AggNodeIndex, Vec<AggEdge>>,
 
     /// Cache that maps graph nodes to its aggregate node.
     /// - Must be updated correctly when removing nodes, or just invalidated and
@@ -70,7 +70,7 @@ impl RippleGraph {
             agg_nodes: IndexMap::new(),
 
             agg_edge_map: IndexMap::new(),
-            agg_edges: IndexMap::new(),
+            agg_neighbors: IndexMap::new(),
 
             node_map_cache: BiMap::new(),
         }
@@ -182,14 +182,13 @@ impl RippleGraph {
             dst_ttree_root);
 
         // Agg AggEdge
-        if !self.agg_edges.contains_key(&src_id) {
-            self.agg_edges.insert(src_id, vec![]);
+        if !self.agg_neighbors.contains_key(&src_id) {
+            self.agg_neighbors.insert(src_id, vec![]);
         }
-        let agg_edges = self.agg_edges.get_mut(&src_id).unwrap();
-        agg_edges.push(agg_edge);
+        let agg_neighbors = self.agg_neighbors.get_mut(&src_id).unwrap();
+        agg_neighbors.push(agg_edge);
         return agg_edge_id;
     }
-
 
     /// Adds an edge between two aggregate nodes.
     /// - Edge is flattened according to the reference used to connect these nodes
@@ -411,7 +410,12 @@ impl RippleGraph {
     }
 
     pub fn edges_agg(&self, agg_id: AggNodeIndex) -> Vec<&AggEdge> {
-        self.agg_edges.get(&agg_id).unwrap().iter().collect()
+        match self.agg_neighbors.get(&agg_id) {
+            Some(neighbors) => {
+                neighbors.iter().collect()
+            }
+            None => { vec![] }
+        }
     }
 
     pub fn flatids_under_agg(&self, agg_id: AggNodeIndex) -> Vec<NodeIndex> {
@@ -422,17 +426,21 @@ impl RippleGraph {
     pub fn flatedges_under_agg(&self, edge: &AggEdge) -> Vec<EdgeIndex> {
         let unique_edge_ids_vec = self.agg_edge_map.get(&edge.id).unwrap();
         let unique_edge_ids: IndexSet<&RippleEdgeIndex> = IndexSet::from_iter(unique_edge_ids_vec);
-        let src_ids = self.subttree_leaves(edge.src, edge.src_subtree_root);
+        let src_subtree_leaves = self.subttree_leaves(edge.src, edge.src_subtree_root);
+        let src_ids = src_subtree_leaves
+            .iter()
+            .map(|leaf_id| self.flatid(edge.src, *leaf_id).unwrap())
+            .collect();
 
         fn collect_edge_ids(
             rg: &RippleGraph,
-            ids: &Vec<NodeIndex>,
+            ids: &Vec<&NodeIndex>,
             valid: &IndexSet<&RippleEdgeIndex>,
             dir: petgraph::Direction,
             ret: &mut Vec<EdgeIndex>,
         ) {
             for id in ids {
-                let edges = rg.graph.edges_directed(*id, dir);
+                let edges = rg.graph.edges_directed(**id, dir);
                 for eid in edges {
                     let edge = rg.graph.edge_weight(eid.id()).unwrap();
                     if valid.contains(&edge.id) {

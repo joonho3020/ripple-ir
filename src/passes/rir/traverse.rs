@@ -58,34 +58,33 @@ pub fn traverse_graph_aggregate(module: &Identifier, rg: &RippleGraph, export: b
 
         let agg_edges = rg.edges_agg(agg_id);
         for (iter_inner, agg_edge) in agg_edges.iter().enumerate() {
+            if export {
+                let mut cur_node_attributes = node_attributes.clone();
+
+                let dst_node_ids = rg.flatids_under_agg(agg_edge.dst);
+                for id in dst_node_ids {
+                    cur_node_attributes.insert(id, NodeAttributes::color(color_name::blue));
+                }
+
+                let mut edge_attributes = EdgeAttributeMap::default();
+                let edge_ids = rg.flatedges_under_agg(agg_edge);
+                for eid in edge_ids {
+                    edge_attributes.insert(eid, NodeAttributes::color(color_name::red));
+                }
+
+                let out_name = format!(
+                    "./test-outputs/{}-{}-{}.traverse.agg.pdf",
+                    module, iter_outer, iter_inner);
+
+                rg.export_graphviz(
+                    &out_name,
+                    Some(cur_node_attributes).as_ref(),
+                    Some(edge_attributes).as_ref(),
+                    false)?;
+                file_names.push(out_name);
+            }
             if !vis_map.is_visited(agg_edge.dst) {
                 q.push_back(agg_edge.dst);
-
-                if export {
-                    let mut cur_node_attributes = node_attributes.clone();
-
-                    let dst_node_ids = rg.flatids_under_agg(agg_edge.dst);
-                    for id in dst_node_ids {
-                        cur_node_attributes.insert(id, NodeAttributes::color(color_name::blue));
-                    }
-
-                    let mut edge_attributes = EdgeAttributeMap::default();
-                    let edge_ids = rg.flatedges_under_agg(agg_edge);
-                    for eid in edge_ids {
-                        edge_attributes.insert(eid, NodeAttributes::color(color_name::red));
-                    }
-
-                    let out_name = format!(
-                        "./test-outputs/{}-{}-{}.traverse.agg.pdf",
-                        module, iter_outer, iter_inner);
-
-                    rg.export_graphviz(
-                        &out_name,
-                        Some(cur_node_attributes).as_ref(),
-                        Some(edge_attributes).as_ref(),
-                        false)?;
-                    file_names.push(out_name);
-                }
             }
         }
         iter_outer += 1;
