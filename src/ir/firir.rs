@@ -263,6 +263,7 @@ mod test {
 
             expect.graph.add_edge(root_id, clock_id, TypeTreeEdge::default());
             expect.graph.add_edge(root_id, reset_id, TypeTreeEdge::default());
+            expect.assign_unique_id();
 
             assert!(io_typetree.view().unwrap().eq(&expect.view().unwrap()));
         }

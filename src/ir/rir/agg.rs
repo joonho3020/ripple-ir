@@ -3,6 +3,7 @@ use chirrtl_parser::ast::*;
 use crate::define_index_type;
 use crate::ir::rir::rnode::*;
 use crate::ir::rir::redge::*;
+use crate::ir::typetree::tnode::TypeTreeNodeIndex;
 use crate::ir::typetree::typetree::*;
 
 /// Represents a unique aggregate node in the IR
@@ -35,12 +36,12 @@ pub struct AggNodeLeafIndex {
     /// Aggregate node id
     pub agg_id: AggNodeIndex,
 
-    /// `NodeIndex` of the `TypeTree` leaf node that this graph node corresponds to
-    pub leaf_id: TTreeNodeIndex,
+    /// Unique index of the `TypeTree` leaf node that this graph node corresponds to
+    pub leaf_id: TypeTreeNodeIndex
 }
 
 impl AggNodeLeafIndex {
-    pub fn new(agg_id: AggNodeIndex, leaf_id: TTreeNodeIndex) -> Self {
+    pub fn new(agg_id: AggNodeIndex, leaf_id: TypeTreeNodeIndex) -> Self {
         Self { agg_id, leaf_id }
     }
 }
@@ -65,8 +66,8 @@ pub struct AggEdge {
     pub data: AggEdgeData,
     pub src: AggNodeIndex,
     pub dst: AggNodeIndex,
-    pub src_subtree_root: TTreeNodeIndex,
-    pub dst_subtree_root: Option<TTreeNodeIndex>,
+    pub src_subtree_root: TypeTreeNodeIndex,
+    pub dst_subtree_root: Option<TypeTreeNodeIndex>,
 }
 
 impl AggEdge {
@@ -75,8 +76,8 @@ impl AggEdge {
         data: AggEdgeData,
         src: AggNodeIndex,
         dst: AggNodeIndex,
-        src_subtree_root: TTreeNodeIndex,
-        dst_subtree_root: Option<TTreeNodeIndex>,
+        src_subtree_root: TypeTreeNodeIndex,
+        dst_subtree_root: Option<TypeTreeNodeIndex>,
     ) -> Self {
         Self { id, data, src, dst, src_subtree_root, dst_subtree_root }
     }

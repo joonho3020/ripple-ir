@@ -131,13 +131,13 @@ mod test {
     }
     #[test]
     fn traverse_gcd() {
-        run_traverse("./test-inputs/GCD.fir", true)
+        run_traverse("./test-inputs/GCD.fir", false)
             .expect("gcd traverse assumption");
     }
 
     #[test]
     fn traverse_decoupledmux() {
-        run_traverse("./test-inputs/DecoupledMux.fir", true)
+        run_traverse("./test-inputs/DecoupledMux.fir", false)
             .expect("decoupledmux traverse assumption");
     }
 
@@ -149,7 +149,7 @@ mod test {
 
     #[test]
     fn traverse_aggregatesram() {
-        run_traverse("./test-inputs/AggregateSRAM.fir", true)
+        run_traverse("./test-inputs/AggregateSRAM.fir", false)
             .expect("aggregatesram traverse assumption");
     }
 

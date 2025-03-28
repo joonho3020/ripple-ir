@@ -1,9 +1,8 @@
 use crate::ir::rir::rnode::*;
 use crate::ir::rir::redge::*;
-use crate::ir::rir::IndexGen;
+use crate::ir::IndexGen;
 use crate::ir::rir::agg::*;
 use crate::ir::typetree::subtree::SubTreeView;
-use crate::ir::typetree::typetree::*;
 use crate::ir::typetree::tnode::*;
 use crate::ir::typetree::subtree::LeavesWithPath;
 use crate::common::graphviz::*;
@@ -107,7 +106,7 @@ impl RippleGraph {
             let graph_node_id = self.graph.add_node(rgnode);
 
             // Add mapping between the aggregate node and the flattened node
-            let anli = AggNodeLeafIndex::new(unique_agg_id, *leaf_id);
+            let anli = AggNodeLeafIndex::new(unique_agg_id, leaf.id.unwrap());
             self.agg_node_map.insert(unique_id, anli.clone());
 
             // Add mapping to cache
@@ -120,7 +119,7 @@ impl RippleGraph {
 
     /// Given a aggregate node and its leafid in the `TypeTree`, return the
     /// NodeIndex in the graph
-    pub fn flatid(&self, aggid: AggNodeIndex, leafid: TTreeNodeIndex) -> Option<&NodeIndex> {
+    pub fn flatid(&self, aggid: AggNodeIndex, leafid: TypeTreeNodeIndex) -> Option<&NodeIndex> {
         let aggleafidx = AggNodeLeafIndex::new(aggid, leafid);
         self.node_map_cache.get_by_right(&aggleafidx)
     }
@@ -138,26 +137,27 @@ impl RippleGraph {
         ttree_array_entry.subtree_leaves_with_path(reference)
     }
 
-    fn ttree_leaf(&self, id: AggNodeIndex, leaf: TTreeNodeIndex) -> Option<TypeTreeNode> {
+    fn ttree_leaf(&self, id: AggNodeIndex, leaf: TypeTreeNodeIndex) -> Option<TypeTreeNode> {
         let agg_node = self.agg_nodes.get(&id).unwrap();
         let ttree = agg_node.ttree.as_ref().unwrap().view().unwrap();
         ttree.get_node(leaf)
     }
 
-    fn subttree_root(&self, id: AggNodeIndex, reference: &Reference) -> Option<TTreeNodeIndex> {
+    fn subttree_root(&self, id: AggNodeIndex, reference: &Reference) -> Option<TypeTreeNodeIndex> {
         let agg_node = self.agg_nodes.get(&id).unwrap();
         let ttree = agg_node.ttree.as_ref().unwrap().view().unwrap();
         ttree.subtree_root(reference)
     }
 
-    fn subttree_leaves(&self, id: AggNodeIndex, root: TTreeNodeIndex) -> Vec<TTreeNodeIndex> {
+    fn subttree_leaves(&self, id: AggNodeIndex, root: TypeTreeNodeIndex) -> Vec<TypeTreeNodeIndex> {
         let agg_node = self.agg_nodes.get(&id).unwrap();
         let ttree = agg_node.ttree.as_ref().unwrap();
-        let sub_ttree = SubTreeView::new(ttree, root);
+        let root_graph = ttree.graph_id(root).unwrap();
+        let sub_ttree = SubTreeView::new(ttree, *root_graph);
         sub_ttree.leaves()
     }
 
-    fn ttree_leaves(&self, id: AggNodeIndex) -> Vec<TTreeNodeIndex> {
+    fn ttree_leaves(&self, id: AggNodeIndex) -> Vec<TypeTreeNodeIndex> {
         let agg_node = self.agg_nodes.get(&id).unwrap();
         let ttree = agg_node.ttree.as_ref().unwrap().view().unwrap();
         ttree.leaves()

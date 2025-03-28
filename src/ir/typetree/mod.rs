@@ -28,11 +28,11 @@ mod test {
                             Port::Output(_name, tpe, _info) => {
                                 let tt = TypeTree::build_from_type(tpe, TypeDirection::Outgoing);
                                 let v = tt.view().unwrap();
-                                assert_eq!(v.node_name(&Identifier::Name("io".to_string()), TTreeNodeIndex::from(1)).to_string(), "io.value1".to_string());
-                                assert_eq!(v.node_name(&Identifier::Name("io".to_string()), TTreeNodeIndex::from(2)).to_string(), "io.value2".to_string());
-                                assert_eq!(v.node_name(&Identifier::Name("io".to_string()), TTreeNodeIndex::from(3)).to_string(), "io.loadingValues".to_string());
-                                assert_eq!(v.node_name(&Identifier::Name("io".to_string()), TTreeNodeIndex::from(4)).to_string(), "io.outputGCD".to_string());
-                                assert_eq!(v.node_name(&Identifier::Name("io".to_string()), TTreeNodeIndex::from(5)).to_string(), "io.outputValid".to_string());
+                                assert_eq!(v.node_name(&Identifier::Name("io".to_string()), TypeTreeNodeIndex::from(1u32)).to_string(), "io.value1".to_string());
+                                assert_eq!(v.node_name(&Identifier::Name("io".to_string()), TypeTreeNodeIndex::from(2u32)).to_string(), "io.value2".to_string());
+                                assert_eq!(v.node_name(&Identifier::Name("io".to_string()), TypeTreeNodeIndex::from(3u32)).to_string(), "io.loadingValues".to_string());
+                                assert_eq!(v.node_name(&Identifier::Name("io".to_string()), TypeTreeNodeIndex::from(4u32)).to_string(), "io.outputGCD".to_string());
+                                assert_eq!(v.node_name(&Identifier::Name("io".to_string()), TypeTreeNodeIndex::from(5u32)).to_string(), "io.outputValid".to_string());
                             }
                             _ => {
                             }
@@ -93,31 +93,31 @@ mod test {
 
                                 let root = Reference::Ref(Identifier::Name("io".to_string()));
                                 let subtree_root = v.subtree_root(&root);
-                                assert_eq!(subtree_root, Some(TTreeNodeIndex::from(0)));
+                                assert_eq!(subtree_root, Some(TypeTreeNodeIndex::from(0u32)));
 
                                 let g = Reference::RefDot(Box::new(root), Identifier::Name("g".to_string()));
                                 let subtree_root = v.subtree_root(&g);
-                                assert_eq!(subtree_root, Some(TTreeNodeIndex::from(1)));
+                                assert_eq!(subtree_root, Some(TypeTreeNodeIndex::from(1u32)));
 
                                 let g_name = v.node_name(&Identifier::Name("io".to_string()), subtree_root.unwrap());
                                 assert_eq!(g_name.to_string(), "io.g".to_string());
 
                                 let g1 = Reference::RefIdxInt(Box::new(g), Int::from(1));
                                 let subtree_root = v.subtree_root(&g1);
-                                assert_eq!(subtree_root, Some(TTreeNodeIndex::from(24)));
+                                assert_eq!(subtree_root, Some(TypeTreeNodeIndex::from(24u32)));
 
                                 let g1_name = v.node_name(&Identifier::Name("io".to_string()), subtree_root.unwrap());
                                 assert_eq!(g1_name.to_string(), "io.g[1]".to_string());
 
                                 let g1f = Reference::RefDot(Box::new(g1), Identifier::Name("f".to_string()));
                                 let subtree_root = v.subtree_root(&g1f);
-                                assert_eq!(subtree_root, Some(TTreeNodeIndex::from(42)));
+                                assert_eq!(subtree_root, Some(TypeTreeNodeIndex::from(42u32)));
 
                                 let g1f_name = v.node_name(&Identifier::Name("io".to_string()), subtree_root.unwrap());
                                 assert_eq!(g1f_name.to_string(), "io.g[1].f".to_string());
 
                                 let subtree_leaves = v.subtree_leaves(&g1f);
-                                assert_eq!(subtree_leaves, vec![TTreeNodeIndex::from(45), TTreeNodeIndex::from(44), TTreeNodeIndex::from(43)]);
+                                assert_eq!(subtree_leaves, vec![TypeTreeNodeIndex::from(45u32), TypeTreeNodeIndex::from(44u32), TypeTreeNodeIndex::from(43u32)]);
                             }
                             _ => {
                             }
@@ -155,27 +155,27 @@ mod test {
                                 let v = typetree.view().unwrap();
                                 let leaves_with_path = v.subtree_leaves_with_path(&g1f);
 
-                                let mut expect: IndexMap<TypeTreeNodePath, TTreeNodeIndex> = IndexMap::new();
+                                let mut expect: IndexMap<TypeTreeNodePath, TypeTreeNodeIndex> = IndexMap::new();
                                 expect.insert(
                                     TypeTreeNodePath::new(
                                         TypeDirection::Outgoing,
                                         TypeTreeNodeType::Ground(GroundType::UInt),
                                         Some(Reference::Ref(Identifier::ID(Int::from(2))))),
-                                    TTreeNodeIndex::from(45));
+                                    TypeTreeNodeIndex::from(45u32));
 
                                 expect.insert(
                                     TypeTreeNodePath::new(
                                         TypeDirection::Outgoing,
                                         TypeTreeNodeType::Ground(GroundType::UInt),
                                         Some(Reference::Ref(Identifier::ID(Int::from(1))))),
-                                    TTreeNodeIndex::from(44));
+                                    TypeTreeNodeIndex::from(44u32));
 
                                 expect.insert(
                                     TypeTreeNodePath::new(
                                         TypeDirection::Outgoing,
                                         TypeTreeNodeType::Ground(GroundType::UInt),
                                         Some(Reference::Ref(Identifier::ID(Int::from(0))))),
-                                    TTreeNodeIndex::from(43));
+                                    TypeTreeNodeIndex::from(43u32));
                                 assert_eq!(leaves_with_path, expect);
                             }
                             _ => {
