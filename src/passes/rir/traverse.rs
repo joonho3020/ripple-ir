@@ -31,7 +31,10 @@ pub fn traverse_graph_aggregate(module: &Identifier, rg: &RippleGraph, export: b
                 RippleNodeType::Output |
                 RippleNodeType::UIntLiteral(..) |
                 RippleNodeType::SIntLiteral(..) |
-                RippleNodeType::DontCare => {
+                RippleNodeType::DontCare |
+                RippleNodeType::CMem |
+                RippleNodeType::SMem(..) |
+                RippleNodeType::Inst(..) => {
                     q.push_back(*agg_id);
                 }
             _ => {
@@ -95,7 +98,12 @@ pub fn traverse_graph_aggregate(module: &Identifier, rg: &RippleGraph, export: b
         let unvisited = vis_map.unvisited_ids();
         for agg_id in unvisited {
             let agg_edges = rg.edges_agg(agg_id);
-            assert!(agg_edges.len() == 0);
+            let agg_node = rg.node_weight_agg(agg_id).unwrap();
+            let ttree = agg_node.ttree.as_ref().unwrap().view().unwrap();
+            if agg_edges.len() != 0 && !ttree.is_empty() {
+                panic!("Aggregate traversal missed agg_node {:?} with {:?} agg_edges",
+                    agg_node, agg_edges.len());
+            }
         }
     }
 
@@ -135,7 +143,7 @@ mod test {
 
     #[test]
     fn traverse_singleportsram() {
-        run_traverse("./test-inputs/SinglePortSRAM.fir", true)
+        run_traverse("./test-inputs/SinglePortSRAM.fir", false)
             .expect("singleportsram traverse assumption");
     }
 

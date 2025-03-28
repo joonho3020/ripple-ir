@@ -28,6 +28,15 @@ impl<'a> SubTreeView<'a> {
         Some(node)
     }
 
+    pub fn is_empty(&self) -> bool {
+        let child_cnt =  self.childs(self.root).count();
+        if child_cnt == 0 && (self.root_node().unwrap().tpe == TypeTreeNodeType::Fields) {
+            true
+        } else {
+            false
+        }
+    }
+
     pub fn get_node(&self, id: TTreeNodeIndex) -> Option<TypeTreeNode> {
         if id == self.root {
             self.root_node()
