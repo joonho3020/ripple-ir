@@ -131,7 +131,7 @@ impl RippleGraph {
     ) -> AggEdgeIndex {
         // Create AggEdge
         let src_ttree_root = self.subttree_root(src_id, src_ref).unwrap();
-        let dst_ttree_root = self.subttree_root(dst_id, dst_ref);
+        let dst_ttree_root = self.subttree_root(dst_id, dst_ref).unwrap();
         let agg_edge_id = self.agg_edge_idx_gen.generate();
         let agg_edge = AggEdge::new(agg_edge_id,
             edge,
@@ -140,12 +140,17 @@ impl RippleGraph {
             src_ttree_root,
             dst_ttree_root);
 
-        // Agg AggEdge
-        if !self.agg_neighbors.contains_key(&src_id) {
-            self.agg_neighbors.insert(src_id, vec![]);
+        fn add_edge(rg: &mut RippleGraph, id: AggNodeIndex, edge: AggEdge) {
+            // Agg AggEdge
+            if !rg.agg_neighbors.contains_key(&id) {
+                rg.agg_neighbors.insert(id, vec![]);
+            }
+            let agg_neighbors = rg.agg_neighbors.get_mut(&id).unwrap();
+            agg_neighbors.push(edge);
         }
-        let agg_neighbors = self.agg_neighbors.get_mut(&src_id).unwrap();
-        agg_neighbors.push(agg_edge);
+
+        add_edge(self, src_id, agg_edge.clone());
+        add_edge(self, dst_id, agg_edge);
         return agg_edge_id;
     }
 
@@ -404,11 +409,15 @@ impl RippleGraph {
         }
     }
 
-    pub fn flatedges_under_agg(&self, edge: &AggEdge) -> Vec<EdgeIndex> {
+    pub fn flatedges_under_agg(&self, id: AggNodeIndex, edge: &AggEdge) -> Vec<EdgeIndex> {
         let unique_edge_ids_vec = self.agg_edge_map.get(&edge.id).unwrap();
         let unique_edge_ids: IndexSet<&RippleEdgeIndex> = IndexSet::from_iter(unique_edge_ids_vec);
-        let src_subtree_leaves = self.subttree_all_ids(edge.src, edge.src_subtree_root);
-        let src_ids = src_subtree_leaves
+        let subtree_node_ids = if edge.src == id {
+            self.subttree_all_ids(edge.src, edge.src_subtree_root)
+        } else {
+            self.subttree_all_ids(edge.dst, edge.dst_subtree_root)
+        };
+        let node_ids = subtree_node_ids
             .iter()
             .map(|leaf_id| self.flatid(edge.src, *leaf_id))
             .filter(|x| x.is_some())
@@ -416,16 +425,20 @@ impl RippleGraph {
             .collect();
 
         let mut ret = vec![];
-        self.collect_edge_ids(&src_ids, &unique_edge_ids, Outgoing, &mut ret);
-        self.collect_edge_ids(&src_ids, &unique_edge_ids, Incoming, &mut ret);
+        self.collect_edge_ids(&node_ids, &unique_edge_ids, Outgoing, &mut ret);
+        self.collect_edge_ids(&node_ids, &unique_edge_ids, Incoming, &mut ret);
         return ret;
     }
 
-    pub fn flatedges_dir_under_agg(&self, edge: &AggEdge, dir: petgraph::Direction) -> Vec<EdgeIndex> {
+    pub fn flatedges_dir_under_agg(&self, id: AggNodeIndex, edge: &AggEdge, dir: petgraph::Direction) -> Vec<EdgeIndex> {
         let unique_edge_ids_vec = self.agg_edge_map.get(&edge.id).unwrap();
         let unique_edge_ids: IndexSet<&RippleEdgeIndex> = IndexSet::from_iter(unique_edge_ids_vec);
-        let src_subtree_leaves = self.subttree_all_ids(edge.src, edge.src_subtree_root);
-        let src_ids = src_subtree_leaves
+        let subtree_node_ids = if edge.src == id {
+            self.subttree_all_ids(edge.src, edge.src_subtree_root)
+        } else {
+            self.subttree_all_ids(edge.dst, edge.dst_subtree_root)
+        };
+        let node_ids = subtree_node_ids
             .iter()
             .map(|leaf_id| self.flatid(edge.src, *leaf_id))
             .filter(|x| x.is_some())
@@ -433,7 +446,7 @@ impl RippleGraph {
             .collect();
 
         let mut ret = vec![];
-        self.collect_edge_ids(&src_ids, &unique_edge_ids, dir, &mut ret);
+        self.collect_edge_ids(&node_ids, &unique_edge_ids, dir, &mut ret);
         return ret;
     }
 
@@ -481,7 +494,7 @@ impl RippleGraph {
         // Connect the new node to its existing edges
         let agg_edges: Vec<AggEdge> = self.edges_agg(id).iter().map(|x| (**x).clone()).collect();
         for agg_edge in agg_edges.iter() {
-            let edges = self.flatedges_dir_under_agg(agg_edge, Outgoing);
+            let edges = self.flatedges_dir_under_agg(id, agg_edge, Outgoing);
 
             // Remove old RippleEdgeIndex's from agg_edge_map
             self.agg_edge_map.get_mut(&agg_edge.id).unwrap().clear();

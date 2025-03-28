@@ -33,13 +33,14 @@ pub struct RippleGraph {
     /// each aggregate node and vice-versa
     agg_node_map: BiMap<RippleNodeIndex, AggNodeLeafIndex>,
 
-    /// map that contains metadata for each unique aggregate node
+    /// Map that contains metadata for each unique aggregate node
     agg_nodes: IndexMap<AggNodeIndex, AggNodeData>,
 
     /// Map that ties a low level graph edge to each aggregate edge
     agg_edge_map: IndexMap<AggEdgeIndex, Vec<RippleEdgeIndex>>,
 
-    /// map that contains metadata for each unique aggregate edges
+    /// Map that contains metadata for each unique aggregate edges
+    /// - This is bidirectional
     agg_neighbors: IndexMap<AggNodeIndex, Vec<AggEdge>>,
 
     /// Cache that maps graph nodes to its aggregate node.

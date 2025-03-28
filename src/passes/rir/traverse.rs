@@ -70,7 +70,7 @@ fn traverse_graph_aggregate(module: &Identifier, rg: &RippleGraph, export: bool)
                 }
 
                 let mut edge_attributes = EdgeAttributeMap::default();
-                let edge_ids = rg.flatedges_under_agg(agg_edge);
+                let edge_ids = rg.flatedges_under_agg(agg_id, agg_edge);
                 for eid in edge_ids {
                     edge_attributes.insert(eid, NodeAttributes::color(color_name::red));
                 }

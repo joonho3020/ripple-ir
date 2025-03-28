@@ -67,7 +67,7 @@ pub struct AggEdge {
     pub src: AggNodeIndex,
     pub dst: AggNodeIndex,
     pub src_subtree_root: TypeTreeNodeIndex,
-    pub dst_subtree_root: Option<TypeTreeNodeIndex>,
+    pub dst_subtree_root: TypeTreeNodeIndex,
 }
 
 impl AggEdge {
@@ -77,7 +77,7 @@ impl AggEdge {
         src: AggNodeIndex,
         dst: AggNodeIndex,
         src_subtree_root: TypeTreeNodeIndex,
-        dst_subtree_root: Option<TypeTreeNodeIndex>,
+        dst_subtree_root: TypeTreeNodeIndex,
     ) -> Self {
         Self { id, data, src, dst, src_subtree_root, dst_subtree_root }
     }

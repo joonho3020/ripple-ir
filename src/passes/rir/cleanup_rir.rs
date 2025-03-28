@@ -43,7 +43,6 @@ fn cleanup_rg_memory(rg: &mut RippleGraph) {
 fn cleanup_rg_array(rg: &mut RippleGraph) {
     for agg_id in rg.node_indices_agg() {
         let node_agg = rg.node_weight_agg(agg_id);
-// let agg_edges = rg.edges_agg()
     }
 }
 
@@ -60,14 +59,7 @@ mod test {
         let fir = run_passes_from_filepath(input)?;
         let mut rir = from_fir(&fir);
         cleanup_rir(&mut rir);
-
-// for (module, rg) in rir.graphs.iter() {
-// rg.export_graphviz(&format!("./test-outputs/{}-{}.rir.cleanup.pdf",
-// rir.name.to_string(), module.to_string()), None, None, false)?;
-// }
-
-        traverse_aggregate(rir, true)?;
-
+        traverse_aggregate(rir, false)?;
         Ok(())
     }
 
