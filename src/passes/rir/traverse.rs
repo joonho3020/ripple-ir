@@ -19,7 +19,7 @@ pub fn traverse_aggregate(rir: RippleIR, export: bool) -> Result<(), RippleIRErr
     Ok(())
 }
 
-pub fn traverse_graph_aggregate(module: &Identifier, rg: &RippleGraph, export: bool) -> Result<(), RippleIRErr> {
+fn traverse_graph_aggregate(module: &Identifier, rg: &RippleGraph, export: bool) -> Result<(), RippleIRErr> {
     let mut q: VecDeque<AggNodeIndex> = VecDeque::new();
 
     for agg_id in rg.node_indices_agg().iter() {

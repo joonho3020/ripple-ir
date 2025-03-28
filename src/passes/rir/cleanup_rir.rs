@@ -41,15 +41,16 @@ fn cleanup_rg_memory(rg: &mut RippleGraph) {
 /// Possible when:
 /// - All incoming edges are of type RippleEdgeType::ArrayAddr
 fn cleanup_rg_array(rg: &mut RippleGraph) {
-// for agg_id in rg.node_indices_agg() {
-// let node_agg = rg.node_weight_agg(agg_id);
-// let agg_edges = rg.edges_directed_agg(agg_id, Incoming);
-// }
+    for agg_id in rg.node_indices_agg() {
+        let node_agg = rg.node_weight_agg(agg_id);
+// let agg_edges = rg.edges_agg()
+    }
 }
 
 #[cfg(test)]
 mod test {
     use crate::common::RippleIRErr;
+    use crate::passes::rir::traverse::traverse_aggregate;
     use crate::passes::runner::run_passes_from_filepath;
     use crate::common::graphviz::GraphViz;
     use crate::passes::rir::from_fir::from_fir;
@@ -62,8 +63,10 @@ mod test {
 
         for (module, rg) in rir.graphs.iter() {
             rg.export_graphviz(&format!("./test-outputs/{}-{}.rir.cleanup.pdf",
-                    rir.name.to_string(), module.to_string()), None, None, true)?;
+                    rir.name.to_string(), module.to_string()), None, None, false)?;
         }
+
+        traverse_aggregate(rir, true)?;
 
         Ok(())
     }

@@ -107,12 +107,12 @@ impl RippleGraph {
         ttree.subtree_root(reference)
     }
 
-    fn subttree_leaves(&self, id: AggNodeIndex, root: TypeTreeNodeIndex) -> Vec<TypeTreeNodeIndex> {
+    fn subttree_all_ids(&self, id: AggNodeIndex, root: TypeTreeNodeIndex) -> Vec<TypeTreeNodeIndex> {
         let agg_node = self.agg_nodes.get(&id).unwrap();
         let ttree = agg_node.ttree.as_ref().unwrap();
         let root_graph = ttree.graph_id(root).unwrap();
         let sub_ttree = SubTreeView::new(ttree, *root_graph);
-        sub_ttree.leaves()
+        sub_ttree.all_ids()
     }
 
     fn ttree_all_ids(&self, id: AggNodeIndex) -> Vec<TypeTreeNodeIndex> {
@@ -407,10 +407,12 @@ impl RippleGraph {
     pub fn flatedges_under_agg(&self, edge: &AggEdge) -> Vec<EdgeIndex> {
         let unique_edge_ids_vec = self.agg_edge_map.get(&edge.id).unwrap();
         let unique_edge_ids: IndexSet<&RippleEdgeIndex> = IndexSet::from_iter(unique_edge_ids_vec);
-        let src_subtree_leaves = self.subttree_leaves(edge.src, edge.src_subtree_root);
+        let src_subtree_leaves = self.subttree_all_ids(edge.src, edge.src_subtree_root);
         let src_ids = src_subtree_leaves
             .iter()
-            .map(|leaf_id| self.flatid(edge.src, *leaf_id).unwrap())
+            .map(|leaf_id| self.flatid(edge.src, *leaf_id))
+            .filter(|x| x.is_some())
+            .map(|x| x.unwrap())
             .collect();
 
         let mut ret = vec![];
@@ -422,10 +424,12 @@ impl RippleGraph {
     pub fn flatedges_dir_under_agg(&self, edge: &AggEdge, dir: petgraph::Direction) -> Vec<EdgeIndex> {
         let unique_edge_ids_vec = self.agg_edge_map.get(&edge.id).unwrap();
         let unique_edge_ids: IndexSet<&RippleEdgeIndex> = IndexSet::from_iter(unique_edge_ids_vec);
-        let src_subtree_leaves = self.subttree_leaves(edge.src, edge.src_subtree_root);
+        let src_subtree_leaves = self.subttree_all_ids(edge.src, edge.src_subtree_root);
         let src_ids = src_subtree_leaves
             .iter()
-            .map(|leaf_id| self.flatid(edge.src, *leaf_id).unwrap())
+            .map(|leaf_id| self.flatid(edge.src, *leaf_id))
+            .filter(|x| x.is_some())
+            .map(|x| x.unwrap())
             .collect();
 
         let mut ret = vec![];
