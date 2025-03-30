@@ -41,6 +41,10 @@ impl<'a> SubTreeView<'a> {
         }
     }
 
+    pub fn is_array(&self) -> bool {
+        self.root_node().unwrap().tpe == TypeTreeNodeType::Array
+    }
+
     pub fn get_node(&self, id: TypeTreeNodeIndex) -> Option<TypeTreeNode> {
         let graph_id = *self.ttree.graph_id(id).unwrap();
         if graph_id == self.root {

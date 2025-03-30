@@ -1,3 +1,6 @@
+use petgraph::Direction::Incoming;
+
+use crate::ir::rir::redge::RippleEdgeType;
 use crate::ir::typetree::tnode::*;
 use crate::ir::rir::rnode::*;
 use crate::ir::rir::rgraph::*;
@@ -40,11 +43,32 @@ fn cleanup_rg_memory(rg: &mut RippleGraph) {
 /// Similar to cleanup_rg_memory except that this is for combinational memory arrays.
 /// Possible when:
 /// - All incoming edges are of type RippleEdgeType::ArrayAddr
-fn cleanup_rg_array(rg: &mut RippleGraph) {
-    for agg_id in rg.node_indices_agg() {
-        let node_agg = rg.node_weight_agg(agg_id);
-    }
-}
+// fn cleanup_rg_array(rg: &mut RippleGraph) {
+// for agg_id in rg.node_indices_agg() {
+// let node_agg = rg.node_weight_agg(agg_id).unwrap();
+// if !node_agg.ttree.as_ref().unwrap().view().unwrap().is_array() {
+// continue;
+// }
+
+// let mut has_addr = false;
+// let agg_edges = rg.edges_agg(agg_id);
+// for agg_edge in agg_edges {
+// let in_flat_edges = rg.flatedges_dir_under_agg(agg_id, agg_edge, Incoming);
+// for eid in in_flat_edges {
+// let edge_type = &rg.edge_weight(eid).unwrap().data.et;
+// match edge_type {
+// RippleEdgeType::ArrayAddr |
+// RippleEdgeType::Clock |
+// RippleEdgeType::Reset => {
+// }
+// _ => {
+// has_addr = false;
+// }
+// }
+// }
+// }
+// }
+// }
 
 #[cfg(test)]
 mod test {
@@ -59,6 +83,10 @@ mod test {
         let fir = run_passes_from_filepath(input)?;
         let mut rir = from_fir(&fir);
         cleanup_rir(&mut rir);
+        for (module, rg) in rir.graphs.iter() {
+            rg.export_graphviz(&format!("./test-outputs/{}-{}.rir.cleanup.pdf",
+                    rir.name.to_string(), module.to_string()), None, None, false)?;
+        }
         traverse_aggregate(rir, false)?;
         Ok(())
     }
@@ -66,6 +94,18 @@ mod test {
     #[test]
     fn singleportsram() {
         run_simple("./test-inputs/SinglePortSRAM.fir")
+            .expect("singleportsram");
+    }
+
+    #[test]
+    fn regvecinit() {
+        run_simple("./test-inputs/RegVecInit.fir")
+            .expect("singleportsram");
+    }
+
+    #[test]
+    fn dynamicindexing() {
+        run_simple("./test-inputs/DynamicIndexing.fir")
             .expect("singleportsram");
     }
 
