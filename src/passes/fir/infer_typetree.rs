@@ -8,7 +8,7 @@ use petgraph::prelude::Dfs;
 use indexmap::IndexMap;
 use crate::common::graphviz::DefaultGraphVizCore;
 use crate::common::RippleIRErr;
-use crate::ir::firir::*;
+use crate::ir::fir::*;
 use crate::ir::hierarchy::Hierarchy;
 use crate::ir::typetree::typetree::*;
 use crate::ir::typetree::tnode::*;
@@ -28,21 +28,21 @@ fn set_ground_type(fg: &mut FirGraph, id: NodeIndex, gt: GroundType) {
 
 fn topo_start_node(nt: &FirNodeType) -> bool {
     match nt {
-        FirNodeType::Invalid             |
-            FirNodeType::DontCare        |
-            FirNodeType::UIntLiteral(..) |
-            FirNodeType::SIntLiteral(..) |
-            FirNodeType::Wire            |
-            FirNodeType::Reg             |
-            FirNodeType::RegReset        |
-            FirNodeType::SMem(..)        |
-            FirNodeType::CMem            |
-            FirNodeType::ReadMemPort     |
-            FirNodeType::WriteMemPort    |
-            FirNodeType::InferMemPort    |
-            FirNodeType::Inst(..)        |
-            FirNodeType::Input           |
-            FirNodeType::Output          |
+        FirNodeType::Invalid              |
+            FirNodeType::DontCare         |
+            FirNodeType::UIntLiteral(..)  |
+            FirNodeType::SIntLiteral(..)  |
+            FirNodeType::Wire             |
+            FirNodeType::Reg              |
+            FirNodeType::RegReset         |
+            FirNodeType::SMem(..)         |
+            FirNodeType::CMem             |
+            FirNodeType::ReadMemPort(..)  |
+            FirNodeType::WriteMemPort(..) |
+            FirNodeType::InferMemPort(..) |
+            FirNodeType::Inst(..)         |
+            FirNodeType::Input            |
+            FirNodeType::Output           |
             FirNodeType::Phi => {
                 return true;
             }
@@ -85,9 +85,9 @@ fn infer_typetree_graph(fir: &mut FirIR, name: &Identifier) {
                 for cid in childs {
                     let child = fir.graphs.get_mut(name).unwrap().graph.node_weight_mut(cid).unwrap();
                     match child.nt {
-                        FirNodeType::InferMemPort |
-                            FirNodeType::WriteMemPort |
-                            FirNodeType::ReadMemPort => {
+                        FirNodeType::InferMemPort(..) |
+                            FirNodeType::WriteMemPort(..) |
+                            FirNodeType::ReadMemPort(..) => {
                             child.ttree = Some(ttree_view.subtree_array_element().clone_ttree());
                         }
                         _ => {

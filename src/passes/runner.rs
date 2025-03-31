@@ -1,4 +1,4 @@
-use crate::ir::firir::FirIR;
+use crate::ir::fir::FirIR;
 use crate::ir::rir::rir::RippleIR;
 use crate::passes::fir::from_ast::from_circuit;
 use crate::passes::fir::infer_typetree::*;

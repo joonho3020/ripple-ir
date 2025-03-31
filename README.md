@@ -182,3 +182,22 @@ While DA is not empty:
 • If actual candidate count is higher than expected, the vertex is reinserted into DA with updated score.
 • When a mapping is made, the candidate expectations of nearby vertices are decremented to reflect the reduced mapping space.
 ```
+
+---
+
+## CHIRRTL/FIRRTL specification
+
+### Memory
+
+- smem: seq = 1, read latency = 1, write latency = 1
+- cmem: seq = 0, read latency = 0, write latency = 1
+- read port: data (out) clk (in) addr (in) en(in)
+- write port: data(in) clk (in) addr (in) mask (in) en(in)
+- readwrite port: wdata(in) rdata(out) clk (in) addr (in) wmode (in) en (in)
+    - when read & write ports gets merged into a readwrite port
+        - wmode = write.en
+        - en = read.en || write.en
+        - wdata = write.data
+        - rdata = read.data
+- In the FIR-graph format, perform memory port inference
+- Undo port inference when exporting back to FIRRTL

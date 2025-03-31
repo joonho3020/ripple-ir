@@ -1,7 +1,7 @@
 use chirrtl_parser::ast::Width;
 use crate::ir::PhiPriority;
 use crate::ir::whentree::Condition;
-use crate::ir::firir::FirEdgeType;
+use crate::ir::fir::FirEdgeType;
 use crate::impl_clean_display;
 use crate::define_index_type;
 
@@ -26,6 +26,7 @@ pub enum RippleEdgeType {
 
     MemPortEdge,
     MemPortAddr,
+    MemPortEn,
 
     ArrayAddr,
 }
@@ -47,6 +48,7 @@ impl From<&FirEdgeType> for RippleEdgeType {
             FirEdgeType::PhiOut => RippleEdgeType::PhiOut,
             FirEdgeType::MemPortEdge => RippleEdgeType::MemPortEdge,
             FirEdgeType::MemPortAddr => RippleEdgeType::MemPortAddr,
+            FirEdgeType::MemPortEn => RippleEdgeType::MemPortEn,
             FirEdgeType::ArrayAddr => RippleEdgeType::ArrayAddr
         }
     }

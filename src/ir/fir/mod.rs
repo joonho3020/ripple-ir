@@ -48,9 +48,9 @@ pub enum FirNodeType {
     RegReset,
     SMem(Option<ChirrtlMemoryReadUnderWrite>),
     CMem,
-    WriteMemPort,
-    ReadMemPort,
-    InferMemPort,
+    WriteMemPort(Condition),
+    ReadMemPort(Condition),
+    InferMemPort(Condition),
     Inst(Identifier),
 
     // Port
@@ -90,6 +90,7 @@ pub enum FirEdgeType {
 
     MemPortEdge,
     MemPortAddr,
+    MemPortEn,
 
     ArrayAddr,
 }

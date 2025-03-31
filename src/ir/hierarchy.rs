@@ -3,7 +3,7 @@ use petgraph::graph::{Graph, NodeIndex};
 use petgraph::algo::toposort;
 use indexmap::IndexMap;
 
-use super::firir::{FirIR, FirNodeType};
+use super::fir::{FirIR, FirNodeType};
 use crate::common::graphviz::*;
 use crate::impl_clean_display;
 

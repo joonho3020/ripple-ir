@@ -1,5 +1,6 @@
 pub mod check_ast_assumption;
 pub mod print;
+pub mod infer_readwrite;
 
 #[cfg(test)]
 mod test {
@@ -76,5 +77,4 @@ Annotations(
         run_check_assumption("./test-inputs/chipyard.harness.TestHarness.LargeBoomV3Config.fir")
             .expect("boom ast assumption");
     }
-
 }

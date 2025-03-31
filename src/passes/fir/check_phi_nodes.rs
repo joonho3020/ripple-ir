@@ -1,9 +1,8 @@
 use chirrtl_parser::ast::Identifier;
-use firir::FirGraph;
 use petgraph::Direction::{Incoming, Outgoing};
 use petgraph::visit::EdgeRef;
-use crate::ir::firir::{FirEdgeType, FirIR, FirNodeType};
-use crate::ir::*;
+use crate::ir::fir::FirGraph;
+use crate::ir::fir::{FirEdgeType, FirIR, FirNodeType};
 use crate::common::RippleIRErr;
 use crate::common::graphviz::GraphViz;
 

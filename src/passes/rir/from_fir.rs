@@ -1,7 +1,7 @@
 use chirrtl_parser::ast::*;
 use indexmap::{IndexMap, IndexSet};
 use petgraph::graph::NodeIndex;
-use crate::ir::firir::*;
+use crate::ir::fir::*;
 use crate::ir::rir::{rgraph::*, rir::*, agg::*, rnode::*, redge::*};
 
 pub fn from_fir(fir: &FirIR) -> RippleIR {
@@ -107,6 +107,7 @@ fn from_fir_graph(fg: &FirGraph) -> RippleGraph {
                 FirEdgeType::DontCare    |
                 FirEdgeType::PhiSel      |
                 FirEdgeType::MemPortAddr |
+                FirEdgeType::MemPortEn   |
                 FirEdgeType::ArrayAddr   => {
                     rg.add_fanout_edge_agg(src_id, &src_ref, dst_id, dst_ref, agg_edge);
             }

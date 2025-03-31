@@ -1,6 +1,3 @@
-use petgraph::Direction::Incoming;
-
-use crate::ir::rir::redge::RippleEdgeType;
 use crate::ir::typetree::tnode::*;
 use crate::ir::rir::rnode::*;
 use crate::ir::rir::rgraph::*;
@@ -79,13 +76,15 @@ mod test {
     use crate::passes::rir::from_fir::from_fir;
     use super::*;
 
-    fn run_simple(input: &str) -> Result<(), RippleIRErr> {
+    fn run_simple(input: &str, export: bool) -> Result<(), RippleIRErr> {
         let fir = run_passes_from_filepath(input)?;
         let mut rir = from_fir(&fir);
         cleanup_rir(&mut rir);
-        for (module, rg) in rir.graphs.iter() {
-            rg.export_graphviz(&format!("./test-outputs/{}-{}.rir.cleanup.pdf",
-                    rir.name.to_string(), module.to_string()), None, None, false)?;
+        if export {
+            for (module, rg) in rir.graphs.iter() {
+                rg.export_graphviz(&format!("./test-outputs/{}-{}.rir.cleanup.pdf",
+                        rir.name.to_string(), module.to_string()), None, None, false)?;
+            }
         }
         traverse_aggregate(rir, false)?;
         Ok(())
@@ -93,25 +92,25 @@ mod test {
 
     #[test]
     fn singleportsram() {
-        run_simple("./test-inputs/SinglePortSRAM.fir")
+        run_simple("./test-inputs/SinglePortSRAM.fir", true)
             .expect("singleportsram");
     }
 
     #[test]
     fn regvecinit() {
-        run_simple("./test-inputs/RegVecInit.fir")
+        run_simple("./test-inputs/RegVecInit.fir", false)
             .expect("singleportsram");
     }
 
     #[test]
     fn dynamicindexing() {
-        run_simple("./test-inputs/DynamicIndexing.fir")
+        run_simple("./test-inputs/DynamicIndexing.fir", true)
             .expect("singleportsram");
     }
 
     #[test]
     fn rocket() {
-        run_simple("./test-inputs/chipyard.harness.TestHarness.RocketConfig.fir")
+        run_simple("./test-inputs/chipyard.harness.TestHarness.RocketConfig.fir", false)
             .expect("singleportsram");
     }
 }

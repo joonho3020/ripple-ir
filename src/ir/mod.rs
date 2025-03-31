@@ -1,6 +1,6 @@
 pub mod typetree;
 pub mod whentree;
-pub mod firir;
+pub mod fir;
 pub mod hierarchy;
 pub mod rir;
 

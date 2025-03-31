@@ -1,4 +1,4 @@
-use crate::ir::firir::*;
+use crate::ir::fir::*;
 use petgraph::{
     graph::{NodeIndex, EdgeIndex},
     visit::EdgeRef, Direction::{Incoming, Outgoing}

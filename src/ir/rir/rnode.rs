@@ -1,7 +1,8 @@
 use chirrtl_parser::ast::*;
 use derivative::Derivative;
 use std::hash::Hash;
-use crate::ir::firir::*;
+use crate::ir::whentree::*;
+use crate::ir::fir::*;
 use crate::impl_clean_display;
 use crate::define_index_type;
 use crate::ir::typetree::tnode::*;
@@ -28,9 +29,9 @@ pub enum RippleNodeType {
     RegReset,
     SMem(Option<ChirrtlMemoryReadUnderWrite>),
     CMem,
-    WriteMemPort,
-    ReadMemPort,
-    InferMemPort,
+    WriteMemPort(Condition),
+    ReadMemPort(Condition),
+    InferMemPort(Condition),
     Inst(Identifier),
 
     // Port
@@ -58,9 +59,9 @@ impl From<&FirNodeType> for RippleNodeType {
             FirNodeType::RegReset => Self::RegReset,
             FirNodeType::SMem(x) => Self::SMem(x.clone()),
             FirNodeType::CMem => Self::CMem,
-            FirNodeType::WriteMemPort => Self::WriteMemPort,
-            FirNodeType::ReadMemPort => Self::ReadMemPort,
-            FirNodeType::InferMemPort => Self::InferMemPort,
+            FirNodeType::WriteMemPort(cond) => Self::WriteMemPort(cond.clone()),
+            FirNodeType::ReadMemPort(cond) => Self::ReadMemPort(cond.clone()),
+            FirNodeType::InferMemPort(cond) => Self::InferMemPort(cond.clone()),
             FirNodeType::Inst(x) => Self::Inst(x.clone()),
             FirNodeType::Input => Self::Input,
             FirNodeType::Output => Self::Output,
