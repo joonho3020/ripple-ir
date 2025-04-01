@@ -21,7 +21,9 @@ pub fn check_mport_assumptions(fir: &FirIR) -> RWPortMap {
     let mut ret = RWPortMap::new();
     for (name, fgraph) in fir.graphs.iter() {
         let mems_with_rwport = mems_with_readwrite_port(&fgraph);
-        ret.insert(name.clone(), mems_with_rwport);
+        if mems_with_rwport.len() > 0 {
+            ret.insert(name.clone(), mems_with_rwport);
+        }
     }
     return ret;
 }
@@ -32,7 +34,7 @@ fn mems_with_readwrite_port(fg: &FirGraph) -> Vec<Identifier> {
         let node = fg.graph.node_weight(id).unwrap();
         match &node.nt {
             FirNodeType::SMem(..) => {
-                if !has_readwrite_port(fg, id) {
+                if has_inferred_readwrite_port(fg, id) {
                     ret.push(node.name.as_ref().unwrap().clone());
                 }
             }
@@ -51,12 +53,15 @@ fn mems_with_readwrite_port(fg: &FirGraph) -> Vec<Identifier> {
 
 type Drivers = IndexSet<Expr>;
 
-fn has_readwrite_port(fg: &FirGraph, id: NodeIndex) -> bool {
+fn has_inferred_readwrite_port(fg: &FirGraph, id: NodeIndex) -> bool {
     let mem = fg.graph.node_weight(id).unwrap();
     let port_ids = fg.graph.neighbors_directed(id, Outgoing);
 
     let mut wport_en_drivers: Vec<Drivers> = vec![];
     let mut rport_en_drivers: Vec<Drivers> = vec![];
+
+    let mut wport_addrs: Vec<Expr> = vec![];
+    let mut rport_addrs: Vec<Expr> = vec![];
 
     fn add_drivers(fg: &FirGraph, port_id: NodeIndex) -> Option<Drivers> {
         match parent_with_type(fg, port_id, FirEdgeType::MemPortEn) {
@@ -74,6 +79,12 @@ fn has_readwrite_port(fg: &FirGraph, id: NodeIndex) -> bool {
         }
     }
 
+    fn address(fg: &FirGraph, port_id: NodeIndex) -> Expr {
+        let eid = parent_with_type(fg, port_id, FirEdgeType::MemPortAddr).unwrap();
+        let edge = fg.graph.edge_weight(eid).unwrap();
+        edge.src.clone()
+    }
+
     for port_id in port_ids {
         let port = fg.graph.node_weight(port_id).unwrap();
         match &port.nt {
@@ -82,12 +93,14 @@ fn has_readwrite_port(fg: &FirGraph, id: NodeIndex) -> bool {
                 if let Some(drivers) = add_drivers(fg, port_id) {
                     wport_en_drivers.push(drivers);
                 }
+                wport_addrs.push(address(fg, port_id));
             }
             FirNodeType::ReadMemPort(cond) => {
                 assert!(cond.collect_sels().len() < 2);
                 if let Some(drivers) = add_drivers(fg, port_id) {
                     rport_en_drivers.push(drivers);
                 }
+                rport_addrs.push(address(fg, port_id));
             }
             FirNodeType::InferMemPort(cond) => {
                 assert!(cond.collect_sels().len() < 2);
@@ -99,27 +112,29 @@ fn has_readwrite_port(fg: &FirGraph, id: NodeIndex) -> bool {
         }
     }
 
-    if wport_en_drivers.len() != 1 && rport_en_drivers.len() != 1 {
+    if (wport_addrs.len() != 1 || rport_addrs.len() != 1) ||
+        (wport_en_drivers.len() != 1 || rport_en_drivers.len() != 1)
+    {
         return false;
+    }
+
+    if wport_addrs[0] == rport_addrs[0] {
+        return true;
     }
 
     let wport_drivers = &wport_en_drivers[0];
     let rport_drivers = &rport_en_drivers[0];
 
-    for w in wport_drivers {
-        let mut found_complement = false;
+    let mut found_complement = false;
+    'wport_loop: for w in wport_drivers {
         for r in rport_drivers {
             if check_complement(w, r) {
                 found_complement = true;
-                break;
+                break 'wport_loop;
             }
         }
-
-        if !found_complement {
-            return false
-        }
     }
-    return true;
+    return found_complement;
 }
 
 fn check_complement(a: &Expr, b: &Expr) -> bool {
@@ -215,7 +230,9 @@ fn track_en_drivers(fg: &FirGraph, cur_expr: &Expr, id: NodeIndex, drivers: &mut
             }
         }
         FirNodeType::Phi => {
-            // NOTE: This is a bit more pessimistic than the FIRRTL version
+            // This is a bit more pessimistic than the FIRRTL version as
+            // FIRRTL performs mux expansion and in theory can traverse
+            // through more signals
             drivers.insert(cur_expr.clone());
         }
         FirNodeType::PrimOp2Expr(PrimOp2Expr::And) => {
@@ -231,8 +248,39 @@ fn track_en_drivers(fg: &FirGraph, cur_expr: &Expr, id: NodeIndex, drivers: &mut
             track_en_drivers(fg, &op0_edge.src, op0_ep.0, drivers);
             track_en_drivers(fg, &op1_edge.src, op1_ep.0, drivers);
         }
+        FirNodeType::PrimOp2Expr(PrimOp2Expr::Eq) => {
+            let op0_eid = parent_with_type(fg, id, FirEdgeType::Operand0).unwrap();
+            let op0_edge = fg.graph.edge_weight(op0_eid).unwrap();
+
+            let op1_eid = parent_with_type(fg, id, FirEdgeType::Operand1).unwrap();
+            let op1_edge = fg.graph.edge_weight(op1_eid).unwrap();
+
+            drivers.insert(cur_expr.clone());
+            drivers.insert(Expr::PrimOp2Expr(
+                    PrimOp2Expr::Eq,
+                    Box::new(op0_edge.src.clone()),
+                    Box::new(op1_edge.src.clone())));
+        }
+        FirNodeType::PrimOp1Expr(PrimOp1Expr::Not) => {
+            let op0_eid = parent_with_type(fg, id, FirEdgeType::Operand0).unwrap();
+            let op0_edge = fg.graph.edge_weight(op0_eid).unwrap();
+            drivers.insert(cur_expr.clone());
+            drivers.insert(Expr::PrimOp1Expr(
+                    PrimOp1Expr::Not,
+                    Box::new(op0_edge.src.clone())));
+        }
         _ => {
             drivers.insert(cur_expr.clone());
+            for pedge in fg.graph.edges_directed(id, Incoming) {
+                let edge = fg.graph.edge_weight(pedge.id()).unwrap();
+                if let Some(dst_ref) = &edge.dst {
+                    let dst_expr = Expr::Reference(dst_ref.clone());
+                    if *cur_expr == dst_expr {
+                        let ep = fg.graph.edge_endpoints(pedge.id()).unwrap();
+                        track_en_drivers(fg, &edge.src, ep.0, drivers);
+                    }
+                }
+            }
         }
     }
 }
@@ -280,13 +328,129 @@ mod test {
 
     #[test]
     fn rocket() {
-        run("chipyard.harness.TestHarness.RocketConfig", false)
+        let rwport_map = run("chipyard.harness.TestHarness.RocketConfig", false)
             .expect("rocket failed");
+
+        let mut expect = IndexMap::new();
+        expect.insert(
+            Identifier::Name("Directory".to_string()),
+            vec![
+                Identifier::Name("cc_dir".to_string())
+            ]);
+
+        expect.insert(
+            Identifier::Name("BankedStore".to_string()),
+            vec![
+                Identifier::Name("cc_banks_0".to_string()),
+                Identifier::Name("cc_banks_1".to_string()),
+                Identifier::Name("cc_banks_2".to_string()),
+                Identifier::Name("cc_banks_3".to_string()),
+            ]);
+
+        expect.insert(
+            Identifier::Name("BankedStore".to_string()),
+            vec![
+                Identifier::Name("cc_banks_0".to_string()),
+                Identifier::Name("cc_banks_1".to_string()),
+                Identifier::Name("cc_banks_2".to_string()),
+                Identifier::Name("cc_banks_3".to_string()),
+            ]);
+
+        expect.insert(
+            Identifier::Name("DCacheDataArray".to_string()),
+            vec![
+                Identifier::Name("rockettile_dcache_data_arrays_0".to_string())
+            ]);
+
+        expect.insert(
+            Identifier::Name("DCache".to_string()),
+            vec![
+                Identifier::Name("rockettile_dcache_tag_array".to_string())
+            ]);
+
+        expect.insert(
+            Identifier::Name("ICache".to_string()),
+            vec![
+                Identifier::Name("rockettile_icache_tag_array".to_string()),
+                Identifier::Name("rockettile_icache_data_arrays_0".to_string()),
+                Identifier::Name("rockettile_icache_data_arrays_1".to_string())
+            ]);
+
+        expect.insert(
+            Identifier::Name("TLRAM_ScratchpadBank".to_string()),
+            vec![
+                Identifier::Name("mem".to_string()),
+            ]);
+
+        assert_eq!(rwport_map, expect);
     }
 
     #[test]
     fn boom() {
-        run("chipyard.harness.TestHarness.LargeBoomV3Config", false)
+        let rwport_map = run("chipyard.harness.TestHarness.LargeBoomV3Config", false)
             .expect("boom failed");
+
+        let mut expect = IndexMap::new();
+        expect.insert(
+            Identifier::Name("Directory".to_string()),
+            vec![
+                Identifier::Name("cc_dir".to_string())
+            ]);
+
+        expect.insert(
+            Identifier::Name("BankedStore".to_string()),
+            vec![
+                Identifier::Name("cc_banks_0".to_string()),
+                Identifier::Name("cc_banks_1".to_string()),
+                Identifier::Name("cc_banks_2".to_string()),
+                Identifier::Name("cc_banks_3".to_string()),
+                Identifier::Name("cc_banks_4".to_string()),
+                Identifier::Name("cc_banks_5".to_string()),
+                Identifier::Name("cc_banks_6".to_string()),
+                Identifier::Name("cc_banks_7".to_string()),
+            ]);
+
+        expect.insert(
+            Identifier::Name("ICache".to_string()),
+            vec![
+                Identifier::Name("tag_array".to_string()),
+                Identifier::Name("dataArrayB0Way_0".to_string()),
+                Identifier::Name("dataArrayB0Way_1".to_string()),
+                Identifier::Name("dataArrayB0Way_2".to_string()),
+                Identifier::Name("dataArrayB0Way_3".to_string()),
+                Identifier::Name("dataArrayB0Way_4".to_string()),
+                Identifier::Name("dataArrayB0Way_5".to_string()),
+                Identifier::Name("dataArrayB0Way_6".to_string()),
+                Identifier::Name("dataArrayB0Way_7".to_string()),
+                Identifier::Name("dataArrayB1Way_0".to_string()),
+                Identifier::Name("dataArrayB1Way_1".to_string()),
+                Identifier::Name("dataArrayB1Way_2".to_string()),
+                Identifier::Name("dataArrayB1Way_3".to_string()),
+                Identifier::Name("dataArrayB1Way_4".to_string()),
+                Identifier::Name("dataArrayB1Way_5".to_string()),
+                Identifier::Name("dataArrayB1Way_6".to_string()),
+                Identifier::Name("dataArrayB1Way_7".to_string()),
+            ]);
+
+        expect.insert(
+            Identifier::Name("L1MetadataArray".to_string()),
+            vec![
+                Identifier::Name("tag_array".to_string()),
+            ]);
+
+
+        expect.insert(
+            Identifier::Name("PTW".to_string()),
+            vec![
+                Identifier::Name("l2_tlb_ram".to_string()),
+            ]);
+
+        expect.insert(
+            Identifier::Name("TLRAM_ScratchpadBank".to_string()),
+            vec![
+                Identifier::Name("mem".to_string()),
+            ]);
+
+        assert_eq!(rwport_map, expect);
     }
 }

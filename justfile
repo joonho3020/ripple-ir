@@ -25,7 +25,7 @@ test_debug: uncompress make_output_dir
 
 [group: 'test']
 test_only name:
-  RUST_BACKTRACE=1 cargo nextest run --release {{name}} --nocapture
+  RUST_BACKTRACE=full cargo nextest run --release {{name}} --nocapture
 
 [group: 'test']
 test_only_debug name:
