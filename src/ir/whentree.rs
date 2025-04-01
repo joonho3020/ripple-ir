@@ -1,5 +1,7 @@
 use chirrtl_parser::ast::*;
 use petgraph::{graph::{Graph, NodeIndex}, Direction::Outgoing};
+use indexmap::IndexMap;
+use crate::ir::PhiPriority;
 
 /// Represents a chain of conditions in a decision tree (a.k.a mux tree)
 #[derive(Default, Debug, Clone, PartialEq, Eq, Hash)]
@@ -42,6 +44,47 @@ impl Condition {
         }
     }
 }
+
+
+#[derive(Debug, Clone)]
+pub struct PrioritizedCond {
+    pub prior: PhiPriority,
+    pub cond: Condition,
+}
+
+impl PrioritizedCond {
+    pub fn new(prior: PhiPriority, cond: Condition) -> Self {
+        Self { prior, cond }
+    }
+}
+
+impl Eq for PrioritizedCond {}
+
+impl PartialEq for PrioritizedCond {
+    fn eq(&self, other: &Self) -> bool {
+        self.cond ==  other.cond && self.prior == other.prior
+    }
+}
+
+impl Ord for PrioritizedCond {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        if self.cond.collect_sels() == other.cond.collect_sels() {
+            match (&self.cond, &other.cond) {
+                (Condition::When(..), Condition::Else(..)) => std::cmp::Ordering::Less,
+                _ => std::cmp::Ordering::Greater,
+            }
+        } else {
+            self.prior.cmp(&other.prior)
+        }
+    }
+}
+
+impl PartialOrd for PrioritizedCond {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
 
 #[derive(Default, Debug, Clone, PartialEq)]
 pub struct WhenTreeNode {
@@ -210,6 +253,55 @@ impl WhenTree {
             _ => { }
         }
         leaf_nodes.iter().map(|id| self.get(*id)).collect()
+    }
+
+    /// Reconstructs a WhenTree from a vector of (priority, condition) pairs
+    pub fn from_conditions(cond_paths: Vec<PrioritizedCond>) -> Self {
+        let mut tree = WhenTree::new();
+
+        // Set up the root node
+        let root_node = WhenTreeNode::new(Condition::Root, 0);
+        let root_id = tree.graph.add_node(root_node);
+        tree.root = Some(root_id);
+
+        let mut cond_to_node: IndexMap<Condition, NodeIndex> = IndexMap::new();
+        cond_to_node.insert(Condition::Root, root_id);
+
+        // Sort conditions by PhiPriority
+        let mut sorted_paths = cond_paths;
+        sorted_paths.sort();
+
+        println!("sorted_paths {:?}", sorted_paths);
+
+        for prior_cond in sorted_paths {
+            let mut cur_cond = Condition::Root.clone();
+            let mut cur_node = root_id;
+
+            let cond = prior_cond.cond;
+            let prior = prior_cond.prior;
+
+            // Traverse the chain of conditions
+            for expr in cond.collect_sels() {
+                let next_cond = match &cond {
+                    Condition::When(_, _) => Condition::When(Box::new(cur_cond.clone()), expr.clone()),
+                    Condition::Else(_, _) => Condition::Else(Box::new(cur_cond.clone()), expr.clone()),
+                    _ => unreachable!(),
+                };
+
+                let next_node = *cond_to_node.entry(next_cond.clone()).or_insert_with(|| {
+                    let new_node = WhenTreeNode::new(next_cond.clone(), prior.block);
+                    let new_node_id = tree.graph.add_node(new_node);
+                    tree.graph.add_edge(cur_node, new_node_id, ());
+                    new_node_id
+                });
+
+                cur_node = next_node;
+                cur_cond = next_cond;
+            }
+            // We don’t push any actual statements, so nodes are empty.
+            // But we now have the correct hierarchy in place.
+        }
+        tree
     }
 }
 

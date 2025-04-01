@@ -4,7 +4,7 @@ pub mod fir;
 pub mod hierarchy;
 pub mod rir;
 
-#[derive(Debug, Default, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Hash)]
 pub struct PhiPriority {
     /// Priority between blocks
     /// - Smaller number means higher priority
@@ -18,6 +18,16 @@ pub struct PhiPriority {
 impl PhiPriority {
     pub fn new(block: u32, stmt: u32) -> Self {
         Self { block, stmt }
+    }
+}
+
+impl Ord for PhiPriority {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        if other.block == self.block {
+            other.stmt.cmp(&self.stmt)
+        } else {
+            other.block.cmp(&self.block)
+        }
     }
 }
 

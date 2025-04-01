@@ -2,7 +2,7 @@ use chirrtl_parser::ast::*;
 use image::imageops::colorops::contrast_in_place;
 use petgraph::{visit::EdgeRef, Direction::Incoming};
 
-use crate::{common::graphviz::DefaultGraphVizCore, ir::fir::{FirEdgeType, FirGraph, FirIR, FirNodeType}};
+use crate::{common::graphviz::DefaultGraphVizCore, ir::{fir::{FirEdgeType, FirGraph, FirIR, FirNodeType}, whentree::{PrioritizedCond, WhenTree}}};
 
 pub fn to_ast(fir: &FirIR) -> Option<Circuit> {
     for (name, fgraph) in fir.graphs.iter() {
@@ -110,7 +110,7 @@ fn collect_def_stmts(fg: &FirGraph, stmts: &mut Stmts) {
     }
 }
 
-fn reconstruct_whentree(fg: &FirGraph) {
+fn reconstruct_whentree(fg: &FirGraph) -> WhenTree {
     let mut cond_priority_pair = vec![];
     for id in fg.graph.node_indices() {
         let node = fg.graph.node_weight(id).unwrap();
@@ -121,7 +121,8 @@ fn reconstruct_whentree(fg: &FirGraph) {
                     let edge = fg.graph.edge_weight(eid.id()).unwrap();
                     match &edge.et {
                         FirEdgeType::PhiInput(prior, cond) => {
-                            cond_priority_pair.push((prior, cond));
+                            println!("cond {:?}", cond);
+                            cond_priority_pair.push(PrioritizedCond::new(prior.clone(), cond.clone()));
                         }
                         _ => {
                         }
@@ -135,8 +136,48 @@ fn reconstruct_whentree(fg: &FirGraph) {
         }
     }
 
+    WhenTree::from_conditions(cond_priority_pair)
+
 
 }
 
 fn collect_remaining_stmts(fg: &FirGraph, stmts: &mut Stmts) {
+}
+
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::passes::fir::from_ast::from_circuit;
+    use crate::passes::fir::remove_unnecessary_phi::remove_unnecessary_phi;
+    use crate::passes::fir::check_phi_nodes::check_phi_node_connections;
+    use crate::common::RippleIRErr;
+    use chirrtl_parser::parse_circuit;
+
+    fn run(name: &str) -> Result<(), RippleIRErr> {
+        let source = std::fs::read_to_string(format!("./test-inputs/{}.fir", name))?;
+        let circuit = parse_circuit(&source).expect("firrtl parser");
+
+        let mut ir = from_circuit(&circuit);
+        remove_unnecessary_phi(&mut ir);
+        check_phi_node_connections(&ir)?;
+
+        for (_name, fg) in ir.graphs.iter() {
+            let whentree = reconstruct_whentree(fg);
+            whentree.print_tree();
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn gcd() -> Result<(), RippleIRErr> {
+        run("GCD")?;
+        Ok(())
+    }
+
+    #[test]
+    fn nested_when() -> Result<(), RippleIRErr> {
+        run("NestedWhen")?;
+        Ok(())
+    }
 }
