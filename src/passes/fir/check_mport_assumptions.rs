@@ -1,4 +1,4 @@
-use petgraph::{graph::{EdgeIndex, NodeIndex}, visit::EdgeRef, Direction::{Incoming, Outgoing}};
+use petgraph::{graph::NodeIndex, visit::EdgeRef, Direction::{Incoming, Outgoing}};
 use indexmap::{IndexSet, IndexMap};
 use chirrtl_parser::ast::*;
 use crate::ir::fir::*;
@@ -64,7 +64,7 @@ fn has_inferred_readwrite_port(fg: &FirGraph, id: NodeIndex) -> bool {
     let mut rport_addrs: Vec<Expr> = vec![];
 
     fn add_drivers(fg: &FirGraph, port_id: NodeIndex) -> Option<Drivers> {
-        match parent_with_type(fg, port_id, FirEdgeType::MemPortEn) {
+        match fg.parent_with_type(port_id, FirEdgeType::MemPortEn) {
             Some(eid) => {
                 let mut drivers = Drivers::new();
                 let edge = fg.graph.edge_weight(eid).unwrap();
@@ -80,7 +80,7 @@ fn has_inferred_readwrite_port(fg: &FirGraph, id: NodeIndex) -> bool {
     }
 
     fn address(fg: &FirGraph, port_id: NodeIndex) -> Expr {
-        let eid = parent_with_type(fg, port_id, FirEdgeType::MemPortAddr).unwrap();
+        let eid = fg.parent_with_type(port_id, FirEdgeType::MemPortAddr).unwrap();
         let edge = fg.graph.edge_weight(eid).unwrap();
         edge.src.clone()
     }
@@ -159,16 +159,6 @@ fn check_complement(a: &Expr, b: &Expr) -> bool {
     }
 }
 
-fn parent_with_type(fg: &FirGraph, id: NodeIndex, et: FirEdgeType) -> Option<EdgeIndex> {
-    for eid in fg.graph.edges_directed(id, Incoming) {
-        let edge = fg.graph.edge_weight(eid.id()).unwrap();
-        if edge.et == et {
-            return Some(eid.id());
-        }
-    }
-    return None;
-}
-
 fn expr_is_literal(expr: &Expr) -> Option<Int> {
     match expr {
         Expr::SIntInit(_, x) |
@@ -207,9 +197,9 @@ fn track_en_drivers(fg: &FirGraph, cur_expr: &Expr, id: NodeIndex, drivers: &mut
     let node = fg.graph.node_weight(id).unwrap();
     match node.nt {
         FirNodeType::Mux => {
-            let teid = parent_with_type(fg, id, FirEdgeType::MuxTrue).unwrap();
-            let feid = parent_with_type(fg, id, FirEdgeType::MuxFalse).unwrap();
-            let ceid = parent_with_type(fg, id, FirEdgeType::MuxCond).unwrap();
+            let teid = fg.parent_with_type(id, FirEdgeType::MuxTrue).unwrap();
+            let feid = fg.parent_with_type(id, FirEdgeType::MuxFalse).unwrap();
+            let ceid = fg.parent_with_type(id, FirEdgeType::MuxCond).unwrap();
 
             let tep = fg.graph.edge_endpoints(teid).unwrap();
             let tedge = fg.graph.edge_weight(teid).unwrap();
@@ -236,11 +226,11 @@ fn track_en_drivers(fg: &FirGraph, cur_expr: &Expr, id: NodeIndex, drivers: &mut
             drivers.insert(cur_expr.clone());
         }
         FirNodeType::PrimOp2Expr(PrimOp2Expr::And) => {
-            let op0_eid = parent_with_type(fg, id, FirEdgeType::Operand0).unwrap();
+            let op0_eid = fg.parent_with_type(id, FirEdgeType::Operand0).unwrap();
             let op0_edge = fg.graph.edge_weight(op0_eid).unwrap();
             let op0_ep = fg.graph.edge_endpoints(op0_eid).unwrap();
 
-            let op1_eid = parent_with_type(fg, id, FirEdgeType::Operand1).unwrap();
+            let op1_eid = fg.parent_with_type(id, FirEdgeType::Operand1).unwrap();
             let op1_edge = fg.graph.edge_weight(op1_eid).unwrap();
             let op1_ep = fg.graph.edge_endpoints(op1_eid).unwrap();
 
@@ -249,10 +239,10 @@ fn track_en_drivers(fg: &FirGraph, cur_expr: &Expr, id: NodeIndex, drivers: &mut
             track_en_drivers(fg, &op1_edge.src, op1_ep.0, drivers);
         }
         FirNodeType::PrimOp2Expr(PrimOp2Expr::Eq) => {
-            let op0_eid = parent_with_type(fg, id, FirEdgeType::Operand0).unwrap();
+            let op0_eid = fg.parent_with_type(id, FirEdgeType::Operand0).unwrap();
             let op0_edge = fg.graph.edge_weight(op0_eid).unwrap();
 
-            let op1_eid = parent_with_type(fg, id, FirEdgeType::Operand1).unwrap();
+            let op1_eid = fg.parent_with_type(id, FirEdgeType::Operand1).unwrap();
             let op1_edge = fg.graph.edge_weight(op1_eid).unwrap();
 
             drivers.insert(cur_expr.clone());
@@ -262,7 +252,7 @@ fn track_en_drivers(fg: &FirGraph, cur_expr: &Expr, id: NodeIndex, drivers: &mut
                     Box::new(op1_edge.src.clone())));
         }
         FirNodeType::PrimOp1Expr(PrimOp1Expr::Not) => {
-            let op0_eid = parent_with_type(fg, id, FirEdgeType::Operand0).unwrap();
+            let op0_eid = fg.parent_with_type(id, FirEdgeType::Operand0).unwrap();
             let op0_edge = fg.graph.edge_weight(op0_eid).unwrap();
             drivers.insert(cur_expr.clone());
             drivers.insert(Expr::PrimOp1Expr(

@@ -1,3 +1,6 @@
+use petgraph::graph::EdgeIndex;
+use petgraph::visit::EdgeRef;
+use petgraph::Direction::Incoming;
 use chirrtl_parser::ast::*;
 use derivative::Derivative;
 use indexmap::IndexMap;
@@ -143,6 +146,17 @@ impl FirGraph {
             }
         }
         TypeTree::merge_trees(io_ttrees)
+    }
+
+    /// Returns an `EdgeIndex` comming into the node that matches `et` if exists
+    pub fn parent_with_type(&self, id: NodeIndex, et: FirEdgeType) -> Option<EdgeIndex> {
+        for eid in self.graph.edges_directed(id, Incoming) {
+            let edge = self.graph.edge_weight(eid.id()).unwrap();
+            if edge.et == et {
+                return Some(eid.id());
+            }
+        }
+        return None;
     }
 }
 

@@ -1,5 +1,5 @@
 use chirrtl_parser::ast::*;
-use indextree::{Arena, NodeId};
+use petgraph::{graph::{Graph, NodeIndex}, Direction::Outgoing};
 
 /// Represents a chain of conditions in a decision tree (a.k.a mux tree)
 #[derive(Default, Debug, Clone, PartialEq, Eq, Hash)]
@@ -61,6 +61,8 @@ impl WhenTreeNode {
     }
 }
 
+pub type WhenTreeGraph = Graph<WhenTreeNode, ()>;
+
 /// Represents a tree of decision blocks
 ///
 /// ```
@@ -91,29 +93,29 @@ impl WhenTreeNode {
 /// |  |- stmt_3
 /// |- stmt_5 (lowest priority)
 /// ```
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct WhenTree {
-    pub arena: Arena<WhenTreeNode>,
-    pub root: Option<NodeId>
+    pub graph: WhenTreeGraph,
+    pub root: Option<NodeIndex>
 }
 
 impl WhenTree {
     pub fn new() -> Self {
-        Self { arena: Arena::new(), root: None }
+        Self { graph: WhenTreeGraph::new(), root: None }
     }
 
-    pub fn get(&self, id: NodeId) -> &WhenTreeNode {
-        self.arena[id].get()
+    pub fn get(&self, id: NodeIndex) -> &WhenTreeNode {
+        self.graph.node_weight(id).unwrap()
     }
 
-    pub fn get_mut(&mut self, id: NodeId) -> &mut WhenTreeNode {
-        self.arena[id].get_mut()
+    pub fn get_mut(&mut self, id: NodeIndex) -> &mut WhenTreeNode {
+        self.graph.node_weight_mut(id).unwrap()
     }
 
-    fn print_tree_recursive(&self, node: NodeId, depth: usize) {
-        println!("{}{:?}", "  ".repeat(depth), self.arena[node].get());
+    fn print_tree_recursive(&self, id: NodeIndex, depth: usize) {
+        println!("{}{:?}", "  ".repeat(depth), self.get(id));
 
-        for child in node.children(&self.arena) {
+        for child in self.graph.neighbors_directed(id, Outgoing) {
             self.print_tree_recursive(child, depth + 1);
         }
     }
@@ -133,7 +135,7 @@ impl WhenTree {
         &mut self,
         parent_priority: &mut u32,
         parent_cond: Condition,
-        parent_id: NodeId,
+        parent_id: NodeIndex,
         stmts: &Stmts,
     ) {
         let mut cur_node: Option<&mut WhenTreeNode> = None;
@@ -168,10 +170,9 @@ impl WhenTree {
                         None => {
                             // Add node to parent
                             let tn = WhenTreeNode::new(parent_cond.clone(), *parent_priority);
-                            let child = self.arena.new_node(tn);
-                            parent_id.append(child, &mut self.arena);
-
-                            cur_node = Some(self.get_mut(child));
+                            let child_id = self.graph.add_node(tn);
+                            self.graph.add_edge(parent_id, child_id, ());
+                            cur_node = Some(self.get_mut(child_id));
                         }
                         _ => {}
                     }
@@ -184,17 +185,17 @@ impl WhenTree {
     /// Creates a when tree from given `Stmts`
     pub fn from_stmts(&mut self, stmts: &Stmts) {
         let root_node = WhenTreeNode::new(Condition::Root, 0);
-        let root_id = self.arena.new_node(root_node);
+        let root_id = self.graph.add_node(root_node);
         self.root = Some(root_id);
         self.from_stmts_recursive(&mut 0, Condition::Root, root_id, stmts);
     }
 
-    fn collect_leaf_nodes_recursive(&self, node: NodeId, leaf_nodes: &mut Vec<NodeId>) {
-        if node.children(&self.arena).next().is_none() {
-            leaf_nodes.push(node);
+    fn collect_leaf_nodes_recursive(&self, id: NodeIndex, leaf_ids: &mut Vec<NodeIndex>) {
+        if self.graph.neighbors_directed(id, Outgoing).count() == 0 {
+            leaf_ids.push(id);
         } else {
-            for child in node.children(&self.arena) {
-                self.collect_leaf_nodes_recursive(child, leaf_nodes);
+            for child in self.graph.neighbors_directed(id, Outgoing) {
+                self.collect_leaf_nodes_recursive(child, leaf_ids);
             }
         }
     }
