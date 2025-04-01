@@ -3,6 +3,7 @@ pub mod subtree;
 pub mod tnode;
 pub mod tedge;
 pub mod path;
+pub mod typetree_graphviz;
 
 #[cfg(test)]
 mod test {
@@ -76,8 +77,7 @@ mod test {
         return Ok(());
     }
 
-    #[test]
-    fn check_subtree_root() -> Result<(), RippleIRErr> {
+    fn nested_bundle_output_port_type() -> Result<Type, RippleIRErr> {
         let source = std::fs::read_to_string("./test-inputs/NestedBundle.fir")?;
         let circuit = parse_circuit(&source).expect("firrtl parser");
 
@@ -87,37 +87,7 @@ mod test {
                     for port in m.ports.iter() {
                         match port.as_ref() {
                             Port::Output(_name, tpe, _info) => {
-                                let typetree = TypeTree::build_from_type(tpe, TypeDirection::Outgoing);
-                                let _ = typetree.export_graphviz("./test-outputs/NestedBundle.typetree.pdf", None, None, false);
-                                let v = typetree.view().unwrap();
-
-                                let root = Reference::Ref(Identifier::Name("io".to_string()));
-                                let subtree_root = v.subtree_root(&root);
-                                assert_eq!(subtree_root, Some(TypeTreeNodeIndex::from(0u32)));
-
-                                let g = Reference::RefDot(Box::new(root), Identifier::Name("g".to_string()));
-                                let subtree_root = v.subtree_root(&g);
-                                assert_eq!(subtree_root, Some(TypeTreeNodeIndex::from(1u32)));
-
-                                let g_name = v.node_name(&Identifier::Name("io".to_string()), subtree_root.unwrap());
-                                assert_eq!(g_name.to_string(), "io.g".to_string());
-
-                                let g1 = Reference::RefIdxInt(Box::new(g), Int::from(1));
-                                let subtree_root = v.subtree_root(&g1);
-                                assert_eq!(subtree_root, Some(TypeTreeNodeIndex::from(24u32)));
-
-                                let g1_name = v.node_name(&Identifier::Name("io".to_string()), subtree_root.unwrap());
-                                assert_eq!(g1_name.to_string(), "io.g[1]".to_string());
-
-                                let g1f = Reference::RefDot(Box::new(g1), Identifier::Name("f".to_string()));
-                                let subtree_root = v.subtree_root(&g1f);
-                                assert_eq!(subtree_root, Some(TypeTreeNodeIndex::from(42u32)));
-
-                                let g1f_name = v.node_name(&Identifier::Name("io".to_string()), subtree_root.unwrap());
-                                assert_eq!(g1f_name.to_string(), "io.g[1].f".to_string());
-
-                                let subtree_leaves = v.subtree_leaves(&g1f);
-                                assert_eq!(subtree_leaves, vec![TypeTreeNodeIndex::from(45u32), TypeTreeNodeIndex::from(44u32), TypeTreeNodeIndex::from(43u32)]);
+                                return Ok(tpe.clone());
                             }
                             _ => {
                             }
@@ -129,65 +99,91 @@ mod test {
                 }
             }
         }
-        return Ok(());
+        Err(RippleIRErr::MiscError("Output port not found in NestedBundle".to_string()))
+    }
+
+    #[test]
+    fn check_subtree_root() -> Result<(), RippleIRErr> {
+        let tpe = nested_bundle_output_port_type()?;
+        let typetree = TypeTree::build_from_type(&tpe, TypeDirection::Outgoing);
+
+        let _ = typetree.export_graphviz("./test-outputs/NestedBundle.typetree.pdf", None, None, false);
+        let v = typetree.view().unwrap();
+
+        let root = Reference::Ref(Identifier::Name("io".to_string()));
+        let subtree_root = v.subtree_root(&root);
+        assert_eq!(subtree_root, Some(TypeTreeNodeIndex::from(0u32)));
+
+        let g = Reference::RefDot(Box::new(root), Identifier::Name("g".to_string()));
+        let subtree_root = v.subtree_root(&g);
+        assert_eq!(subtree_root, Some(TypeTreeNodeIndex::from(1u32)));
+
+        let g_name = v.node_name(&Identifier::Name("io".to_string()), subtree_root.unwrap());
+        assert_eq!(g_name.to_string(), "io.g".to_string());
+
+        let g1 = Reference::RefIdxInt(Box::new(g), Int::from(1));
+        let subtree_root = v.subtree_root(&g1);
+        assert_eq!(subtree_root, Some(TypeTreeNodeIndex::from(24u32)));
+
+        let g1_name = v.node_name(&Identifier::Name("io".to_string()), subtree_root.unwrap());
+        assert_eq!(g1_name.to_string(), "io.g[1]".to_string());
+
+        let g1f = Reference::RefDot(Box::new(g1), Identifier::Name("f".to_string()));
+        let subtree_root = v.subtree_root(&g1f);
+        assert_eq!(subtree_root, Some(TypeTreeNodeIndex::from(42u32)));
+
+        let g1f_name = v.node_name(&Identifier::Name("io".to_string()), subtree_root.unwrap());
+        assert_eq!(g1f_name.to_string(), "io.g[1].f".to_string());
+
+        let subtree_leaves = v.subtree_leaves(&g1f);
+        assert_eq!(subtree_leaves, vec![TypeTreeNodeIndex::from(45u32), TypeTreeNodeIndex::from(44u32), TypeTreeNodeIndex::from(43u32)]);
+        Ok(())
     }
 
     #[test]
     fn check_subtree_leaves_with_path() -> Result<(), RippleIRErr> {
-        let source = std::fs::read_to_string("./test-inputs/NestedBundle.fir")?;
-        let circuit = parse_circuit(&source).expect("firrtl parser");
+        let tpe = nested_bundle_output_port_type()?;
+        let typetree = TypeTree::build_from_type(&tpe, TypeDirection::Outgoing);
 
-        for module in circuit.modules.iter() {
-            match module.as_ref() {
-                CircuitModule::Module(m) => {
-                    for port in m.ports.iter() {
-                        match port.as_ref() {
-                            Port::Output(_name, tpe, _info) => {
-                                let typetree = TypeTree::build_from_type(tpe, TypeDirection::Outgoing);
+        let root = Reference::Ref(Identifier::Name("io".to_string()));
+        let g = Reference::RefDot(Box::new(root), Identifier::Name("g".to_string()));
+        let g1 = Reference::RefIdxInt(Box::new(g), Int::from(1));
+        let g1f = Reference::RefDot(Box::new(g1.clone()), Identifier::Name("f".to_string()));
 
-                                let _ = typetree.export_graphviz("./test-outputs/NestedBundle.typetree.pdf", None, None, false);
+        let v = typetree.view().unwrap();
+        let leaves_with_path = v.subtree_leaves_with_path(&g1f);
 
-                                let root = Reference::Ref(Identifier::Name("io".to_string()));
-                                let g = Reference::RefDot(Box::new(root), Identifier::Name("g".to_string()));
-                                let g1 = Reference::RefIdxInt(Box::new(g), Int::from(1));
-                                let g1f = Reference::RefDot(Box::new(g1.clone()), Identifier::Name("f".to_string()));
+        let mut expect: IndexMap<TypeTreeNodePath, TypeTreeNodeIndex> = IndexMap::new();
+        expect.insert(
+            TypeTreeNodePath::new(
+                TypeDirection::Outgoing,
+                TypeTreeNodeType::Ground(GroundType::UInt(Some(Width(2)))),
+                Some(Reference::Ref(Identifier::ID(Int::from(2))))),
+                TypeTreeNodeIndex::from(45u32));
 
-                                let v = typetree.view().unwrap();
-                                let leaves_with_path = v.subtree_leaves_with_path(&g1f);
+        expect.insert(
+            TypeTreeNodePath::new(
+                TypeDirection::Outgoing,
+                TypeTreeNodeType::Ground(GroundType::UInt(Some(Width(2)))),
+                Some(Reference::Ref(Identifier::ID(Int::from(1))))),
+                TypeTreeNodeIndex::from(44u32));
 
-                                let mut expect: IndexMap<TypeTreeNodePath, TypeTreeNodeIndex> = IndexMap::new();
-                                expect.insert(
-                                    TypeTreeNodePath::new(
-                                        TypeDirection::Outgoing,
-                                        TypeTreeNodeType::Ground(GroundType::UInt),
-                                        Some(Reference::Ref(Identifier::ID(Int::from(2))))),
-                                    TypeTreeNodeIndex::from(45u32));
+        expect.insert(
+            TypeTreeNodePath::new(
+                TypeDirection::Outgoing,
+                TypeTreeNodeType::Ground(GroundType::UInt(Some(Width(2)))),
+                Some(Reference::Ref(Identifier::ID(Int::from(0))))),
+                TypeTreeNodeIndex::from(43u32));
+        assert_eq!(leaves_with_path, expect);
+        Ok(())
+    }
 
-                                expect.insert(
-                                    TypeTreeNodePath::new(
-                                        TypeDirection::Outgoing,
-                                        TypeTreeNodeType::Ground(GroundType::UInt),
-                                        Some(Reference::Ref(Identifier::ID(Int::from(1))))),
-                                    TypeTreeNodeIndex::from(44u32));
-
-                                expect.insert(
-                                    TypeTreeNodePath::new(
-                                        TypeDirection::Outgoing,
-                                        TypeTreeNodeType::Ground(GroundType::UInt),
-                                        Some(Reference::Ref(Identifier::ID(Int::from(0))))),
-                                    TypeTreeNodeIndex::from(43u32));
-                                assert_eq!(leaves_with_path, expect);
-                            }
-                            _ => {
-                            }
-                        };
-                    }
-
-                }
-                CircuitModule::ExtModule(_e) => {
-                }
-            }
-        }
-        return Ok(());
+    #[test]
+    fn to_type() -> Result<(), RippleIRErr> {
+        let tpe = nested_bundle_output_port_type()?;
+        let typetree = TypeTree::build_from_type(&tpe, TypeDirection::Outgoing);
+        let reconstructed_tpe = typetree.to_type();
+        assert_eq!(tpe, reconstructed_tpe);
+        Ok(())
     }
 }

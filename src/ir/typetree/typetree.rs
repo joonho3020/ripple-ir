@@ -4,7 +4,6 @@ use std::collections::VecDeque;
 use petgraph::{graph::{Graph, NodeIndex}, Direction::Outgoing};
 use indexmap::IndexMap;
 use bimap::BiMap;
-use crate::common::graphviz::*;
 use crate::ir::typetree::subtree::SubTreeView;
 use crate::ir::typetree::tnode::*;
 use crate::ir::typetree::tedge::*;
@@ -195,36 +194,63 @@ impl TypeTree {
     pub fn unique_id(&self, id: NodeIndex) -> Option<&TypeTreeNodeIndex> {
         self.node_map_cache.get_by_left(&id)
     }
-}
 
-impl DefaultGraphVizCore<TypeTreeNode, TypeTreeEdge> for TypeTree {
-    fn node_indices(self: &Self) -> petgraph::graph::NodeIndices {
-        self.graph.node_indices()
+    /// Reconstruct Type from this typetree
+    pub fn to_type(&self) -> Type {
+        let root = self.root.expect("TypeTree has no root node");
+        self.to_type_recursive(root)
     }
 
-    fn node_weight(self: &Self, id: NodeIndex) -> Option<&TypeTreeNode> {
-        self.graph.node_weight(id)
-    }
+    /// Recursively reconstruct Type from this typetree
+    fn to_type_recursive(&self, node_idx: NodeIndex) -> Type {
+        let node = &self.graph[node_idx];
+        match &node.tpe {
+            TypeTreeNodeType::Ground(gt) => {
+                Type::TypeGround(gt.clone().into())
+            }
+            TypeTreeNodeType::Fields => {
+                let mut fields = vec![];
+                let childs: Vec<NodeIndex> = self.graph.neighbors(node_idx).collect();
 
-    fn edge_indices(self: &Self) -> petgraph::graph::EdgeIndices {
-        self.graph.edge_indices()
-    }
+                // Iterate in the reverse order to match the original ordering
+                for child in childs.iter().rev() {
+                    let child_node = &self.graph.node_weight(*child).unwrap();
+                    let name = child_node.name.clone().expect("Field must have a name");
+                    let child_type = self.to_type_recursive(*child);
+                    let field = if child_node.dir == node.dir {
+                        Field::Straight(name, Box::new(child_type))
+                    } else {
+                        Field::Flipped(name, Box::new(child_type))
+                    };
+                    fields.push(Box::new(field));
+                }
+                Type::TypeAggregate(Box::new(TypeAggregate::Fields(Box::new(fields))))
+            }
+            TypeTreeNodeType::Array => {
+                let children: Vec<(u32, Type)> = self
+                    .graph
+                    .neighbors(node_idx)
+                    .map(|child| {
+                        let child_node = &self.graph.node_weight(child).unwrap();
+                        let id = match child_node.name.as_ref().unwrap() {
+                            Identifier::ID(x) => x.to_u32(),
+                            _ => panic!("Array elements must be named with indices")
+                        };
+                        let ty = self.to_type_recursive(child);
+                        (id, ty)
+                    })
+                    .collect();
 
-    fn edge_endpoints(self: &Self, id: petgraph::prelude::EdgeIndex) -> Option<(NodeIndex, NodeIndex)> {
-        self.graph.edge_endpoints(id)
-    }
+                if children.is_empty() {
+                    panic!("Array node has no children!");
+                }
 
-    fn edge_weight(self: &Self, id: petgraph::prelude::EdgeIndex) -> Option<&TypeTreeEdge> {
-        self.graph.edge_weight(id)
-    }
-}
-
-impl GraphViz for TypeTree {
-    fn graphviz_string(
-        self: &Self,
-        node_attr: Option<&NodeAttributeMap>,
-        edge_attr: Option<&EdgeAttributeMap>
-    ) -> Result<String, std::io::Error> {
-        DefaultGraphVizCore::graphviz_string(self, node_attr, edge_attr)
+                // Assuming homogeneous array
+                let (_, first_type) = children[0].clone();
+                let len = children.len();
+                Type::TypeAggregate(
+                    Box::new(TypeAggregate::Array(Box::new(first_type), Int::from(len as u32))))
+            }
+        }
     }
 }

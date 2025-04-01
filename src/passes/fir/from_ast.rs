@@ -50,7 +50,7 @@ pub fn from_circuit_module(module: &CircuitModule) -> (&Identifier, FirGraph) {
 
 fn from_module(module: &Module) -> FirGraph {
     let mut nm: NodeMap = NodeMap::default();
-    let mut ret = FirGraph::new();
+    let mut ret = FirGraph::new(false);
     collect_graph_nodes_from_ports(&mut ret, &module.ports, &mut nm);
     collect_graph_nodes_from_stmts(&mut ret, &module.stmts, &mut nm);
     connect_graph_edges_from_stmts(&mut ret, &module.stmts, &mut nm);
@@ -61,8 +61,9 @@ fn from_module(module: &Module) -> FirGraph {
 }
 
 fn from_ext_module(module: &ExtModule) -> FirGraph {
-    let mut ret = FirGraph::new();
+    let mut ret = FirGraph::new(true);
     let mut nm: NodeMap = NodeMap::default();
+    ret.ext_info = Some(ExtModuleInfo::from(module));
     collect_graph_nodes_from_ports(&mut ret, &module.ports, &mut nm);
     return ret;
 }

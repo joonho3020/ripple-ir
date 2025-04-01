@@ -16,6 +16,9 @@ pub enum RippleIRErr {
 
     #[error("PhiNodeError: {0}")]
     PhiNodeError(String),
+
+    #[error("Misc: {0}")]
+    MiscError(String),
 }
 
 #[macro_export]

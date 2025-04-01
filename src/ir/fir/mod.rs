@@ -106,13 +106,30 @@ impl FirEdge {
 type IRGraph = Graph<FirNode, FirEdge>;
 
 #[derive(Debug, Clone)]
+pub struct ExtModuleInfo {
+    pub defname: DefName,
+    pub params: Parameters,
+}
+
+impl From<&ExtModule> for ExtModuleInfo {
+    fn from(value: &ExtModule) -> Self {
+        ExtModuleInfo {
+            defname: value.defname.clone(),
+            params: value.params.clone()
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct FirGraph {
     pub graph: IRGraph,
+    pub ext_info: Option<ExtModuleInfo>,
+    pub blackbox: bool,
 }
 
 impl FirGraph {
-    pub fn new() -> Self {
-        Self { graph: IRGraph::new() }
+    pub fn new(blackbox: bool) -> Self {
+        Self { graph: IRGraph::new(), blackbox, ext_info: None }
     }
 
     /// Returns a TypeTree of all its IO signals
@@ -190,7 +207,7 @@ mod test {
     use crate::ir::typetree::typetree::*;
     use crate::ir::typetree::tnode::*;
     use crate::ir::typetree::tedge::*;
-    use chirrtl_parser::ast::Identifier;
+    use chirrtl_parser::ast::*;
     use chirrtl_parser::parse_circuit;
     use crate::passes::fir::from_ast::from_circuit;
     use crate::passes::fir::remove_unnecessary_phi::remove_unnecessary_phi;
@@ -224,27 +241,27 @@ mod test {
             let value1_id = expect.graph.add_node(TypeTreeNode::new(
                     Some(Identifier::Name("value1".to_string())),
                     TypeDirection::Incoming,
-                    TypeTreeNodeType::Ground(GroundType::UInt)));
+                    TypeTreeNodeType::Ground(GroundType::UInt(Some(Width(16))))));
 
             let value2_id = expect.graph.add_node(TypeTreeNode::new(
                     Some(Identifier::Name("value2".to_string())),
                     TypeDirection::Incoming,
-                    TypeTreeNodeType::Ground(GroundType::UInt)));
+                    TypeTreeNodeType::Ground(GroundType::UInt(Some(Width(16))))));
 
             let loadingvalues_id = expect.graph.add_node(TypeTreeNode::new(
                     Some(Identifier::Name("loadingValues".to_string())),
                     TypeDirection::Incoming,
-                    TypeTreeNodeType::Ground(GroundType::UInt)));
+                    TypeTreeNodeType::Ground(GroundType::UInt(Some(Width(1))))));
 
             let outputgcd_id = expect.graph.add_node(TypeTreeNode::new(
                     Some(Identifier::Name("outputGCD".to_string())),
                     TypeDirection::Outgoing,
-                    TypeTreeNodeType::Ground(GroundType::UInt)));
+                    TypeTreeNodeType::Ground(GroundType::UInt(Some(Width(16))))));
 
             let outputvalid_id = expect.graph.add_node(TypeTreeNode::new(
                     Some(Identifier::Name("outputValid".to_string())),
                     TypeDirection::Outgoing,
-                    TypeTreeNodeType::Ground(GroundType::UInt)));
+                    TypeTreeNodeType::Ground(GroundType::UInt(Some(Width(1))))));
 
             expect.graph.add_edge(io_id, value1_id, TypeTreeEdge::default());
             expect.graph.add_edge(io_id, value2_id, TypeTreeEdge::default());
@@ -260,7 +277,7 @@ mod test {
             let reset_id = expect.graph.add_node(
                 TypeTreeNode::new(Some(Identifier::Name("reset".to_string())),
                 TypeDirection::Incoming,
-                TypeTreeNodeType::Ground(GroundType::UInt)));
+                TypeTreeNodeType::Ground(GroundType::UInt(Some(Width(1))))));
 
             expect.graph.add_edge(root_id, clock_id, TypeTreeEdge::default());
             expect.graph.add_edge(root_id, reset_id, TypeTreeEdge::default());

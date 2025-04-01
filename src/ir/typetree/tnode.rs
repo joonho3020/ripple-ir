@@ -31,8 +31,8 @@ pub enum GroundType {
     Clock,
     Reset,
     AsyncReset,
-    UInt,
-    SInt,
+    UInt(Option<Width>),
+    SInt(Option<Width>),
     SMem,
     CMem,
     Inst,
@@ -41,11 +41,24 @@ pub enum GroundType {
 impl From<&TypeGround> for GroundType {
     fn from(value: &TypeGround) -> Self {
         match value {
-            TypeGround::SInt(..) => Self::SInt,
-            TypeGround::UInt(..) => Self::UInt,
+            TypeGround::SInt(w) => Self::SInt(w.clone()),
+            TypeGround::UInt(w) => Self::UInt(w.clone()),
             TypeGround::Clock => Self::Clock,
             TypeGround::Reset => Self::Reset,
             TypeGround::AsyncReset => Self::AsyncReset,
+        }
+    }
+}
+
+impl Into<TypeGround> for GroundType {
+    fn into(self) -> TypeGround {
+        match self {
+            Self::SInt(w) => TypeGround::SInt(w.clone()),
+            Self::UInt(w) => TypeGround::UInt(w.clone()),
+            Self::AsyncReset => TypeGround::AsyncReset,
+            Self::Reset => TypeGround::Reset,
+            Self::Clock => TypeGround::Clock,
+            _ => panic!("Cannot convert {:?} into AST GroundType", self)
         }
     }
 }
