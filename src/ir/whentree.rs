@@ -53,6 +53,9 @@ impl PartialOrd for PrioritizedCond {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         fn last_continuous_match<T: PartialEq>(a: &[T], b: &[T]) -> Option<usize> {
             let len = a.len().min(b.len());
+            if len == 0 {
+                return None;
+            }
             for i in 0..len {
                 if a[i] != b[i] {
                     return if i == 0 { None } else { Some(i - 1) };
@@ -327,22 +330,24 @@ impl WhenTree {
         let mut sorted_paths = cond_paths;
         sorted_paths.sort_by(|a, b| b.cmp(a));
 
-        println!("sorted_path {:?}", sorted_paths);
+// println!("sorted_path {:?}", sorted_paths);
 
         for pconds in sorted_paths {
             let mut cur_id = root_id;
+            if pconds.conds.path.is_empty() {
+                let id = tree.graph.add_node(
+                    WhenTreeNode::new(
+                        pconds.conds.clone(),
+                        pconds.prior.block));
+                tree.graph.add_edge(cur_id, id, ());
+            }
+
             let mut cur_conds = vec![];
             for cur_cond in pconds.conds.path.iter() {
                 cur_conds.push(cur_cond.clone());
                 match cur_cond {
                     Condition::Root => {
-                        assert!(cur_id == root_id);
-                        let id = tree.graph.add_node(
-                            WhenTreeNode::new(
-                                Conditions::from_vec(cur_conds.clone()),
-                                pconds.prior.block));
-                        tree.graph.add_edge(cur_id, id, ());
-                        cur_id = id;
+                        unreachable!()
                     }
                     _ => {
                         cur_id = if !cond_to_node.contains_key(cur_cond) {

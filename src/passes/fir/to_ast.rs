@@ -181,6 +181,12 @@ mod test {
     }
 
 
+    #[test]
+    fn last_connect() -> Result<(), RippleIRErr>{
+        run("LastConnectSemantics").expect("last_connect");
+        Ok(())
+    }
+
     // TODO: Stuff to check
     // Last connect semantics
     // Memory
