@@ -1,6 +1,6 @@
 use chirrtl_parser::ast::Width;
-use crate::ir::PhiPriority;
-use crate::ir::whentree::Condition;
+use crate::ir::whentree::PhiPriority;
+use crate::ir::whentree::Conditions;
 use crate::ir::fir::FirEdgeType;
 use crate::impl_clean_display;
 use crate::define_index_type;
@@ -20,7 +20,7 @@ pub enum RippleEdgeType {
     Reset,
     DontCare,
 
-    PhiInput(PhiPriority, Condition),
+    PhiInput(PhiPriority, Conditions),
     PhiSel,
     PhiOut,
 

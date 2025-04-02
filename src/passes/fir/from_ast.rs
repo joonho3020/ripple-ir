@@ -1,9 +1,9 @@
 use crate::ir::whentree::WhenTree;
-use crate::ir::whentree::Condition;
+use crate::ir::whentree::Conditions;
 use crate::ir::typetree::typetree::TypeTree;
 use crate::ir::typetree::tnode::*;
 use crate::ir::fir::*;
-use crate::ir::PhiPriority;
+use crate::ir::whentree::PhiPriority;
 use crate::passes::ast::check_ast_assumption::*;
 use chirrtl_parser::ast::*;
 use petgraph::graph::NodeIndex;
@@ -163,15 +163,15 @@ fn add_graph_node_from_stmt(ir: &mut FirGraph, stmt: &Stmt, nm: &mut NodeMap) {
         Stmt::ChirrtlMemoryPort(mport) => {
             let (name, id) = match mport {
                 ChirrtlMemoryPort::Write(port, _mem, _addr, _clk, _info) => {
-                    let id = add_node(ir, None, Some(port.clone()), TypeDirection::Outgoing, FirNodeType::WriteMemPort(Condition::default()));
+                    let id = add_node(ir, None, Some(port.clone()), TypeDirection::Outgoing, FirNodeType::WriteMemPort(Conditions::default()));
                     (port, id)
                 }
                 ChirrtlMemoryPort::Read(port, _mem, _addr, _clk, _info) => {
-                    let id = add_node(ir, None, Some(port.clone()), TypeDirection::Outgoing, FirNodeType::ReadMemPort(Condition::default()));
+                    let id = add_node(ir, None, Some(port.clone()), TypeDirection::Outgoing, FirNodeType::ReadMemPort(Conditions::default()));
                     (port, id)
                 }
                 ChirrtlMemoryPort::Infer(port, _mem, _addr, _clk, _info) => {
-                    let id = add_node(ir, None, Some(port.clone()), TypeDirection::Outgoing, FirNodeType::InferMemPort(Condition::default()));
+                    let id = add_node(ir, None, Some(port.clone()), TypeDirection::Outgoing, FirNodeType::InferMemPort(Conditions::default()));
                     (port, id)
                 }
             };

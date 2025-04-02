@@ -121,7 +121,6 @@ fn reconstruct_whentree(fg: &FirGraph) -> WhenTree {
                     let edge = fg.graph.edge_weight(eid.id()).unwrap();
                     match &edge.et {
                         FirEdgeType::PhiInput(prior, cond) => {
-                            println!("cond {:?}", cond);
                             cond_priority_pair.push(PrioritizedCond::new(prior.clone(), cond.clone()));
                         }
                         _ => {
@@ -180,4 +179,10 @@ mod test {
         run("NestedWhen")?;
         Ok(())
     }
+
+
+    // TODO: Stuff to check
+    // Last connect semantics
+    // Memory
+    // Invalid (i.e. DontCare)
 }

@@ -4,33 +4,6 @@ pub mod fir;
 pub mod hierarchy;
 pub mod rir;
 
-#[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Hash)]
-pub struct PhiPriority {
-    /// Priority between blocks
-    /// - Smaller number means higher priority
-    pub block: u32,
-
-    /// Priority between statements within the same block
-    /// - Smaller number means higher priority
-    pub stmt: u32,
-}
-
-impl PhiPriority {
-    pub fn new(block: u32, stmt: u32) -> Self {
-        Self { block, stmt }
-    }
-}
-
-impl Ord for PhiPriority {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        if other.block == self.block {
-            other.stmt.cmp(&self.stmt)
-        } else {
-            other.block.cmp(&self.block)
-        }
-    }
-}
-
 #[macro_export]
 macro_rules! define_index_type {
     ($name:ident) => {
