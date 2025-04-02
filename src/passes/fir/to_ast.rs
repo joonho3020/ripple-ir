@@ -134,10 +134,7 @@ fn reconstruct_whentree(fg: &FirGraph) -> WhenTree {
             }
         }
     }
-
     WhenTree::from_conditions(cond_priority_pair)
-
-
 }
 
 fn collect_remaining_stmts(fg: &FirGraph, stmts: &mut Stmts) {
@@ -152,7 +149,18 @@ mod test {
     use crate::passes::fir::check_phi_nodes::check_phi_node_connections;
     use crate::common::RippleIRErr;
     use chirrtl_parser::parse_circuit;
+    use test_case::test_case;
 
+    #[test_case("GCD" ; "GCD")]
+    #[test_case("NestedWhen" ; "NestedWhen")]
+    #[test_case("LCS1" ; "LCS1")]
+    #[test_case("LCS2" ; "LCS2")]
+    #[test_case("LCS3" ; "LCS3")]
+    #[test_case("LCS4" ; "LCS4")]
+    #[test_case("LCS5" ; "LCS5")]
+    #[test_case("LCS6" ; "LCS6")]
+    #[test_case("LCS7" ; "LCS7")]
+    #[test_case("LCS8" ; "LCS8")]
     fn run(name: &str) -> Result<(), RippleIRErr> {
         let source = std::fs::read_to_string(format!("./test-inputs/{}.fir", name))?;
         let circuit = parse_circuit(&source).expect("firrtl parser");
@@ -168,27 +176,8 @@ mod test {
         Ok(())
     }
 
-    #[test]
-    fn gcd() -> Result<(), RippleIRErr> {
-        run("GCD")?;
-        Ok(())
-    }
-
-    #[test]
-    fn nested_when() -> Result<(), RippleIRErr> {
-        run("NestedWhen")?;
-        Ok(())
-    }
-
-
-    #[test]
-    fn last_connect() -> Result<(), RippleIRErr>{
-        run("LastConnectSemantics").expect("last_connect");
-        Ok(())
-    }
-
     // TODO: Stuff to check
-    // Last connect semantics
+    // (More) Last connect semantics
     // Memory
     // Invalid (i.e. DontCare)
 }
