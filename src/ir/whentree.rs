@@ -174,14 +174,14 @@ pub struct WhenTreeNode {
     pub cond: Condition,
 
     /// Priority of this node. Smaller means higher priority
-    pub priority: u32,
+    pub priority: BlockPriority,
 
     /// Statements in this tree node
     pub stmts: Stmts
 }
 
 impl WhenTreeNode {
-    pub fn new(cond: Condition, priority: u32) -> Self {
+    pub fn new(cond: Condition, priority: BlockPriority) -> Self {
         Self { cond, priority, stmts: vec![] }
     }
 }
@@ -270,7 +270,7 @@ impl WhenTree {
 
     fn from_stmts_recursive(
         &mut self,
-        parent_priority: &mut u32,
+        parent_priority: &mut BlockPriority,
         parent_id: NodeIndex,
         stmts: &Stmts,
     ) {
@@ -335,7 +335,7 @@ impl WhenTree {
         let mut ret = LeafToConditions::new();
         let mut q: VecDeque<(NodeIndex, Conditions)> = VecDeque::new();
 
-        let mut unique_priorities: IndexSet<u32> = IndexSet::new();
+        let mut unique_priorities: IndexSet<BlockPriority> = IndexSet::new();
 
         q.push_back((self.root.unwrap(), Conditions::default()));
 
@@ -375,13 +375,6 @@ impl WhenTree {
         let root_node = WhenTreeNode::new(Condition::Root, 0);
         let root_id = tree.graph.add_node(root_node);
         tree.root = Some(root_id);
-
-        // No path, add single child node
-        if cond_paths.is_empty() {
-            let id = tree.graph.add_node(WhenTreeNode::new(Condition::Root, 1));
-            tree.graph.add_edge(root_id, id, ());
-            return tree;
-        }
 
         let mut cond_to_node: IndexMap<Condition, NodeIndex> = IndexMap::new();
 
@@ -428,12 +421,33 @@ impl WhenTree {
                 }
             }
         }
+
+        // Add a node that will be the default node where stmts under to condition
+        // will be inserted into if it already doesn't exist
+        let mut has_default_node = false;
+        for root_cid in tree.graph.neighbors_directed(root_id, Outgoing) {
+            let child = tree.graph.node_weight(root_cid).unwrap();
+            if child.priority == 1 && child.cond == Condition::Root {
+                has_default_node = true;
+                break;
+            }
+        }
+
+        if !has_default_node {
+            let id = tree.graph.add_node(WhenTreeNode::new(Condition::Root, 1));
+            tree.graph.add_edge(root_id, id, ());
+        }
+
         tree
     }
 
     /// Follow a given condition (and the priority when it is given) to the tree leaf node
     /// and return a mutable reference to it
-    pub fn get_node_mut(&mut self, conds: &Conditions, prior: Option<&PhiPriority>) -> Option<&mut WhenTreeNode> {
+    pub fn get_node_mut(
+        &mut self,
+        conds: &Conditions,
+        prior: Option<&PhiPriority>
+    ) -> Option<&mut WhenTreeNode> {
         let mut q: VecDeque<NodeIndex> = VecDeque::new();
         q.push_back(self.root.unwrap());
 
@@ -445,7 +459,7 @@ impl WhenTree {
                 let child = self.graph.node_weight(cid).unwrap();
 
                 // Found root node
-                if cur_cond == &Condition::Root {
+                if cur_cond == &Condition::Root && child.cond == Condition::Root {
                     if prior.is_some() {
                         if child.priority == prior.unwrap().block {
                             // No priority given, just return the first matching one
@@ -463,6 +477,88 @@ impl WhenTree {
             }
         }
         None
+    }
+
+    fn to_stmts_recursive(&self, id: NodeIndex, stmts: &mut Stmts) {
+        let mut cond_groups: IndexMap<Expr, (NodeIndex, Option<NodeIndex>)> = IndexMap::new();
+        let mut raw_stmt_nodes: Vec<(PrioritizedCond, NodeIndex)> = vec![];
+
+        let childs: Vec<NodeIndex> = self.graph.neighbors_directed(id, Outgoing)
+                                                .into_iter()
+                                                .collect();
+
+        // Collect children grouped by condition expression
+        for &cid in childs.iter().rev() {
+            let child = self.graph.node_weight(cid).unwrap();
+            match &child.cond {
+                Condition::Root => {
+                    let prior = PhiPriority::new(child.priority, 0);
+                    let pcond = PrioritizedCond::new(prior, Conditions::root());
+                    raw_stmt_nodes.push((pcond, cid));
+                }
+                Condition::When(expr) => {
+                    cond_groups.entry(expr.clone()).or_default().0 = cid;
+                }
+                Condition::Else(expr) => {
+                    cond_groups.entry(expr.clone()).or_default().1 = Some(cid);
+                }
+            }
+        }
+
+        let mut when_stmts_by_priority: Vec<(PrioritizedCond, Stmt)> = vec![];
+
+        // Recurse on condition branches and collect them by priority
+        for (expr, (when_id, else_id_opt)) in cond_groups {
+            let mut when_stmts = Stmts::new();
+            self.to_stmts_recursive(when_id, &mut when_stmts);
+
+            let else_stmts_opt =  if let Some(else_id) = else_id_opt {
+                let mut else_stmts = Stmts::new();
+                self.to_stmts_recursive(else_id, &mut else_stmts);
+                Some(else_stmts)
+            } else {
+                None
+            };
+
+            let stmt = Stmt::When(expr.clone(), Info::default(), when_stmts, else_stmts_opt);
+            let when_prior = self.graph.node_weight(when_id).unwrap().priority;
+            let prior = PhiPriority::new(when_prior, 0);
+            let pcond = PrioritizedCond::new(prior, Conditions::from_vec(vec![Condition::When(expr)]));
+            when_stmts_by_priority.push((pcond, stmt));
+        }
+
+        enum RawOrWhen {
+            When(Stmt),
+            Raw(NodeIndex)
+        }
+
+        // Merge raw stmts and when stmts and sort them by priority
+        let mut merged: Vec<(PrioritizedCond, RawOrWhen)> = vec![];
+        merged.extend(when_stmts_by_priority.into_iter().map(|(p, s)| (p, RawOrWhen::When(s))));
+        merged.extend(raw_stmt_nodes.into_iter().map(|(p, id)| (p, RawOrWhen::Raw(id))));
+        merged.sort_by(|a, b| b.0.cmp(&a.0));
+
+        // Iterate over the merged stmts and push them in
+        for (_p, raw_or_when) in merged {
+            match raw_or_when {
+                RawOrWhen::When(stmt) => {
+                    stmts.push(Box::new(stmt));
+                }
+                RawOrWhen::Raw(id) => {
+                    let node = self.graph.node_weight(id).unwrap();
+                    for stmt in node.stmts.iter() {
+                        stmts.push(stmt.clone());
+                    }
+                }
+            }
+        }
+    }
+
+    /// Reconstructs FIRRTL `Stmts` from the WhenTree.
+    pub fn to_stmts(&self, stmts: &mut Stmts) {
+        if let Some(root_id) = self.root {
+            self.to_stmts_recursive(root_id, stmts)
+        }
     }
 }
 

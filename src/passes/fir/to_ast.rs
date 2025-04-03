@@ -1,6 +1,6 @@
 use crate::common::graphviz::DefaultGraphVizCore;
 use crate::ir::fir::{FirEdgeType, FirGraph, FirIR, FirNodeType};
-use crate::ir::whentree::{Condition, Conditions, PhiPriority, PrioritizedCond, WhenTree, WhenTreeNode};
+use crate::ir::whentree::{Conditions, PhiPriority, PrioritizedCond, WhenTree};
 use chirrtl_parser::ast::*;
 use std::collections::VecDeque;
 use indexmap::IndexMap;
@@ -67,6 +67,7 @@ fn to_module(name: &Identifier, fg: &FirGraph) -> Module {
     let mut stmts: Stmts = Stmts::new();
     collect_def_stmts(fg, &mut stmts);
     collect_op_stmts(fg, &mut stmts);
+    collect_invalidate_stmts(fg, &mut stmts);
     collect_conn_stmts(fg, &mut stmts);
     Module::new(name.clone(), ports, stmts, Info::default())
 }
@@ -75,13 +76,16 @@ fn to_module(name: &Identifier, fg: &FirGraph) -> Module {
 fn collect_def_stmts(fg: &FirGraph, stmts: &mut Stmts) {
     for id in fg.node_indices() {
         let node = fg.node_weight(id).unwrap();
-        let tpe = node.ttree.as_ref().unwrap().to_type();
         match &node.nt {
             FirNodeType::Wire => {
+                let tpe = node.ttree.as_ref().unwrap().to_type();
+
                 let name = node.name.as_ref().unwrap().clone();
                 stmts.push(Box::new(Stmt::Wire(name, tpe, Info::default())));
             }
             FirNodeType::Reg => {
+                let tpe = node.ttree.as_ref().unwrap().to_type();
+
                 let clk_eid = fg.parent_with_type(id, FirEdgeType::Clock).unwrap();
                 let clk = fg.graph.edge_weight(clk_eid).unwrap().src.clone();
 
@@ -90,6 +94,8 @@ fn collect_def_stmts(fg: &FirGraph, stmts: &mut Stmts) {
                 stmts.push(Box::new(reg));
             }
             FirNodeType::RegReset => {
+                let tpe = node.ttree.as_ref().unwrap().to_type();
+
                 let clk_eid = fg.parent_with_type(id, FirEdgeType::Clock).unwrap();
                 let rst_eid = fg.parent_with_type(id, FirEdgeType::Reset).unwrap();
                 let init_eid = fg.parent_with_type(id, FirEdgeType::Wire).unwrap();
@@ -103,12 +109,16 @@ fn collect_def_stmts(fg: &FirGraph, stmts: &mut Stmts) {
                 stmts.push(Box::new(reg_init));
             }
             FirNodeType::SMem(ruw_opt) => {
+                let tpe = node.ttree.as_ref().unwrap().to_type();
+
                 let name = node.name.as_ref().unwrap().clone();
                 let smem = ChirrtlMemory::SMem(name, tpe, ruw_opt.clone(), Info::default());
                 let mem = Stmt::ChirrtlMemory(smem);
                 stmts.push(Box::new(mem));
             }
             FirNodeType::CMem => {
+                let tpe = node.ttree.as_ref().unwrap().to_type();
+
                 let name = node.name.as_ref().unwrap().clone();
                 let cmem = ChirrtlMemory::CMem(name, tpe, Info::default());
                 let mem = Stmt::ChirrtlMemory(cmem);
@@ -277,6 +287,21 @@ fn collect_op_stmt(fg: &FirGraph, stmts: &mut Stmts, id: NodeIndex) {
     }
 }
 
+fn collect_invalidate_stmts(fg: &FirGraph, stmts: &mut Stmts) {
+    for eid in fg.graph.edge_indices() {
+        let edge = fg.graph.edge_weight(eid).unwrap();
+        if edge.dst.is_none() {
+            continue;
+        }
+
+        let lhs = Expr::Reference(edge.dst.as_ref().unwrap().clone());
+        if edge.et == FirEdgeType::DontCare {
+            let stmt = Stmt::Invalidate(lhs, Info::default());
+            stmts.push(Box::new(stmt));
+        };
+    }
+}
+
 fn reconstruct_whentree(fg: &FirGraph) -> WhenTree {
     let mut cond_priority_pair = vec![];
     for id in fg.graph.node_indices() {
@@ -364,6 +389,9 @@ fn insert_conn_stmts(fg: &FirGraph, whentree: &mut WhenTree) {
         let stmt = Stmt::Connect(lhs, rhs, Info::default());
 
         match &edge.et {
+            FirEdgeType::DontCare => {
+                continue;
+            }
             FirEdgeType::PhiInput(prior, conds) => {
                 if !ordered_stmts.contains_key(conds) {
                     ordered_stmts.insert(conds, vec![]);
@@ -376,14 +404,27 @@ fn insert_conn_stmts(fg: &FirGraph, whentree: &mut WhenTree) {
             }
         }
     }
+
     for stmts in ordered_stmts.values_mut() {
         stmts.sort_by(|a, b| b.0.cmp(&a.0));
     }
 
     for (conds, prior_stmts) in ordered_stmts {
+        let mut phi_priority_prev: Option<PhiPriority> = None;
         for (prior, stmt) in prior_stmts {
             let leaf = whentree.get_node_mut(conds, Some(&prior)).unwrap();
             leaf.stmts.push(Box::new(stmt));
+
+            // Some assertions about stmt ordering
+            if phi_priority_prev.is_some() {
+                let prev_prio = phi_priority_prev.as_ref().unwrap();
+                if prev_prio.block == prior.block {
+                    assert!(prev_prio.stmt > prior.stmt);
+                } else {
+                    assert!(prev_prio.block > prior.block);
+                }
+            }
+            phi_priority_prev = Some(prior);
         }
     }
 }
@@ -392,11 +433,15 @@ fn collect_conn_stmts(fg: &FirGraph, stmts: &mut Stmts) {
     let mut whentree = reconstruct_whentree(fg);
     insert_memport_stmts(fg, &mut whentree);
     insert_conn_stmts(fg, &mut whentree);
+    whentree.to_stmts(stmts);
 }
 
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::common::graphviz::GraphViz;
+    use crate::ir::whentree::Condition;
+    use crate::passes::ast::print::Printer;
     use crate::passes::fir::from_ast::from_circuit;
     use crate::passes::fir::remove_unnecessary_phi::remove_unnecessary_phi;
     use crate::passes::fir::check_phi_nodes::check_phi_node_connections;
@@ -404,6 +449,50 @@ mod test {
     use chirrtl_parser::parse_circuit;
     use test_case::test_case;
     use indexmap::IndexMap;
+
+    fn check_whentree_equivalence(ir: &FirIR, circuit: &Circuit) -> Result<(), RippleIRErr> {
+        let mut ast_whentrees: IndexMap<&Identifier, WhenTree> = IndexMap::new();
+        for module in circuit.modules.iter() {
+            match module.as_ref() {
+                CircuitModule::Module(m) => {
+                    let mut whentree = WhenTree::new();
+                    whentree.from_stmts(&m.stmts);
+                    ast_whentrees.insert(&m.name, whentree);
+                }
+                CircuitModule::ExtModule(_) => {
+                    continue;
+                }
+            }
+        }
+
+        for (name, fg) in ir.graphs.iter() {
+            fg.export_graphviz(&format!("./test-outputs/{}.fir.pdf", name), None, None, false)?;
+
+            if ast_whentrees.contains_key(name) {
+                let ast_whentree = ast_whentrees.get(name).unwrap();
+                let ast_leaves = ast_whentree.leaf_to_conditions();
+
+// println!("--------------- ast tree --------------");
+// ast_whentree.print_tree();
+
+                let fir_whentree = reconstruct_whentree(fg);
+                let fir_leaves = fir_whentree.leaf_to_conditions();
+// println!("--------------- fir tree --------------");
+// fir_whentree.print_tree();
+
+                for (fnode, fconds) in fir_leaves {
+                    if !ast_leaves.contains_key(fnode) {
+                        assert_eq!(fnode.cond, Condition::Root);
+                        assert_eq!(fnode.priority, 1);
+                    } else {
+                        let aconds = ast_leaves.get(fnode).unwrap();
+                        assert_eq!(aconds, &fconds);
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
 
     #[test_case("GCD" ; "GCD")]
     #[test_case("NestedWhen" ; "NestedWhen")]
@@ -419,41 +508,18 @@ mod test {
         let source = std::fs::read_to_string(format!("./test-inputs/{}.fir", name))?;
         let circuit = parse_circuit(&source).expect("firrtl parser");
 
-        let mut ast_whentrees: IndexMap<&Identifier, WhenTree> = IndexMap::new();
-        for module in circuit.modules.iter() {
-            match module.as_ref() {
-                CircuitModule::Module(m) => {
-                    let mut whentree = WhenTree::new();
-                    whentree.from_stmts(&m.stmts);
-                    ast_whentrees.insert(&m.name, whentree);
-                }
-                CircuitModule::ExtModule(_) => {
-                    continue;
-                }
-            }
-        }
-
         let mut ir = from_circuit(&circuit);
         remove_unnecessary_phi(&mut ir);
         check_phi_node_connections(&ir)?;
 
-        for (name, fg) in ir.graphs.iter() {
-            if ast_whentrees.contains_key(name) {
-                let ast_whentree = ast_whentrees.get(name).unwrap();
-                let ast_leaves = ast_whentree.leaf_to_conditions();
+        check_whentree_equivalence(&ir, &circuit)?;
 
-                let fir_whentree = reconstruct_whentree(fg);
-                let fir_leaves = fir_whentree.leaf_to_conditions();
+        let circuit_reconstruct = to_ast(&ir);
 
-                fir_whentree.print_tree();
+        let mut printer = Printer::new();
+        let circuit_str = printer.print_circuit(&circuit_reconstruct);
+        println!("{}", circuit_str);
 
-                for (fnode, fconds) in fir_leaves {
-                    assert!(ast_leaves.contains_key(fnode));
-                    let aconds = ast_leaves.get(fnode).unwrap();
-                    assert_eq!(aconds, &fconds);
-                }
-            }
-        }
         Ok(())
     }
 
