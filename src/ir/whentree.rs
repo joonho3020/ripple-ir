@@ -2,7 +2,7 @@ use chirrtl_parser::ast::*;
 use petgraph::{graph::{Graph, NodeIndex}, Direction::Outgoing};
 use indexmap::IndexMap;
 use indexmap::IndexSet;
-use std::collections::VecDeque;
+use std::{collections::VecDeque, usize};
 use std::hash::Hash;
 
 /// Priority between blocks
@@ -110,12 +110,24 @@ pub enum Condition {
 pub struct Conditions(Vec<Condition>);
 
 impl Conditions {
+    pub fn root() -> Self {
+        Self(vec![Condition::Root])
+    }
+
     pub fn path(&self) -> &Vec<Condition> {
         &self.0
     }
 
     pub fn push(&mut self, c: Condition) {
         self.0.push(c)
+    }
+
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    pub fn get(&self, i: usize) -> &Condition {
+        &self.0[i]
     }
 }
 
@@ -156,7 +168,7 @@ impl Conditions {
     }
 }
 
-#[derive(Debug, Clone, Eq)]
+#[derive(Debug, Default, Clone, Eq)]
 pub struct WhenTreeNode {
     /// Condition to reach this node
     pub cond: Condition,
@@ -417,6 +429,40 @@ impl WhenTree {
             }
         }
         tree
+    }
+
+    /// Follow a given condition (and the priority when it is given) to the tree leaf node
+    /// and return a mutable reference to it
+    pub fn get_node_mut(&mut self, conds: &Conditions, prior: Option<&PhiPriority>) -> Option<&mut WhenTreeNode> {
+        let mut q: VecDeque<NodeIndex> = VecDeque::new();
+        q.push_back(self.root.unwrap());
+
+        let mut i = 0;
+        while !q.is_empty() && i < conds.len() {
+            let id = q.pop_front().unwrap();
+            for cid in self.graph.neighbors_directed(id, Outgoing) {
+                let cur_cond = conds.get(i);
+                let child = self.graph.node_weight(cid).unwrap();
+
+                // Found root node
+                if cur_cond == &Condition::Root {
+                    if prior.is_some() {
+                        if child.priority == prior.unwrap().block {
+                            // No priority given, just return the first matching one
+                            return self.graph.node_weight_mut(cid);
+                        }
+                    } else {
+                        // No priority given, just return the first matching one
+                        return self.graph.node_weight_mut(cid);
+                    }
+                } else if &child.cond == cur_cond {
+                    // Found a matching condition, go down one level in the tree
+                    q.push_back(cid);
+                    i += 1;
+                }
+            }
+        }
+        None
     }
 }
 

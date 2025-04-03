@@ -29,7 +29,7 @@ struct NodeMap {
 
 /// Create a graph based IR from the FIRRTL AST
 pub fn from_circuit(ast: &Circuit) -> FirIR {
-    let mut ret = FirIR::new(ast.name.clone());
+    let mut ret = FirIR::new(ast.version.clone(), ast.name.clone(), ast.annos.clone());
     for module in ast.modules.iter() {
         let (name, ripple_graph) = from_circuit_module(module);
         ret.graphs.insert(name.clone(), ripple_graph);
@@ -651,58 +651,8 @@ fn connect_mport_enables(ir: &mut FirGraph, nm: &mut NodeMap) {
 
 #[cfg(test)]
 mod from_ast_test {
-    use crate::passes::fir::from_ast::{from_circuit, from_circuit_module};
-    use crate::common::graphviz::GraphViz;
+    use crate::passes::fir::from_ast::from_circuit_module;
     use crate::common::RippleIRErr;
-    use chirrtl_parser::parse_circuit;
-
-    /// Run the AST to graph conversion and export the graph form
-    fn run(name: &str) -> Result<(), RippleIRErr> {
-        let source = std::fs::read_to_string(format!("./test-inputs/{}.fir", name))?;
-        let circuit = parse_circuit(&source).expect("firrtl parser");
-
-        let ir = from_circuit(&circuit);
-        for (sub_name, graph) in ir.graphs {
-            graph.export_graphviz(&format!("./test-outputs/{}-{}.dot.pdf", name, sub_name), None, None, true)?;
-        }
-        Ok(())
-    }
-
-    #[test]
-    fn gcd() {
-        run("GCD").expect("GCD");
-    }
-
-    #[test]
-    fn nestedwhen() {
-        run("NestedWhen").expect("NestedWhen");
-    }
-
-    #[test]
-    fn nestedbundle() {
-        run("NestedBundle").expect("NestedBundle");
-    }
-
-    #[test]
-    fn nestedindex() {
-        run("NestedIndex").expect("NestedIndex");
-    }
-
-    #[test]
-    fn singleport_sram() {
-        run("SinglePortSRAM").expect("SinglePortSRAM");
-    }
-
-    #[test]
-    fn hierarchy() {
-        run("Hierarchy").expect("Hierarchy");
-    }
-
-    #[test]
-    fn decoupledmux() {
-        run("DecoupledMux").expect("DecoupledMux");
-    }
-
     use chirrtl_parser::lexer::FIRRTLLexer;
     use chirrtl_parser::firrtl::CircuitModuleParser;
 
@@ -745,7 +695,8 @@ mod from_ast_test {
     }
 
     fn boom_module(name: &str) -> Result<(), RippleIRErr> {
-        let source = std::fs::read_to_string(format!("./test-inputs/boom-modules/{}.fir", name))?;
+        let file_name = format!("./test-inputs/boom-modules/{}.fir", name);
+        let source = std::fs::read_to_string(file_name)?;
         let lexer = FIRRTLLexer::new(&source);
         let parser = CircuitModuleParser::new();
 

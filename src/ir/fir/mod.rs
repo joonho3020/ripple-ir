@@ -1,6 +1,7 @@
 use petgraph::graph::EdgeIndex;
 use petgraph::visit::EdgeRef;
 use petgraph::Direction::Incoming;
+use petgraph::Direction::Outgoing;
 use chirrtl_parser::ast::*;
 use derivative::Derivative;
 use indexmap::IndexMap;
@@ -158,17 +159,31 @@ impl FirGraph {
         }
         return None;
     }
+
+    /// Returns an `EdgeIndex` going out of node that matches `et` if exists
+    pub fn childs_with_type(&self, id: NodeIndex, et: FirEdgeType) -> Vec<EdgeIndex> {
+        let mut ret: Vec<EdgeIndex> = vec![];
+        for eid in self.graph.edges_directed(id, Outgoing) {
+            let edge = self.graph.edge_weight(eid.id()).unwrap();
+            if edge.et == et {
+                ret.push(eid.id());
+            }
+        }
+        return ret;
+    }
 }
 
 #[derive(Debug, Clone)]
 pub struct FirIR {
+    pub version: Version,
     pub name: Identifier,
+    pub annos: Annotations,
     pub graphs: IndexMap<Identifier, FirGraph>
 }
 
 impl FirIR {
-    pub fn new(name: Identifier) -> Self {
-        Self { name, graphs: IndexMap::new() }
+    pub fn new(version: Version, name: Identifier, annos: Annotations) -> Self {
+        Self { version, name, annos, graphs: IndexMap::new() }
     }
 
     pub fn export(&self, outdir: &str, pfx: &str) -> Result<(), RippleIRErr> {

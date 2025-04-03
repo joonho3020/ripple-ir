@@ -279,33 +279,23 @@ fn track_en_drivers(fg: &FirGraph, cur_expr: &Expr, id: NodeIndex, drivers: &mut
 mod test {
     use indexmap::IndexMap;
     use chirrtl_parser::ast::Identifier;
-
     use crate::{
-        common::graphviz::GraphViz,
         common::RippleIRErr,
         passes::fir::check_mport_assumptions::check_mport_assumptions,
         passes::runner::*,
     };
-
     use super::RWPortMap;
 
     /// Run the AST to graph conversion and export the graph form
-    fn run(name: &str, export: bool) -> Result<RWPortMap, RippleIRErr> {
+    fn run(name: &str) -> Result<RWPortMap, RippleIRErr> {
         let fir = run_passes_from_filepath(&format!("./test-inputs/{}.fir", name))?;
         let mems_with_rwport = check_mport_assumptions(&fir);
-        if export {
-            for (sub_name, graph) in fir.graphs {
-                graph.export_graphviz(
-                    &format!("./test-outputs/{}-{}.remove_phi.dot.pdf", name, sub_name),
-                    None, None, false)?;
-            }
-        }
         Ok(mems_with_rwport)
     }
 
     #[test]
     fn singleport_sram() -> Result<(), RippleIRErr> {
-        let rwport_map = run("SinglePortSRAM", true)?;
+        let rwport_map = run("SinglePortSRAM")?;
         let mut expect = IndexMap::new();
         expect.insert(
             Identifier::Name("SinglePortSRAM".to_string()),
@@ -318,7 +308,7 @@ mod test {
 
     #[test]
     fn rocket() {
-        let rwport_map = run("chipyard.harness.TestHarness.RocketConfig", false)
+        let rwport_map = run("chipyard.harness.TestHarness.RocketConfig")
             .expect("rocket failed");
 
         let mut expect = IndexMap::new();
@@ -377,7 +367,7 @@ mod test {
 
     #[test]
     fn boom() {
-        let rwport_map = run("chipyard.harness.TestHarness.LargeBoomV3Config", false)
+        let rwport_map = run("chipyard.harness.TestHarness.LargeBoomV3Config")
             .expect("boom failed");
 
         let mut expect = IndexMap::new();

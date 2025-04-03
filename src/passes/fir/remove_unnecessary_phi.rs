@@ -109,7 +109,6 @@ fn connect_phi_parent_to_child(rg: &mut FirGraph, id: NodeIndex) {
 mod test {
     use super::*;
     use crate::{
-        common::graphviz::GraphViz,
         common::RippleIRErr,
         passes::fir::from_ast::from_circuit,
         passes::fir::check_phi_nodes::check_phi_node_connections,
@@ -117,58 +116,48 @@ mod test {
     use chirrtl_parser::parse_circuit;
 
     /// Run the AST to graph conversion and export the graph form
-    fn run(name: &str, export: bool) -> Result<(), RippleIRErr> {
+    fn run(name: &str) -> Result<(), RippleIRErr> {
         let source = std::fs::read_to_string(format!("./test-inputs/{}.fir", name))?;
         let circuit = parse_circuit(&source).expect("firrtl parser");
 
         let mut ir = from_circuit(&circuit);
         remove_unnecessary_phi(&mut ir);
         check_phi_node_connections(&ir)?;
-
-        if export {
-            for (sub_name, graph) in ir.graphs {
-                graph.export_graphviz(
-                    &format!("./test-outputs/{}-{}.remove_phi.dot.pdf", name, sub_name),
-                    None, None, false)?;
-            }
-        }
         Ok(())
     }
 
     #[test]
     fn gcd() {
-        run("GCD", true).expect("GCD");
+        run("GCD").expect("GCD");
     }
 
     #[test]
     fn nestedwhen() {
-        run("NestedWhen", true).expect("NestedWhen");
+        run("NestedWhen").expect("NestedWhen");
     }
 
     #[test]
     fn nestedbundle() {
-        run("NestedBundle", true).expect("NestedBundle");
+        run("NestedBundle").expect("NestedBundle");
     }
 
     #[test]
     fn singleport_sram() {
-        run("SinglePortSRAM", true).expect("SinglePortSRAM");
+        run("SinglePortSRAM").expect("SinglePortSRAM");
     }
 
     #[test]
     fn hierarchy() {
-        run("Hierarchy", true).expect("Hierarchy");
+        run("Hierarchy").expect("Hierarchy");
     }
 
     #[test]
     fn rocket() {
-        run("chipyard.harness.TestHarness.RocketConfig", false)
-            .expect("rocket failed");
+        run("chipyard.harness.TestHarness.RocketConfig").expect("rocket failed");
     }
 
     #[test]
     fn boom() {
-        run("chipyard.harness.TestHarness.LargeBoomV3Config", false)
-            .expect("boom failed");
+        run("chipyard.harness.TestHarness.LargeBoomV3Config").expect("boom failed");
     }
 }

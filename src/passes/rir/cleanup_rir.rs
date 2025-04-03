@@ -92,7 +92,7 @@ mod test {
 
     #[test]
     fn singleportsram() {
-        run_simple("./test-inputs/SinglePortSRAM.fir", true)
+        run_simple("./test-inputs/SinglePortSRAM.fir", false)
             .expect("singleportsram");
     }
 
