@@ -3,6 +3,7 @@ use petgraph::{graph::{Graph, NodeIndex}, Direction::Outgoing};
 use indexmap::IndexMap;
 use indexmap::IndexSet;
 use std::collections::VecDeque;
+use std::hash::Hash;
 
 /// Priority between blocks
 /// - Smaller number means higher priority
@@ -43,7 +44,7 @@ pub struct PrioritizedCond {
 
 impl PrioritizedCond {
     pub fn new(prior: PhiPriority, conds: Conditions) -> Self {
-        Self { prior, conds: conds }
+        Self { prior, conds }
     }
 }
 
@@ -90,6 +91,7 @@ impl Ord for PrioritizedCond {
     }
 }
 
+/// When/Else conditions
 #[derive(Default, Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Condition {
     /// Root condition (basically always executed)
@@ -133,6 +135,7 @@ impl Conditions {
         return ret;
     }
 
+    /// Checks whether the condition chain is always true
     pub fn always_true(&self) -> bool {
         for cond in self.path().iter() {
             match cond {
@@ -153,7 +156,7 @@ impl Conditions {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Eq)]
 pub struct WhenTreeNode {
     /// Condition to reach this node
     pub cond: Condition,
@@ -168,6 +171,19 @@ pub struct WhenTreeNode {
 impl WhenTreeNode {
     pub fn new(cond: Condition, priority: u32) -> Self {
         Self { cond, priority, stmts: vec![] }
+    }
+}
+
+impl Hash for WhenTreeNode {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.cond.hash(state);
+        self.priority.hash(state);
+    }
+}
+
+impl PartialEq for WhenTreeNode {
+    fn eq(&self, other: &Self) -> bool {
+        self.cond == other.cond && self.priority == other.priority
     }
 }
 
@@ -348,6 +364,13 @@ impl WhenTree {
         let root_id = tree.graph.add_node(root_node);
         tree.root = Some(root_id);
 
+        // No path, add single child node
+        if cond_paths.is_empty() {
+            let id = tree.graph.add_node(WhenTreeNode::new(Condition::Root, 1));
+            tree.graph.add_edge(root_id, id, ());
+            return tree;
+        }
+
         let mut cond_to_node: IndexMap<Condition, NodeIndex> = IndexMap::new();
 
         // Root conditions can be indexed by its unique priority
@@ -372,13 +395,15 @@ impl WhenTree {
             let mut cur_id = root_id;
             // Traverse down the tree attaching nodes as needed
             for cur_cond in pconds.conds.path().iter() {
-                if *cur_cond == Condition::Root &&
-                   !root_cond_nodes.contains(&pconds.prior.block)
-                {
-                    // Found a Root condition: add as leaf node if not visited
-                    let node = WhenTreeNode::new(cur_cond.clone(), pconds.prior.block);
-                    add_node_and_connect(&mut tree, node, cur_id);
-                    root_cond_nodes.insert(pconds.prior.block);
+                if *cur_cond == Condition::Root {
+                    if root_cond_nodes.contains(&pconds.prior.block) {
+                        continue;
+                    } else {
+                        // Found a Root condition: add as leaf node if not visited
+                        let node = WhenTreeNode::new(cur_cond.clone(), pconds.prior.block);
+                        add_node_and_connect(&mut tree, node, cur_id);
+                        root_cond_nodes.insert(pconds.prior.block);
+                    }
                 } else if !cond_to_node.contains_key(cur_cond) {
                     // Condition not yet visited: add to tree
                     let node = WhenTreeNode::new(cur_cond.clone(), pconds.prior.block);

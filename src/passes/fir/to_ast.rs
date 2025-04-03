@@ -187,12 +187,16 @@ mod test {
         for (name, fg) in ir.graphs.iter() {
             if ast_whentrees.contains_key(name) {
                 let ast_whentree = ast_whentrees.get(name).unwrap();
-                println!("=========== AST WhenTree =============");
-                ast_whentree.print_tree();
+                let ast_leaves = ast_whentree.leaf_to_conditions();
 
-                println!("========== FIR WhenTree ==============");
-                let whentree = reconstruct_whentree(fg);
-                whentree.print_tree();
+                let fir_whentree = reconstruct_whentree(fg);
+                let fir_leaves = fir_whentree.leaf_to_conditions();
+
+                for (fnode, fconds) in fir_leaves {
+                    assert!(ast_leaves.contains_key(fnode));
+                    let aconds = ast_leaves.get(fnode).unwrap();
+                    assert_eq!(aconds, &fconds);
+                }
             }
         }
         Ok(())
