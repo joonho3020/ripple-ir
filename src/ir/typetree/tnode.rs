@@ -24,7 +24,7 @@ impl TypeDirection {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Debug, Clone, Eq, Hash, PartialOrd, Ord)]
 pub enum GroundType {
     Invalid,
     DontCare,
@@ -59,6 +59,26 @@ impl Into<TypeGround> for GroundType {
             Self::Reset => TypeGround::Reset,
             Self::Clock => TypeGround::Clock,
             _ => panic!("Cannot convert {:?} into AST GroundType", self)
+        }
+    }
+}
+
+impl PartialEq for GroundType {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Invalid, Self::Invalid) |
+            (Self::DontCare, Self::DontCare) |
+            (Self::Clock, Self::Clock) |
+            (Self::Reset, Self::Reset) |
+            (Self::AsyncReset, Self::AsyncReset) |
+            (Self::UInt(..), Self::UInt(..)) |
+            (Self::SInt(..), Self::SInt(..)) |
+            (Self::SMem, Self::SMem) |
+            (Self::CMem, Self::CMem) |
+            (Self::Inst, Self::Inst) => {
+                true
+            }
+            _ => false
         }
     }
 }

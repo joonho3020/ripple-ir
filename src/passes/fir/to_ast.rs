@@ -150,6 +150,7 @@ mod test {
     use crate::common::RippleIRErr;
     use chirrtl_parser::parse_circuit;
     use test_case::test_case;
+    use indexmap::IndexMap;
 
     #[test_case("GCD" ; "GCD")]
     #[test_case("NestedWhen" ; "NestedWhen")]
@@ -165,13 +166,34 @@ mod test {
         let source = std::fs::read_to_string(format!("./test-inputs/{}.fir", name))?;
         let circuit = parse_circuit(&source).expect("firrtl parser");
 
+        let mut ast_whentrees: IndexMap<&Identifier, WhenTree> = IndexMap::new();
+        for module in circuit.modules.iter() {
+            match module.as_ref() {
+                CircuitModule::Module(m) => {
+                    let mut whentree = WhenTree::new();
+                    whentree.from_stmts(&m.stmts);
+                    ast_whentrees.insert(&m.name, whentree);
+                }
+                CircuitModule::ExtModule(_) => {
+                    continue;
+                }
+            }
+        }
+
         let mut ir = from_circuit(&circuit);
         remove_unnecessary_phi(&mut ir);
         check_phi_node_connections(&ir)?;
 
-        for (_name, fg) in ir.graphs.iter() {
-            let whentree = reconstruct_whentree(fg);
-            whentree.print_tree();
+        for (name, fg) in ir.graphs.iter() {
+            if ast_whentrees.contains_key(name) {
+                let ast_whentree = ast_whentrees.get(name).unwrap();
+                println!("=========== AST WhenTree =============");
+                ast_whentree.print_tree();
+
+                println!("========== FIR WhenTree ==============");
+                let whentree = reconstruct_whentree(fg);
+                whentree.print_tree();
+            }
         }
         Ok(())
     }

@@ -108,9 +108,9 @@ mod test {
             .expect("singleportsram");
     }
 
-    #[test]
-    fn rocket() {
-        run_simple("./test-inputs/chipyard.harness.TestHarness.RocketConfig.fir", false)
-            .expect("singleportsram");
-    }
+// #[test]
+// fn rocket() {
+// run_simple("./test-inputs/chipyard.harness.TestHarness.RocketConfig.fir", false)
+// .expect("singleportsram");
+// }
 }

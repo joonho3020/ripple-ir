@@ -1,9 +1,9 @@
+use crate::ir::whentree::PhiPriority;
 use crate::ir::whentree::WhenTree;
 use crate::ir::whentree::Conditions;
 use crate::ir::typetree::typetree::TypeTree;
 use crate::ir::typetree::tnode::*;
 use crate::ir::fir::*;
-use crate::ir::whentree::PhiPriority;
 use crate::passes::ast::check_ast_assumption::*;
 use chirrtl_parser::ast::*;
 use petgraph::graph::NodeIndex;
@@ -502,12 +502,14 @@ fn add_graph_edge_from_stmt(ir: &mut FirGraph, stmt: &Stmt, nm: &mut NodeMap) {
 fn connect_phi_in_edges_from_stmts(ir: &mut FirGraph, stmts: &Stmts, nm: &mut NodeMap) {
     let mut whentree = WhenTree::new();
     whentree.from_stmts(stmts);
-    let leaves = whentree.leaf_nodes();
+    let leaf_to_conds = whentree.leaf_to_conditions();
 
     let mut block_prior_set: IndexSet<u32> = IndexSet::new();
-    for leaf in leaves {
-        let block_prior = leaf.priority;
+    for l2c in leaf_to_conds {
+        let leaf = l2c.0;
+        let conds = l2c.1.clone();
 
+        let block_prior = leaf.priority;
         if block_prior_set.contains(&block_prior) {
             panic!("When block prior {} overlaps {:?}", block_prior, block_prior_set);
         }
@@ -524,7 +526,7 @@ fn connect_phi_in_edges_from_stmts(ir: &mut FirGraph, stmts: &Stmts, nm: &mut No
                                 .expect(&format!("phi node for {:?} not found", root_ref));
 
                             let prior = PhiPriority::new(block_prior, stmt_prior as u32);
-                            let edge = FirEdge::new(rhs.clone(), Some(r.clone()), FirEdgeType::PhiInput(prior, leaf.cond.clone()));
+                            let edge = FirEdge::new(rhs.clone(), Some(r.clone()), FirEdgeType::PhiInput(prior, conds.clone()));
                             add_graph_edge_from_expr(ir, *phi_id, rhs, edge, nm);
                         }
                         _ => {
@@ -563,15 +565,15 @@ fn connect_phi_in_edges_from_stmts(ir: &mut FirGraph, stmts: &Stmts, nm: &mut No
                     match mport {
                         ChirrtlMemoryPort::Write(port, ..) => {
                             let mp = mem_port_node(ir, port, nm);
-                            mp.nt = FirNodeType::WriteMemPort(leaf.cond.clone());
+                            mp.nt = FirNodeType::WriteMemPort(conds.clone());
                         }
                         ChirrtlMemoryPort::Read(port, ..)  => {
                             let mp = mem_port_node(ir, port, nm);
-                            mp.nt = FirNodeType::ReadMemPort(leaf.cond.clone());
+                            mp.nt = FirNodeType::ReadMemPort(conds.clone());
                         }
                         ChirrtlMemoryPort::Infer(port, ..) => {
                             let mp = mem_port_node(ir, port, nm);
-                            mp.nt = FirNodeType::InferMemPort(leaf.cond.clone());
+                            mp.nt = FirNodeType::InferMemPort(conds.clone());
                         }
                     };
                 }

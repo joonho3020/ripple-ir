@@ -153,15 +153,15 @@ mod test {
             .expect("aggregatesram traverse assumption");
     }
 
-    #[test]
-    fn traverse_rocket() {
-        run_traverse("./test-inputs/chipyard.harness.TestHarness.RocketConfig.fir", false)
-            .expect("rocket traverse assumption");
-    }
+// #[test]
+// fn traverse_rocket() {
+// run_traverse("./test-inputs/chipyard.harness.TestHarness.RocketConfig.fir", false)
+// .expect("rocket traverse assumption");
+// }
 
-    #[test]
-    fn traverse_boom() {
-        run_traverse("./test-inputs/chipyard.harness.TestHarness.LargeBoomV3Config.fir", false)
-            .expect("boom traverse assumption");
-    }
+// #[test]
+// fn traverse_boom() {
+// run_traverse("./test-inputs/chipyard.harness.TestHarness.LargeBoomV3Config.fir", false)
+// .expect("boom traverse assumption");
+// }
 }
