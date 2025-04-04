@@ -330,8 +330,6 @@ fn reconstruct_whentree(fg: &FirGraph) -> WhenTree {
 }
 
 fn insert_memport_stmts(fg: &FirGraph, whentree: &mut WhenTree) {
-    whentree.print_tree();
-
     // Add memory port definition statements
     for id in fg.graph.node_indices() {
         let node = fg.graph.node_weight(id).unwrap();
@@ -372,8 +370,6 @@ fn insert_memport_stmts(fg: &FirGraph, whentree: &mut WhenTree) {
                 } else {
                     panic!("Unrecognized MPORT with memory {:?} and clk {:?}", mem, clk);
                 };
-
-                println!("pconds {:?}", pconds);
 
                 // Priority is set to `None`
                 // This can change the port position when the port has no
@@ -488,12 +484,12 @@ mod test {
                 let ast_whentree = ast_whentrees.get(name).unwrap();
                 let ast_leaves = ast_whentree.leaf_to_conditions();
 
-                println!("--------------- ast tree --------------");
-                ast_whentree.print_tree();
+// println!("--------------- ast tree --------------");
+// ast_whentree.print_tree();
 
                 let fir_whentree = reconstruct_whentree(fg);
-                println!("--------------- fir tree --------------");
-                fir_whentree.print_tree();
+// println!("--------------- fir tree --------------");
+// fir_whentree.print_tree();
                 let fir_leaves = fir_whentree.leaf_to_conditions();
 
                 for (fnode, fconds) in fir_leaves {

@@ -280,9 +280,9 @@ checksum = "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd"
 
 [[package]]
 name = "chirrtl-parser"
-version = "0.1.4"
+version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "721a06b13a99ebed78768dd0e8457a9f18bd8064a757e14b43c54e87734a0c2c"
+checksum = "7f408f0ba9a573855994d774aae52ed9573371a7c744101c784bb71da798b7ad"
 dependencies = [
  "graphviz-rust",
  "indexmap",

@@ -19,9 +19,20 @@ impl Printer {
     pub fn print_circuit(&mut self, circuit: &Circuit) -> String {
         let mut ret = "".to_string();
         ret.push_str(&format!("FIRRTL {}\n", circuit.version));
-        ret.push_str(&format!("circuit {} :%[[\n", circuit.name));
-        ret.push_str(&format!("{:#?}\n", circuit.annos));
-        ret.push_str(&format!("]]\n"));
+
+        let annos_is_empty = match &circuit.annos.0 {
+            serde_json::Value::Null => true,
+            serde_json::Value::Array(arr) => arr.is_empty(),
+            serde_json::Value::Object(map) => map.is_empty(),
+            _ => false,
+        };
+        if annos_is_empty {
+            ret.push_str(&format!("circuit {} :\n", circuit.name));
+        } else {
+            ret.push_str(&format!("circuit {} :%[[\n", circuit.name));
+            ret.push_str(&format!("{}\n", serde_json::to_string_pretty(&circuit.annos.0).unwrap()));
+            ret.push_str(&format!("]]\n"));
+        }
 
         self.indent();
 
