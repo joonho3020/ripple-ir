@@ -281,7 +281,8 @@ checksum = "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd"
 [[package]]
 name = "chirrtl-parser"
 version = "0.1.0"
-source = "git+ssh://git@github.com/joonho3020/chirrtl-parser.git?branch=main#a667836b8b162ced1d7c5f3efe1fda004c07f07b"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cdb1bf7af158ee035299def8d9023ac876434e9a30c271400ebca7786d254f27"
 dependencies = [
  "graphviz-rust",
  "indexmap",
@@ -1852,9 +1853,9 @@ dependencies = [
 
 [[package]]
 name = "string_cache"
-version = "0.8.8"
+version = "0.8.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "938d512196766101d333398efde81bc1f37b00cb42c2f8350e5df639f040bbbe"
+checksum = "bf776ba3fa74f83bf4b63c3dcbbf82173db2632ed8452cb2d891d33f459de70f"
 dependencies = [
  "new_debug_unreachable",
  "parking_lot",
