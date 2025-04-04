@@ -375,8 +375,7 @@ fn infer_typetree_node(fg: &mut FirGraph, id: NodeIndex, name: &Identifier) {
             assert!(op0_type_tree.is_ground_type());
             match op {
                 PrimOp1Expr1Int::Head |
-                    PrimOp1Expr1Int::Tail |
-                    PrimOp1Expr1Int::BitSel => {
+                    PrimOp1Expr1Int::Tail => {
                         assert!(op0_type_tree.is_ground_type());
                         set_ground_type(fg, id, GroundType::UInt(None));
                 }

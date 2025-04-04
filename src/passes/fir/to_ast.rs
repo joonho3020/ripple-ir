@@ -504,6 +504,8 @@ mod test {
     #[test_case("LCS6" ; "LCS6")]
     #[test_case("LCS7" ; "LCS7")]
     #[test_case("LCS8" ; "LCS8")]
+    #[test_case("BitSel1" ; "BitSel1")]
+    #[test_case("BitSel2" ; "BitSel2")]
     fn run(name: &str) -> Result<(), RippleIRErr> {
         let source = std::fs::read_to_string(format!("./test-inputs/{}.fir", name))?;
         let circuit = parse_circuit(&source).expect("firrtl parser");
