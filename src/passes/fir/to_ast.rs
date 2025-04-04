@@ -1,6 +1,6 @@
 use crate::common::graphviz::DefaultGraphVizCore;
 use crate::ir::fir::{FirEdgeType, FirGraph, FirIR, FirNodeType};
-use crate::ir::whentree::{Conditions, PhiPrior, WhenTree};
+use crate::ir::whentree::{Conditions, PhiPrior, PrioritizedConds, WhenTree};
 use chirrtl_parser::ast::*;
 use std::collections::VecDeque;
 use indexmap::IndexMap;
@@ -375,7 +375,9 @@ fn insert_memport_stmts(fg: &FirGraph, whentree: &mut WhenTree) {
                 // This can change the port position when the port has no
                 // enable signal (from the very end of the module to the very top.
                 // However, this shouldn't affect the behavior anyways
-                let when_leaf = whentree.get_node_mut(&pconds.conds, Some(&pconds.prior)).unwrap();
+                let when_leaf = whentree.get_node_mut(
+                    &pconds,
+                    Some(&pconds.leaf().unwrap().prior)).unwrap();
                 when_leaf.stmts.push(Box::new(port_stmt));
             }
             _ => {
@@ -386,7 +388,7 @@ fn insert_memport_stmts(fg: &FirGraph, whentree: &mut WhenTree) {
 }
 
 fn insert_conn_stmts(fg: &FirGraph, whentree: &mut WhenTree) {
-    let mut ordered_stmts: IndexMap<&Conditions, Vec<(PhiPrior, Stmt)>> = IndexMap::new();
+    let mut ordered_stmts: IndexMap<&PrioritizedConds, Vec<(PhiPrior, Stmt)>> = IndexMap::new();
     for eid in fg.graph.edge_indices() {
         let edge = fg.graph.edge_weight(eid).unwrap();
         if edge.dst.is_none() {
@@ -396,22 +398,21 @@ fn insert_conn_stmts(fg: &FirGraph, whentree: &mut WhenTree) {
         let lhs = Expr::Reference(edge.dst.as_ref().unwrap().clone());
         let rhs = edge.src.clone();
         let stmt = Stmt::Connect(lhs, rhs, Info::default());
-
         match &edge.et {
             FirEdgeType::DontCare => {
                 continue;
             }
             FirEdgeType::PhiInput(pconds) => {
-                if !ordered_stmts.contains_key(&pconds.conds) {
-                    ordered_stmts.insert(&pconds.conds, vec![]);
+                if !ordered_stmts.contains_key(&pconds) {
+                    ordered_stmts.insert(&pconds, vec![]);
                 }
                 ordered_stmts
-                    .get_mut(&pconds.conds)
+                    .get_mut(&pconds)
                     .unwrap()
-                    .push((pconds.prior.clone(), stmt));
+                    .push((pconds.leaf().unwrap().prior.clone(), stmt));
             }
             _ => {
-                let leaf = whentree.get_node_mut(&Conditions::root(), None).unwrap();
+                let leaf = whentree.get_node_mut(&PrioritizedConds::root(), None).unwrap();
                 leaf.stmts.push(Box::new(stmt));
             }
         }

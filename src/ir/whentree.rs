@@ -1,5 +1,4 @@
 use chirrtl_parser::ast::*;
-use derivative::Derivative;
 use petgraph::{graph::{Graph, NodeIndex}, Direction::Outgoing};
 use indexmap::IndexMap;
 use indexmap::IndexSet;
@@ -50,56 +49,47 @@ impl Ord for PhiPrior {
     }
 }
 
-#[derive(Derivative, Default, Clone, Hash)]
-#[derivative(Debug)]
+#[derive(Debug, Default, Clone, Eq, Hash)]
 pub struct PrioritizedCond {
     /// Priority
     pub prior: PhiPrior,
 
-    /// Condition chain
-    #[derivative(Debug="ignore")] 
-    pub conds: Conditions,
+    /// Condition
+    pub cond: Condition,
 }
 
 impl PrioritizedCond {
-    pub fn new(prior: PhiPrior, conds: Conditions) -> Self {
-        Self { prior, conds }
+    pub fn new(prior: PhiPrior, cond: Condition) -> Self {
+        Self { prior, cond }
     }
 }
 
-impl Eq for PrioritizedCond {}
-
 impl PartialEq for PrioritizedCond {
     fn eq(&self, other: &Self) -> bool {
-        self.conds == other.conds && self.prior == other.prior
+        self.cond == other.cond && self.prior == other.prior
     }
 }
 
 impl PartialOrd for PrioritizedCond {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        fn last_continuous_match<T: PartialEq>(a: &[T], b: &[T]) -> Option<usize> {
-            let len = a.len().min(b.len());
-            if len == 0 {
-                return None;
-            }
-            for i in 0..len {
-                if a[i] != b[i] {
-                    return if i == 0 { None } else { Some(i - 1) };
+        match (&self.cond, &other.cond) {
+            (Condition::When(se), Condition::Else(oe)) => {
+                if se == oe {
+                    Some(std::cmp::Ordering::Greater)
+                } else {
+                    Some(self.prior.cmp(&other.prior))
                 }
             }
-            Some(len - 1)
-        }
-
-        let self_sel_path = self.conds.collect_sels();
-        let other_sel_path = other.conds.collect_sels();
-        if let Some(idx) = last_continuous_match(&self_sel_path, &other_sel_path) {
-            match self.conds.path().get(idx).unwrap() {
-                Condition::When(..) => Some(std::cmp::Ordering::Greater),
-                Condition::Else(..) => Some(std::cmp::Ordering::Less),
-                _ => { Some(self.prior.cmp(&other.prior)) }
+            (Condition::Else(se), Condition::When(oe)) => {
+                if se == oe {
+                    Some(std::cmp::Ordering::Less)
+                } else {
+                    Some(self.prior.cmp(&other.prior))
+                }
             }
-        } else {
-            Some(self.prior.cmp(&other.prior))
+            _ => {
+                Some(self.prior.cmp(&other.prior))
+            }
         }
     }
 }
@@ -109,6 +99,137 @@ impl Ord for PrioritizedCond {
         self.partial_cmp(other).unwrap()
     }
 }
+
+#[derive(Debug, Default, Clone, PartialEq, Eq, Hash)]
+pub struct PrioritizedConds(Vec<PrioritizedCond>);
+
+impl PrioritizedConds {
+    pub fn always_true(&self) -> bool {
+        for cond in self.iter().map(|x| &x.cond) {
+            match cond {
+                Condition::When(..) |
+                    Condition::Else(..) => {
+                        return false;
+                    }
+                _ => {
+                    continue;
+                }
+            }
+        }
+        return true;
+    }
+
+    pub fn get(&self, i: usize) -> &PrioritizedCond {
+        self.0.get(i).unwrap()
+    }
+
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    pub fn root() -> Self {
+        Self(vec![
+            PrioritizedCond::new(PhiPrior::new(BlockPrior(1), StmtPrior(0)), Condition::Root)
+        ])
+    }
+
+    pub fn iter(&self) -> std::slice::Iter<'_, PrioritizedCond> {
+        self.0.iter()
+    }
+
+    pub fn from_vec(val: Vec<PrioritizedCond>) -> Self {
+        Self { 0: val }
+    }
+
+    pub fn push(&mut self, pcond: PrioritizedCond) {
+        self.0.push(pcond)
+    }
+
+    pub fn last_mut(&mut self) -> Option<&mut PrioritizedCond> {
+        self.0.last_mut()
+    }
+
+    pub fn leaf(&self) -> Option<&PrioritizedCond> {
+        self.0.last()
+    }
+
+    /// Collect all the selection `Expr` in this condition chain
+    pub fn collect_sels(&self) -> Vec<Expr> {
+        let mut ret = vec![];
+        for cond in self.iter().map(|x| &x.cond) {
+            match cond {
+                Condition::When(e) |
+                Condition::Else(e) => {
+                    ret.push(e.clone())
+                }
+                _ => { }
+            }
+        }
+        return ret;
+    }
+}
+
+impl PartialOrd for PrioritizedConds {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        let len = self.0.len().min(other.0.len());
+        for i in 0..len {
+            let self_pcond = &self.0[i];
+            let other_pcond = &other.0[i];
+            if self.0[i] == other.0[i] {
+                continue;
+            } else {
+                return Some(self_pcond.cmp(&other_pcond));
+            }
+        }
+
+        if self.0.len() > other.0.len() {
+            Some(std::cmp::Ordering::Greater)
+        } else {
+            Some(std::cmp::Ordering::Less)
+        }
+    }
+}
+
+impl Ord for PrioritizedConds {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.partial_cmp(other).unwrap()
+    }
+}
+
+// impl PartialOrd for PrioritizedConds {
+// fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+// fn last_continuous_match<T: PartialEq>(a: &[T], b: &[T]) -> Option<usize> {
+// let len = a.len().min(b.len());
+// if len == 0 {
+// return None;
+// }
+// for i in 0..len {
+// if a[i] != b[i] {
+// return if i == 0 { None } else { Some(i - 1) };
+// }
+// }
+// Some(len - 1)
+// }
+
+// let self_sel_path = self.conds.collect_sels();
+// let other_sel_path = other.conds.collect_sels();
+// if let Some(idx) = last_continuous_match(&self_sel_path, &other_sel_path) {
+// match self.conds.path().get(idx).unwrap() {
+// Condition::When(..) => Some(std::cmp::Ordering::Greater),
+// Condition::Else(..) => Some(std::cmp::Ordering::Less),
+// _ => { Some(self.prior.cmp(&other.prior)) }
+// }
+// } else {
+// Some(self.prior.cmp(&other.prior))
+// }
+// }
+// }
+
+// impl Ord for PrioritizedConds {
+// fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+// self.partial_cmp(other).unwrap()
+// }
+// }
 
 /// When/Else conditions
 #[derive(Default, Debug, Clone, PartialEq, Eq, Hash)]
@@ -219,7 +340,7 @@ impl PartialEq for WhenTreeNode {
 }
 
 /// Map from WhenTreeLeafNodes to their condition path
-pub type LeafToConditions<'a> = IndexMap<&'a WhenTreeNode, Conditions>;
+pub type LeafToConditions<'a> = IndexMap<&'a WhenTreeNode, PrioritizedConds>;
 
 type WhenTreeEdge = ();
 
@@ -354,11 +475,11 @@ impl WhenTree {
     /// Returns all the leaf nodes along with the condition path to reach it
     pub fn leaf_to_conditions(&self) -> LeafToConditions {
         let mut ret = LeafToConditions::new();
-        let mut q: VecDeque<(NodeIndex, Conditions)> = VecDeque::new();
+        let mut q: VecDeque<(NodeIndex, PrioritizedConds)> = VecDeque::new();
 
         let mut unique_priorities: IndexSet<BlockPrior> = IndexSet::new();
 
-        q.push_back((self.root.unwrap(), Conditions::default()));
+        q.push_back((self.root.unwrap(), PrioritizedConds::default()));
 
         while !q.is_empty() {
             let nic = q.pop_front().unwrap();
@@ -369,7 +490,9 @@ impl WhenTree {
                 num_childs += 1;
 
                 let mut path = nic.1.clone();
-                path.push(cnode.cond.clone());
+                let phi_prior = PhiPrior::new(cnode.priority, StmtPrior(0));
+                let pcond = PrioritizedCond::new(phi_prior, cnode.cond.clone());
+                path.push(pcond);
                 q.push_back((cid, path));
             }
             let node = self.graph.node_weight(nic.0).unwrap();
@@ -389,7 +512,7 @@ impl WhenTree {
     }
 
     /// Reconstructs a WhenTree from a vector of (priority, condition) pairs
-    pub fn from_conditions(cond_paths: Vec<&PrioritizedCond>) -> Self {
+    pub fn from_conditions(cond_paths: Vec<&PrioritizedConds>) -> Self {
         let mut tree = WhenTree::new();
 
         // Set up the root node
@@ -420,25 +543,25 @@ impl WhenTree {
         for pconds in sorted_paths {
             let mut cur_id = root_id;
             // Traverse down the tree attaching nodes as needed
-            for cur_cond in pconds.conds.path().iter() {
-                if *cur_cond == Condition::Root {
-                    if root_cond_nodes.contains(&pconds.prior.block) {
+            for pcond in pconds.iter() {
+                if pcond.cond == Condition::Root {
+                    if root_cond_nodes.contains(&pcond.prior.block) {
                         continue;
                     } else {
                         // Found a Root condition: add as leaf node if not visited
-                        let node = WhenTreeNode::new(cur_cond.clone(), pconds.prior.block);
+                        let node = WhenTreeNode::new(pcond.cond.clone(), pcond.prior.block);
                         add_node_and_connect(&mut tree, node, cur_id);
-                        root_cond_nodes.insert(pconds.prior.block);
+                        root_cond_nodes.insert(pcond.prior.block);
                     }
-                } else if !cond_to_node.contains_key(cur_cond) {
+                } else if !cond_to_node.contains_key(&pcond.cond) {
                     // Condition not yet visited: add to tree
-                    let node = WhenTreeNode::new(cur_cond.clone(), pconds.prior.block);
+                    let node = WhenTreeNode::new(pcond.cond.clone(), pcond.prior.block);
                     let id = add_node_and_connect(&mut tree, node, cur_id);
-                    cond_to_node.insert(cur_cond.clone(), id);
+                    cond_to_node.insert(pcond.cond.clone(), id);
                     cur_id = id;
                 } else {
                     // Already added this condition before
-                    cur_id = *cond_to_node.get(cur_cond).unwrap();
+                    cur_id = *cond_to_node.get(&pcond.cond).unwrap();
                 }
             }
         }
@@ -499,7 +622,7 @@ impl WhenTree {
     /// and return a mutable reference to it
     pub fn get_node_mut(
         &mut self,
-        conds: &Conditions,
+        conds: &PrioritizedConds,
         prior: Option<&PhiPrior>
     ) -> Option<&mut WhenTreeNode> {
         let mut q: VecDeque<NodeIndex> = VecDeque::new();
@@ -509,7 +632,8 @@ impl WhenTree {
         while !q.is_empty() && i < conds.len() {
             let id = q.pop_front().unwrap();
             for cid in self.graph.neighbors_directed(id, Outgoing) {
-                let cur_cond = conds.get(i);
+                let pcond = conds.get(i);
+                let cur_cond = &pcond.cond;
                 let child = self.graph.node_weight(cid).unwrap();
 
                 // Found root node
@@ -535,7 +659,7 @@ impl WhenTree {
 
     fn to_stmts_recursive(&self, id: NodeIndex, stmts: &mut Stmts) {
         let mut cond_groups: IndexMap<Expr, (NodeIndex, Option<NodeIndex>)> = IndexMap::new();
-        let mut raw_stmt_nodes: Vec<(PrioritizedCond, NodeIndex)> = vec![];
+        let mut raw_stmt_nodes: Vec<(PrioritizedConds, NodeIndex)> = vec![];
 
         let childs: Vec<NodeIndex> = self.graph.neighbors_directed(id, Outgoing)
                                                 .into_iter()
@@ -547,8 +671,10 @@ impl WhenTree {
             match &child.cond {
                 Condition::Root => {
                     let prior = PhiPrior::new(child.priority, StmtPrior(0));
-                    let pcond = PrioritizedCond::new(prior, Conditions::root());
-                    raw_stmt_nodes.push((pcond, cid));
+                    let pconds = PrioritizedConds::from_vec(vec![
+                            PrioritizedCond::new(prior, Condition::Root)
+                    ]);
+                    raw_stmt_nodes.push((pconds, cid));
                 }
                 Condition::When(expr) => {
                     cond_groups.entry(expr.clone()).or_default().0 = cid;
@@ -559,7 +685,7 @@ impl WhenTree {
             }
         }
 
-        let mut when_stmts_by_priority: Vec<(PrioritizedCond, Stmt)> = vec![];
+        let mut when_stmts_by_priority: Vec<(PrioritizedConds, Stmt)> = vec![];
 
         // Recurse on condition branches and collect them by priority
         for (expr, (when_id, else_id_opt)) in cond_groups {
@@ -577,8 +703,10 @@ impl WhenTree {
             let stmt = Stmt::When(expr.clone(), Info::default(), when_stmts, else_stmts_opt);
             let when_prior = self.graph.node_weight(when_id).unwrap().priority;
             let prior = PhiPrior::new(when_prior, StmtPrior(0));
-            let pcond = PrioritizedCond::new(prior, Conditions::from_vec(vec![Condition::When(expr)]));
-            when_stmts_by_priority.push((pcond, stmt));
+            let pconds = PrioritizedConds::from_vec(vec![
+                PrioritizedCond::new(prior, Condition::When(expr))
+            ]);
+            when_stmts_by_priority.push((pconds, stmt));
         }
 
         enum RawOrWhen {
@@ -587,7 +715,7 @@ impl WhenTree {
         }
 
         // Merge raw stmts and when stmts and sort them by priority
-        let mut merged: Vec<(PrioritizedCond, RawOrWhen)> = vec![];
+        let mut merged: Vec<(PrioritizedConds, RawOrWhen)> = vec![];
         merged.extend(when_stmts_by_priority.into_iter().map(|(p, s)| (p, RawOrWhen::When(s))));
         merged.extend(raw_stmt_nodes.into_iter().map(|(p, id)| (p, RawOrWhen::Raw(id))));
         merged.sort_by(|a, b| b.0.cmp(&a.0));

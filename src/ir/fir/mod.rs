@@ -11,7 +11,7 @@ use crate::common::RippleIRErr;
 use crate::ir::typetree::typetree::*;
 use crate::impl_clean_display;
 
-use super::whentree::PrioritizedCond;
+use super::whentree::PrioritizedConds;
 
 #[derive(Derivative, Clone)]
 #[derivative(Debug)]
@@ -52,9 +52,9 @@ pub enum FirNodeType {
     RegReset,
     SMem(Option<ChirrtlMemoryReadUnderWrite>),
     CMem,
-    WriteMemPort(PrioritizedCond),
-    ReadMemPort(PrioritizedCond),
-    InferMemPort(PrioritizedCond),
+    WriteMemPort(PrioritizedConds),
+    ReadMemPort(PrioritizedConds),
+    InferMemPort(PrioritizedConds),
     Inst(Identifier),
 
     // Port
@@ -88,7 +88,7 @@ pub enum FirEdgeType {
     Reset,
     DontCare,
 
-    PhiInput(PrioritizedCond),
+    PhiInput(PrioritizedConds),
     PhiSel,
     PhiOut,
 

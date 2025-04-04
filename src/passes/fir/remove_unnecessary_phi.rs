@@ -50,7 +50,7 @@ fn is_removable(rg: &FirGraph, id: NodeIndex) -> bool {
             }
             FirEdgeType::PhiInput(pcond) => {
                 if !has_non_trivial_sel {
-                    has_non_trivial_sel = !pcond.conds.always_true()
+                    has_non_trivial_sel = !pcond.always_true()
                 }
             }
             FirEdgeType::DontCare => {

@@ -1,7 +1,7 @@
 use crate::ir::whentree::BlockPrior;
 use crate::ir::whentree::StmtPrior;
 use crate::ir::whentree::PhiPrior;
-use crate::ir::whentree::PrioritizedCond;
+use crate::ir::whentree::PrioritizedConds;
 use crate::ir::whentree::WhenTree;
 use crate::ir::typetree::typetree::TypeTree;
 use crate::ir::typetree::tnode::*;
@@ -166,17 +166,17 @@ fn add_graph_node_from_stmt(ir: &mut FirGraph, stmt: &Stmt, nm: &mut NodeMap) {
             let dir = TypeDirection::Outgoing;
             let (name, id) = match mport {
                 ChirrtlMemoryPort::Write(port, _mem, _addr, _clk, _info) => {
-                    let nt = FirNodeType::WriteMemPort(PrioritizedCond::default());
+                    let nt = FirNodeType::WriteMemPort(PrioritizedConds::default());
                     let id = add_node(ir, None, Some(port.clone()), dir, nt);
                     (port, id)
                 }
                 ChirrtlMemoryPort::Read(port, _mem, _addr, _clk, _info) => {
-                    let nt = FirNodeType::ReadMemPort(PrioritizedCond::default());
+                    let nt = FirNodeType::ReadMemPort(PrioritizedConds::default());
                     let id = add_node(ir, None, Some(port.clone()), dir, nt);
                     (port, id)
                 }
                 ChirrtlMemoryPort::Infer(port, _mem, _addr, _clk, _info) => {
-                    let nt = FirNodeType::InferMemPort(PrioritizedCond::default());
+                    let nt = FirNodeType::InferMemPort(PrioritizedConds::default());
                     let id = add_node(ir, None, Some(port.clone()), dir, nt);
                     (port, id)
                 }
@@ -513,7 +513,6 @@ fn connect_phi_in_edges_from_stmts(ir: &mut FirGraph, stmts: &Stmts, nm: &mut No
     let mut block_prior_set: IndexSet<BlockPrior> = IndexSet::new();
     for l2c in leaf_to_conds {
         let leaf = l2c.0;
-        let conds = l2c.1.clone();
 
         let block_prior = leaf.priority;
         if block_prior_set.contains(&block_prior) {
@@ -522,8 +521,9 @@ fn connect_phi_in_edges_from_stmts(ir: &mut FirGraph, stmts: &Stmts, nm: &mut No
         block_prior_set.insert(block_prior);
 
         for (stmt_prior, stmt) in leaf.stmts.iter().enumerate() {
-            let prior = PhiPrior::new(block_prior, StmtPrior(stmt_prior as u32));
-            let prior_cond = PrioritizedCond::new(prior, conds.clone());
+            let mut pconds = l2c.1.clone();
+            let leaf_pcond = pconds.last_mut().unwrap();
+            leaf_pcond.prior = PhiPrior::new(block_prior, StmtPrior(stmt_prior as u32));
 
             match stmt.as_ref() {
                 Stmt::Connect(lhs, rhs, _info) => {
@@ -534,7 +534,7 @@ fn connect_phi_in_edges_from_stmts(ir: &mut FirGraph, stmts: &Stmts, nm: &mut No
                             let phi_id = nm.phi_map.get(&root_ref)
                                 .expect(&format!("phi node for {:?} not found", root_ref));
 
-                            let edge = FirEdge::new(rhs.clone(), Some(r.clone()), FirEdgeType::PhiInput(prior_cond));
+                            let edge = FirEdge::new(rhs.clone(), Some(r.clone()), FirEdgeType::PhiInput(pconds));
                             add_graph_edge_from_expr(ir, *phi_id, rhs, edge, nm);
                         }
                         _ => {
@@ -573,15 +573,15 @@ fn connect_phi_in_edges_from_stmts(ir: &mut FirGraph, stmts: &Stmts, nm: &mut No
                     match mport {
                         ChirrtlMemoryPort::Write(port, ..) => {
                             let mp = mem_port_node(ir, port, nm);
-                            mp.nt = FirNodeType::WriteMemPort(prior_cond);
+                            mp.nt = FirNodeType::WriteMemPort(pconds);
                         }
                         ChirrtlMemoryPort::Read(port, ..)  => {
                             let mp = mem_port_node(ir, port, nm);
-                            mp.nt = FirNodeType::ReadMemPort(prior_cond);
+                            mp.nt = FirNodeType::ReadMemPort(pconds);
                         }
                         ChirrtlMemoryPort::Infer(port, ..) => {
                             let mp = mem_port_node(ir, port, nm);
-                            mp.nt = FirNodeType::InferMemPort(prior_cond);
+                            mp.nt = FirNodeType::InferMemPort(pconds);
                         }
                     };
                 }
@@ -601,7 +601,7 @@ fn connect_phi_node_sel_id(ir: &mut FirGraph, id: NodeIndex, nm: &mut NodeMap) {
         let edge_w = ir.graph.edge_weight(pedge_ref.id()).unwrap();
         match &edge_w.et {
             FirEdgeType::PhiInput(prior_cond) => {
-                let sels = prior_cond.conds.collect_sels();
+                let sels = prior_cond.collect_sels();
                 for sel in sels {
                     sel_exprs.insert(sel);
                 }
@@ -644,7 +644,7 @@ fn connect_mport_enables(ir: &mut FirGraph, nm: &mut NodeMap) {
             FirNodeType::WriteMemPort(pcond) |
             FirNodeType::ReadMemPort(pcond)  |
             FirNodeType::InferMemPort(pcond) => {
-                for sel in pcond.conds.collect_sels() {
+                for sel in pcond.collect_sels() {
                     let sel_edge = FirEdge::new(sel.clone(), None, FirEdgeType::MemPortEn);
                     add_graph_edge_from_expr(ir, id, &sel, sel_edge, nm);
                 }
