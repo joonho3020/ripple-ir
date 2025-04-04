@@ -1,4 +1,5 @@
 use chirrtl_parser::ast::*;
+use derivative::Derivative;
 use petgraph::{graph::{Graph, NodeIndex}, Direction::Outgoing};
 use indexmap::IndexMap;
 use indexmap::IndexSet;
@@ -36,9 +37,14 @@ impl Ord for PhiPriority {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Derivative, Default, Clone, Hash)]
+#[derivative(Debug)]
 pub struct PrioritizedCond {
+    /// Priority
     pub prior: PhiPriority,
+
+    /// Condition chain
+    #[derivative(Debug="ignore")] 
     pub conds: Conditions,
 }
 
@@ -202,7 +208,9 @@ impl PartialEq for WhenTreeNode {
 /// Map from WhenTreeLeafNodes to their condition path
 pub type LeafToConditions<'a> = IndexMap<&'a WhenTreeNode, Conditions>;
 
-pub type WhenTreeGraph = Graph<WhenTreeNode, ()>;
+type WhenTreeEdge = ();
+
+pub type WhenTreeGraph = Graph<WhenTreeNode, WhenTreeEdge>;
 
 /// Represents a tree of decision blocks
 ///
@@ -285,7 +293,7 @@ impl WhenTree {
 
                     let when_cond = Condition::When(cond.clone());
                     let id = self.graph.add_node(WhenTreeNode::new(when_cond, *parent_priority));
-                    self.graph.add_edge(parent_id, id, ());
+                    self.graph.add_edge(parent_id, id, WhenTreeEdge::default());
                     self.from_stmts_recursive(
                         parent_priority,
                         id,
@@ -296,7 +304,7 @@ impl WhenTree {
                     if let Some(else_stmts) = else_stmts_opt {
                         let else_cond = Condition::Else(cond.clone());
                         let id = self.graph.add_node(WhenTreeNode::new(else_cond, *parent_priority));
-                        self.graph.add_edge(parent_id, id, ());
+                        self.graph.add_edge(parent_id, id, WhenTreeEdge::default());
                         self.from_stmts_recursive(
                             parent_priority,
                             id,
@@ -311,7 +319,7 @@ impl WhenTree {
                             // Add node to parent
                             let tn = WhenTreeNode::new(Condition::Root, *parent_priority);
                             let child_id = self.graph.add_node(tn);
-                            self.graph.add_edge(parent_id, child_id, ());
+                            self.graph.add_edge(parent_id, child_id, WhenTreeEdge::default());
                             cur_node = Some(self.graph.node_weight_mut(child_id).unwrap());
                         }
                         _ => {}
@@ -368,7 +376,7 @@ impl WhenTree {
     }
 
     /// Reconstructs a WhenTree from a vector of (priority, condition) pairs
-    pub fn from_conditions(cond_paths: Vec<PrioritizedCond>) -> Self {
+    pub fn from_conditions(cond_paths: Vec<&PrioritizedCond>) -> Self {
         let mut tree = WhenTree::new();
 
         // Set up the root node
@@ -391,7 +399,7 @@ impl WhenTree {
             parent_id: NodeIndex
         ) -> NodeIndex {
             let id = tree.graph.add_node(node);
-            tree.graph.add_edge(parent_id, id, ());
+            tree.graph.add_edge(parent_id, id, WhenTreeEdge::default());
             id
         }
 
@@ -435,10 +443,43 @@ impl WhenTree {
 
         if !has_default_node {
             let id = tree.graph.add_node(WhenTreeNode::new(Condition::Root, 1));
-            tree.graph.add_edge(root_id, id, ());
+            tree.graph.add_edge(root_id, id, WhenTreeEdge::default());
         }
 
         tree
+    }
+
+    pub fn add_condition(&mut self, conds: &Conditions) {
+        let mut q: VecDeque<NodeIndex> = VecDeque::new();
+        q.push_back(self.root.unwrap());
+
+        let mut i = 0;
+        while !q.is_empty() && i < conds.len() {
+            let id = q.pop_front().unwrap();
+            let mut found_match = false;
+            for cid in self.graph.neighbors_directed(id, Outgoing) {
+                let cur_cond = conds.get(i);
+                let child = self.graph.node_weight(cid).unwrap();
+
+                // Found root node
+                if cur_cond == &Condition::Root && child.cond == Condition::Root {
+                    return;
+                } else if &child.cond == cur_cond {
+                    // Found a matching condition, go down one level in the tree
+                    q.push_back(cid);
+                    i += 1;
+                    found_match = true;
+                }
+            }
+
+            if !found_match {
+                let cur_cond = conds.get(i);
+                assert!(cur_cond == &Condition::Root);
+                let parent = self.graph.node_weight(id).unwrap();
+                let cid = self.graph.add_node(WhenTreeNode::new(Condition::Root, parent.priority));
+                self.graph.add_edge(id, cid, WhenTreeEdge::default());
+            }
+        }
     }
 
     /// Follow a given condition (and the priority when it is given) to the tree leaf node

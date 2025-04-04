@@ -1,9 +1,8 @@
 use chirrtl_parser::ast::Width;
-use crate::ir::whentree::PhiPriority;
-use crate::ir::whentree::Conditions;
 use crate::ir::fir::FirEdgeType;
 use crate::impl_clean_display;
 use crate::define_index_type;
+use crate::ir::whentree::PrioritizedCond;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum RippleEdgeType {
@@ -20,7 +19,7 @@ pub enum RippleEdgeType {
     Reset,
     DontCare,
 
-    PhiInput(PhiPriority, Conditions),
+    PhiInput(PrioritizedCond),
     PhiSel,
     PhiOut,
 
@@ -43,7 +42,7 @@ impl From<&FirEdgeType> for RippleEdgeType {
             FirEdgeType::Clock => RippleEdgeType::Clock,
             FirEdgeType::Reset => RippleEdgeType::Reset,
             FirEdgeType::DontCare => RippleEdgeType::DontCare,
-            FirEdgeType::PhiInput(prior, cond) => RippleEdgeType::PhiInput(prior.clone(), cond.clone()),
+            FirEdgeType::PhiInput(prior_cond) => RippleEdgeType::PhiInput(prior_cond.clone()),
             FirEdgeType::PhiSel => RippleEdgeType::PhiSel,
             FirEdgeType::PhiOut => RippleEdgeType::PhiOut,
             FirEdgeType::MemPortEdge => RippleEdgeType::MemPortEdge,

@@ -1,6 +1,6 @@
 use crate::common::graphviz::DefaultGraphVizCore;
 use crate::ir::fir::{FirEdgeType, FirGraph, FirIR, FirNodeType};
-use crate::ir::whentree::{Conditions, PhiPriority, PrioritizedCond, WhenTree};
+use crate::ir::whentree::{Conditions, PhiPriority, WhenTree};
 use chirrtl_parser::ast::*;
 use std::collections::VecDeque;
 use indexmap::IndexMap;
@@ -306,14 +306,23 @@ fn reconstruct_whentree(fg: &FirGraph) -> WhenTree {
     let mut cond_priority_pair = vec![];
     for id in fg.graph.node_indices() {
         let node = fg.graph.node_weight(id).unwrap();
-        if node.nt == FirNodeType::Phi {
-            let eids = fg.graph.edges_directed(id, Incoming);
-            for eid in eids {
-                let edge = fg.graph.edge_weight(eid.id()).unwrap();
-                if let FirEdgeType::PhiInput(prior, cond) = &edge.et {
-                    let pc = PrioritizedCond::new(prior.clone(), cond.clone());
-                    cond_priority_pair.push(pc);
+        match &node.nt {
+            FirNodeType::Phi => {
+                let eids = fg.graph.edges_directed(id, Incoming);
+                for eid in eids {
+                    let edge = fg.graph.edge_weight(eid.id()).unwrap();
+                    if let FirEdgeType::PhiInput(pcond) = &edge.et {
+                        cond_priority_pair.push(pcond);
+                    }
                 }
+            }
+            FirNodeType::ReadMemPort(pcond)  |
+            FirNodeType::WriteMemPort(pcond) |
+            FirNodeType::InferMemPort(pcond) => {
+                cond_priority_pair.push(pcond);
+            }
+            _ => {
+                continue;
             }
         }
     }
@@ -321,13 +330,15 @@ fn reconstruct_whentree(fg: &FirGraph) -> WhenTree {
 }
 
 fn insert_memport_stmts(fg: &FirGraph, whentree: &mut WhenTree) {
+    whentree.print_tree();
+
     // Add memory port definition statements
     for id in fg.graph.node_indices() {
         let node = fg.graph.node_weight(id).unwrap();
         match &node.nt {
-            FirNodeType::ReadMemPort(conds)      |
-                FirNodeType::WriteMemPort(conds) |
-                FirNodeType::InferMemPort(conds) => {
+            FirNodeType::ReadMemPort(pconds)      |
+                FirNodeType::WriteMemPort(pconds) |
+                FirNodeType::InferMemPort(pconds) => {
                 let clk_eid  = fg.parent_with_type(id, FirEdgeType::Clock).unwrap();
                 let addr_eid = fg.parent_with_type(id, FirEdgeType::MemPortAddr).unwrap();
                 let mem_eid = fg.parent_with_type(id, FirEdgeType::MemPortEdge).unwrap();
@@ -362,11 +373,13 @@ fn insert_memport_stmts(fg: &FirGraph, whentree: &mut WhenTree) {
                     panic!("Unrecognized MPORT with memory {:?} and clk {:?}", mem, clk);
                 };
 
+                println!("pconds {:?}", pconds);
+
                 // Priority is set to `None`
                 // This can change the port position when the port has no
                 // enable signal (from the very end of the module to the very top.
                 // However, this shouldn't affect the behavior anyways
-                let when_leaf = whentree.get_node_mut(conds, None).unwrap();
+                let when_leaf = whentree.get_node_mut(&pconds.conds, Some(&pconds.prior)).unwrap();
                 when_leaf.stmts.push(Box::new(port_stmt));
             }
             _ => {
@@ -392,11 +405,14 @@ fn insert_conn_stmts(fg: &FirGraph, whentree: &mut WhenTree) {
             FirEdgeType::DontCare => {
                 continue;
             }
-            FirEdgeType::PhiInput(prior, conds) => {
-                if !ordered_stmts.contains_key(conds) {
-                    ordered_stmts.insert(conds, vec![]);
+            FirEdgeType::PhiInput(pconds) => {
+                if !ordered_stmts.contains_key(&pconds.conds) {
+                    ordered_stmts.insert(&pconds.conds, vec![]);
                 }
-                ordered_stmts.get_mut(conds).unwrap().push((prior.clone(), stmt));
+                ordered_stmts
+                    .get_mut(&pconds.conds)
+                    .unwrap()
+                    .push((pconds.prior.clone(), stmt));
             }
             _ => {
                 let leaf = whentree.get_node_mut(&Conditions::root(), None).unwrap();
@@ -472,13 +488,13 @@ mod test {
                 let ast_whentree = ast_whentrees.get(name).unwrap();
                 let ast_leaves = ast_whentree.leaf_to_conditions();
 
-// println!("--------------- ast tree --------------");
-// ast_whentree.print_tree();
+                println!("--------------- ast tree --------------");
+                ast_whentree.print_tree();
 
                 let fir_whentree = reconstruct_whentree(fg);
+                println!("--------------- fir tree --------------");
+                fir_whentree.print_tree();
                 let fir_leaves = fir_whentree.leaf_to_conditions();
-// println!("--------------- fir tree --------------");
-// fir_whentree.print_tree();
 
                 for (fnode, fconds) in fir_leaves {
                     if !ast_leaves.contains_key(fnode) {
@@ -506,6 +522,9 @@ mod test {
     #[test_case("LCS8" ; "LCS8")]
     #[test_case("BitSel1" ; "BitSel1")]
     #[test_case("BitSel2" ; "BitSel2")]
+    #[test_case("SinglePortSRAM" ; "SinglePortSRAM")]
+    #[test_case("OneReadOneWritePortSRAM" ; "OneReadOneWritePortSRAM")]
+    #[test_case("OneReadOneReadWritePortSRAM" ; "OneReadOneReadWritePortSRAM")]
     fn run(name: &str) -> Result<(), RippleIRErr> {
         let source = std::fs::read_to_string(format!("./test-inputs/{}.fir", name))?;
         let circuit = parse_circuit(&source).expect("firrtl parser");

@@ -48,9 +48,9 @@ fn is_removable(rg: &FirGraph, id: NodeIndex) -> bool {
             FirEdgeType::PhiSel => {
                 has_sel = true;
             }
-            FirEdgeType::PhiInput(_prior, cond) => {
+            FirEdgeType::PhiInput(pcond) => {
                 if !has_non_trivial_sel {
-                    has_non_trivial_sel = !cond.always_true()
+                    has_non_trivial_sel = !pcond.conds.always_true()
                 }
             }
             FirEdgeType::DontCare => {
@@ -90,8 +90,8 @@ fn connect_phi_parent_to_child(rg: &mut FirGraph, id: NodeIndex) {
         let ew = rg.graph.edge_weight(*peid).unwrap();
         let ep = rg.graph.edge_endpoints(*peid).unwrap();
         let src = ep.0;
-        match ew.et {
-            FirEdgeType::PhiInput(_, _) => {
+        match &ew.et {
+            FirEdgeType::PhiInput(_pcond) => {
                 let edge = FirEdge::new(ew.src.clone(), ew.dst.clone(), FirEdgeType::Wire);
                 rg.graph.add_edge(src, childs[0], edge);
             }

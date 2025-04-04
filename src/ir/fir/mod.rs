@@ -9,9 +9,9 @@ use petgraph::graph::{Graph, NodeIndex};
 use crate::common::graphviz::*;
 use crate::common::RippleIRErr;
 use crate::ir::typetree::typetree::*;
-use crate::ir::whentree::Conditions;
-use crate::ir::whentree::PhiPriority;
 use crate::impl_clean_display;
+
+use super::whentree::PrioritizedCond;
 
 #[derive(Derivative, Clone)]
 #[derivative(Debug)]
@@ -52,9 +52,9 @@ pub enum FirNodeType {
     RegReset,
     SMem(Option<ChirrtlMemoryReadUnderWrite>),
     CMem,
-    WriteMemPort(Conditions),
-    ReadMemPort(Conditions),
-    InferMemPort(Conditions),
+    WriteMemPort(PrioritizedCond),
+    ReadMemPort(PrioritizedCond),
+    InferMemPort(PrioritizedCond),
     Inst(Identifier),
 
     // Port
@@ -88,7 +88,7 @@ pub enum FirEdgeType {
     Reset,
     DontCare,
 
-    PhiInput(PhiPriority, #[derivative(Debug="ignore")] Conditions),
+    PhiInput(PrioritizedCond),
     PhiSel,
     PhiOut,
 

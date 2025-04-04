@@ -50,7 +50,7 @@ fn check_phi_node_connections_graph(fg: &FirGraph, name: &Identifier) -> Result<
                     FirEdgeType::PhiSel => {
                         phi_sel_cnt += 1;
                     }
-                    FirEdgeType::PhiInput(_prior, _cond) => {
+                    FirEdgeType::PhiInput(_pcond) => {
                         phi_in_cnt += 1;
                     }
                     _ => { }
