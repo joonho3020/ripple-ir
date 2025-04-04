@@ -1,6 +1,6 @@
 use crate::common::graphviz::DefaultGraphVizCore;
 use crate::ir::fir::{FirEdgeType, FirGraph, FirIR, FirNodeType};
-use crate::ir::whentree::{Conditions, PhiPriority, WhenTree};
+use crate::ir::whentree::{Conditions, PhiPrior, WhenTree};
 use chirrtl_parser::ast::*;
 use std::collections::VecDeque;
 use indexmap::IndexMap;
@@ -386,7 +386,7 @@ fn insert_memport_stmts(fg: &FirGraph, whentree: &mut WhenTree) {
 }
 
 fn insert_conn_stmts(fg: &FirGraph, whentree: &mut WhenTree) {
-    let mut ordered_stmts: IndexMap<&Conditions, Vec<(PhiPriority, Stmt)>> = IndexMap::new();
+    let mut ordered_stmts: IndexMap<&Conditions, Vec<(PhiPrior, Stmt)>> = IndexMap::new();
     for eid in fg.graph.edge_indices() {
         let edge = fg.graph.edge_weight(eid).unwrap();
         if edge.dst.is_none() {
@@ -422,7 +422,7 @@ fn insert_conn_stmts(fg: &FirGraph, whentree: &mut WhenTree) {
     }
 
     for (conds, prior_stmts) in ordered_stmts {
-        let mut phi_priority_prev: Option<PhiPriority> = None;
+        let mut phi_priority_prev: Option<PhiPrior> = None;
         for (prior, stmt) in prior_stmts {
             let leaf = whentree.get_node_mut(conds, Some(&prior)).unwrap();
             leaf.stmts.push(Box::new(stmt));
@@ -453,6 +453,7 @@ mod test {
     use super::*;
     use crate::common::graphviz::GraphViz;
     use crate::ir::whentree::Condition;
+    use crate::ir::whentree::BlockPrior;
     use crate::passes::ast::print::Printer;
     use crate::passes::fir::from_ast::from_circuit;
     use crate::passes::fir::remove_unnecessary_phi::remove_unnecessary_phi;
@@ -495,7 +496,7 @@ mod test {
                 for (fnode, fconds) in fir_leaves {
                     if !ast_leaves.contains_key(fnode) {
                         assert_eq!(fnode.cond, Condition::Root);
-                        assert_eq!(fnode.priority, 1);
+                        assert_eq!(fnode.priority, BlockPrior(1));
                     } else {
                         let aconds = ast_leaves.get(fnode).unwrap();
                         assert_eq!(aconds, &fconds);

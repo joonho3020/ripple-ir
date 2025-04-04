@@ -1,4 +1,6 @@
-use crate::ir::whentree::PhiPriority;
+use crate::ir::whentree::BlockPrior;
+use crate::ir::whentree::StmtPrior;
+use crate::ir::whentree::PhiPrior;
 use crate::ir::whentree::PrioritizedCond;
 use crate::ir::whentree::WhenTree;
 use crate::ir::typetree::typetree::TypeTree;
@@ -508,7 +510,7 @@ fn connect_phi_in_edges_from_stmts(ir: &mut FirGraph, stmts: &Stmts, nm: &mut No
     whentree.from_stmts(stmts);
     let leaf_to_conds = whentree.leaf_to_conditions();
 
-    let mut block_prior_set: IndexSet<u32> = IndexSet::new();
+    let mut block_prior_set: IndexSet<BlockPrior> = IndexSet::new();
     for l2c in leaf_to_conds {
         let leaf = l2c.0;
         let conds = l2c.1.clone();
@@ -520,7 +522,7 @@ fn connect_phi_in_edges_from_stmts(ir: &mut FirGraph, stmts: &Stmts, nm: &mut No
         block_prior_set.insert(block_prior);
 
         for (stmt_prior, stmt) in leaf.stmts.iter().enumerate() {
-            let prior = PhiPriority::new(block_prior, stmt_prior as u32);
+            let prior = PhiPrior::new(block_prior, StmtPrior(stmt_prior as u32));
             let prior_cond = PrioritizedCond::new(prior, conds.clone());
 
             match stmt.as_ref() {

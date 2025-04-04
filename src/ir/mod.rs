@@ -8,7 +8,7 @@ pub mod rir;
 macro_rules! define_index_type {
     ($name:ident) => {
         #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-        pub struct $name(u32);
+        pub struct $name(pub u32);
 
         impl $name {
             pub fn to_usize(&self) -> usize {
@@ -37,6 +37,12 @@ macro_rules! define_index_type {
         impl From<$name> for usize {
             fn from(value: $name) -> Self {
                 value.0 as usize
+            }
+        }
+
+        impl Default for $name {
+            fn default() -> Self {
+                Self::from(0u32)
             }
         }
 

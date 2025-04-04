@@ -6,28 +6,41 @@ use indexmap::IndexSet;
 use std::{collections::VecDeque, usize};
 use std::hash::Hash;
 
-/// Priority between blocks
-/// - Smaller number means higher priority
-pub type BlockPriority = u32;
+use crate::define_index_type;
 
-/// Priority between statements within the same block
-/// - Smaller number means higher priority
-pub type StmtPriority = u32;
+define_index_type!(BlockPrior);
+
+impl BlockPrior {
+    pub fn increment(&mut self) {
+        self.0 += 1
+    }
+
+    pub fn one() -> Self {
+        Self::from(1u32)
+    }
+}
+
+define_index_type!(StmtPrior);
 
 /// Represents the priority of an input edge going into a Phi node
 #[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Hash)]
-pub struct PhiPriority {
-    pub block: BlockPriority,
-    pub stmt: StmtPriority,
+pub struct PhiPrior {
+    /// Priority between blocks
+    /// - Smaller number means higher priority
+    pub block: BlockPrior,
+
+    /// Priority between statements within the same block
+    /// - Smaller number means higher priority
+    pub stmt: StmtPrior,
 }
 
-impl PhiPriority {
-    pub fn new(block: u32, stmt: u32) -> Self {
+impl PhiPrior {
+    pub fn new(block: BlockPrior, stmt: StmtPrior) -> Self {
         Self { block, stmt }
     }
 }
 
-impl Ord for PhiPriority {
+impl Ord for PhiPrior {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         if self.block == other.block {
             self.stmt.cmp(&other.stmt)
@@ -41,7 +54,7 @@ impl Ord for PhiPriority {
 #[derivative(Debug)]
 pub struct PrioritizedCond {
     /// Priority
-    pub prior: PhiPriority,
+    pub prior: PhiPrior,
 
     /// Condition chain
     #[derivative(Debug="ignore")] 
@@ -49,7 +62,7 @@ pub struct PrioritizedCond {
 }
 
 impl PrioritizedCond {
-    pub fn new(prior: PhiPriority, conds: Conditions) -> Self {
+    pub fn new(prior: PhiPrior, conds: Conditions) -> Self {
         Self { prior, conds }
     }
 }
@@ -180,14 +193,14 @@ pub struct WhenTreeNode {
     pub cond: Condition,
 
     /// Priority of this node. Smaller means higher priority
-    pub priority: BlockPriority,
+    pub priority: BlockPrior,
 
     /// Statements in this tree node
     pub stmts: Stmts
 }
 
 impl WhenTreeNode {
-    pub fn new(cond: Condition, priority: BlockPriority) -> Self {
+    pub fn new(cond: Condition, priority: BlockPrior) -> Self {
         Self { cond, priority, stmts: vec![] }
     }
 }
@@ -278,7 +291,7 @@ impl WhenTree {
 
     fn from_stmts_recursive(
         &mut self,
-        parent_priority: &mut BlockPriority,
+        parent_priority: &mut BlockPrior,
         parent_id: NodeIndex,
         stmts: &Stmts,
     ) {
@@ -288,7 +301,7 @@ impl WhenTree {
         for stmt in stmts.iter().rev() {
             match stmt.as_ref() {
                 Stmt::When(cond, _info, when_stmts, else_stmts_opt) => {
-                    *parent_priority += 1;
+                    parent_priority.increment();
                     cur_node = None;
 
                     let when_cond = Condition::When(cond.clone());
@@ -299,7 +312,7 @@ impl WhenTree {
                         id,
                         when_stmts);
 
-                    *parent_priority += 1;
+                    parent_priority.increment();
 
                     if let Some(else_stmts) = else_stmts_opt {
                         let else_cond = Condition::Else(cond.clone());
@@ -310,7 +323,7 @@ impl WhenTree {
                             id,
                             else_stmts);
 
-                        *parent_priority += 1;
+                        parent_priority.increment();
                     }
                 }
                 _ => {
@@ -332,10 +345,10 @@ impl WhenTree {
 
     /// Creates a when tree from given `Stmts`
     pub fn from_stmts(&mut self, stmts: &Stmts) {
-        let root_node = WhenTreeNode::new(Condition::Root, 0);
+        let root_node = WhenTreeNode::new(Condition::Root, BlockPrior(0));
         let root_id = self.graph.add_node(root_node);
         self.root = Some(root_id);
-        self.from_stmts_recursive(&mut 1, root_id, stmts);
+        self.from_stmts_recursive(&mut BlockPrior(1), root_id, stmts);
     }
 
     /// Returns all the leaf nodes along with the condition path to reach it
@@ -343,7 +356,7 @@ impl WhenTree {
         let mut ret = LeafToConditions::new();
         let mut q: VecDeque<(NodeIndex, Conditions)> = VecDeque::new();
 
-        let mut unique_priorities: IndexSet<BlockPriority> = IndexSet::new();
+        let mut unique_priorities: IndexSet<BlockPrior> = IndexSet::new();
 
         q.push_back((self.root.unwrap(), Conditions::default()));
 
@@ -380,14 +393,14 @@ impl WhenTree {
         let mut tree = WhenTree::new();
 
         // Set up the root node
-        let root_node = WhenTreeNode::new(Condition::Root, 0);
+        let root_node = WhenTreeNode::new(Condition::Root, BlockPrior(0));
         let root_id = tree.graph.add_node(root_node);
         tree.root = Some(root_id);
 
         let mut cond_to_node: IndexMap<Condition, NodeIndex> = IndexMap::new();
 
         // Root conditions can be indexed by its unique priority
-        let mut root_cond_nodes: IndexSet<BlockPriority> = IndexSet::new();
+        let mut root_cond_nodes: IndexSet<BlockPrior> = IndexSet::new();
 
         // Sort by priority
         let mut sorted_paths = cond_paths;
@@ -435,14 +448,14 @@ impl WhenTree {
         let mut has_default_node = false;
         for root_cid in tree.graph.neighbors_directed(root_id, Outgoing) {
             let child = tree.graph.node_weight(root_cid).unwrap();
-            if child.priority == 1 && child.cond == Condition::Root {
+            if child.priority == BlockPrior::one() && child.cond == Condition::Root {
                 has_default_node = true;
                 break;
             }
         }
 
         if !has_default_node {
-            let id = tree.graph.add_node(WhenTreeNode::new(Condition::Root, 1));
+            let id = tree.graph.add_node(WhenTreeNode::new(Condition::Root, BlockPrior::one()));
             tree.graph.add_edge(root_id, id, WhenTreeEdge::default());
         }
 
@@ -487,7 +500,7 @@ impl WhenTree {
     pub fn get_node_mut(
         &mut self,
         conds: &Conditions,
-        prior: Option<&PhiPriority>
+        prior: Option<&PhiPrior>
     ) -> Option<&mut WhenTreeNode> {
         let mut q: VecDeque<NodeIndex> = VecDeque::new();
         q.push_back(self.root.unwrap());
@@ -533,7 +546,7 @@ impl WhenTree {
             let child = self.graph.node_weight(cid).unwrap();
             match &child.cond {
                 Condition::Root => {
-                    let prior = PhiPriority::new(child.priority, 0);
+                    let prior = PhiPrior::new(child.priority, StmtPrior(0));
                     let pcond = PrioritizedCond::new(prior, Conditions::root());
                     raw_stmt_nodes.push((pcond, cid));
                 }
@@ -563,7 +576,7 @@ impl WhenTree {
 
             let stmt = Stmt::When(expr.clone(), Info::default(), when_stmts, else_stmts_opt);
             let when_prior = self.graph.node_weight(when_id).unwrap().priority;
-            let prior = PhiPriority::new(when_prior, 0);
+            let prior = PhiPrior::new(when_prior, StmtPrior(0));
             let pcond = PrioritizedCond::new(prior, Conditions::from_vec(vec![Condition::When(expr)]));
             when_stmts_by_priority.push((pcond, stmt));
         }
