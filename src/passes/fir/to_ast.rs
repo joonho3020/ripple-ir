@@ -2,6 +2,7 @@ use crate::common::graphviz::DefaultGraphVizCore;
 use crate::ir::fir::{FirEdgeType, FirGraph, FirIR, FirNodeType};
 use crate::ir::whentree::{PhiPrior, PrioritizedConds, WhenTree};
 use chirrtl_parser::ast::*;
+use std::cmp::min;
 use std::collections::VecDeque;
 use indexmap::IndexMap;
 use petgraph::{visit::EdgeRef, Direction::Incoming, Direction::Outgoing};
@@ -71,11 +72,11 @@ fn get_ports(fg: &FirGraph) -> Ports {
 
 fn to_module(name: &Identifier, fg: &FirGraph) -> Module {
     let ports = get_ports(fg);
+
     let mut stmts: Stmts = Stmts::new();
     collect_def_stmts(fg, &mut stmts);
-    collect_op_stmts(fg, &mut stmts);
     collect_invalidate_stmts(fg, &mut stmts);
-    collect_conn_stmts(fg, &mut stmts);
+    collect_memport_node_conn_stmts(fg, &mut stmts);
     Module::new(name.clone(), ports, stmts, Info::default())
 }
 
@@ -143,6 +144,22 @@ fn collect_def_stmts(fg: &FirGraph, stmts: &mut Stmts) {
     }
 }
 
+/// Collect invalidate stmts
+fn collect_invalidate_stmts(fg: &FirGraph, stmts: &mut Stmts) {
+    for eid in fg.graph.edge_indices() {
+        let edge = fg.graph.edge_weight(eid).unwrap();
+        if edge.dst.is_none() {
+            continue;
+        }
+
+        let lhs = Expr::Reference(edge.dst.as_ref().unwrap().clone());
+        if edge.et == FirEdgeType::DontCare {
+            let stmt = Stmt::Invalidate(lhs, Info::default());
+            stmts.push(Box::new(stmt));
+        };
+    }
+}
+
 fn topo_start_node(nt: &FirNodeType) -> bool {
     match nt {
         FirNodeType::Invalid              |
@@ -154,13 +171,9 @@ fn topo_start_node(nt: &FirNodeType) -> bool {
             FirNodeType::RegReset         |
             FirNodeType::SMem(..)         |
             FirNodeType::CMem             |
-            FirNodeType::ReadMemPort(..)  |
-            FirNodeType::WriteMemPort(..) |
-            FirNodeType::InferMemPort(..) |
             FirNodeType::Inst(..)         |
             FirNodeType::Input            |
-            FirNodeType::Output           |
-            FirNodeType::Phi => {
+            FirNodeType::Output => {
                 return true;
             }
         _ => {
@@ -169,9 +182,11 @@ fn topo_start_node(nt: &FirNodeType) -> bool {
     }
 }
 
-/// Statements that performs some operation
-fn collect_op_stmts(fg: &FirGraph, stmts: &mut Stmts) {
-    // compute indeg for the entire graph
+fn collect_memport_node_conn_stmts(fg: &FirGraph, stmts: &mut Stmts) {
+    let mut whentree = reconstruct_whentree(fg);
+// whentree.print_tree();
+
+    // Compute indeg for the entire graph
     let mut indeg: IndexMap<NodeIndex, u32> = IndexMap::new();
     for id in fg.graph.node_indices() {
         indeg.insert(id, 0);
@@ -182,10 +197,13 @@ fn collect_op_stmts(fg: &FirGraph, stmts: &mut Stmts) {
         *indeg.get_mut(&dst).unwrap() += 1;
     }
 
-    // Main type inference loop
-    // - Topo sort nodes in each CC
+    // Topo sort nodes in each CC.
+    // Must insert stmts in this order to prevent accessing into undeclared
+    // variables
     let undir_graph = fg.graph.clone().into_edge_type::<Undirected>();
     let mut vis_map = fg.graph.visit_map();
+
+    let mut pconds_map: IndexMap<NodeIndex, PrioritizedConds> = IndexMap::new();
     for id in fg.graph.node_indices() {
         if vis_map.is_visited(&id) {
             continue;
@@ -226,87 +244,37 @@ fn collect_op_stmts(fg: &FirGraph, stmts: &mut Stmts) {
             }
         }
 
-        // Add Stmt if it is a operation
-        for nidx in topo_sort_order.iter() {
-            collect_op_stmt(fg, stmts, *nidx);
-        }
-    }
-}
-
-fn collect_op_stmt(fg: &FirGraph, stmts: &mut Stmts, id: NodeIndex) {
-    let node = fg.graph.node_weight(id).unwrap();
-    match &node.nt {
-        FirNodeType::Mux => {
-            let true_eid  = fg.parent_with_type(id, FirEdgeType::MuxTrue).unwrap();
-            let false_eid = fg.parent_with_type(id, FirEdgeType::MuxFalse).unwrap();
-            let cond_eid  = fg.parent_with_type(id, FirEdgeType::MuxCond).unwrap();
-
-            let t = fg.graph.edge_weight(true_eid).unwrap().src.clone();
-            let f = fg.graph.edge_weight(false_eid).unwrap().src.clone();
-            let c = fg.graph.edge_weight(cond_eid).unwrap().src.clone();
-            let mux = Expr::Mux(Box::new(c), Box::new(t), Box::new(f));
-
-            let name = node.name.as_ref().unwrap().clone();
-            let stmt = Stmt::Node(name, mux, Info::default());
-            stmts.push(Box::new(stmt));
-        }
-        FirNodeType::PrimOp2Expr(op) => {
-            let op0_eid = fg.parent_with_type(id, FirEdgeType::Operand0).unwrap();
-            let op1_eid = fg.parent_with_type(id, FirEdgeType::Operand1).unwrap();
-
-            let op0 = fg.graph.edge_weight(op0_eid).unwrap().src.clone();
-            let op1 = fg.graph.edge_weight(op1_eid).unwrap().src.clone();
-            let primop = Expr::PrimOp2Expr(op.clone(), Box::new(op0), Box::new(op1));
-
-            let name = node.name.as_ref().unwrap().clone();
-            let stmt = Stmt::Node(name, primop, Info::default());
-            stmts.push(Box::new(stmt));
-        }
-        FirNodeType::PrimOp1Expr(op) => {
-            if let Some(name) = node.name.as_ref() {
-                let op0_eid = fg.parent_with_type(id, FirEdgeType::Operand0).unwrap();
-                let op0 = fg.graph.edge_weight(op0_eid).unwrap().src.clone();
-                let primop = Expr::PrimOp1Expr(op.clone(), Box::new(op0));
-
-                let stmt = Stmt::Node(name.clone(), primop, Info::default());
-                stmts.push(Box::new(stmt));
+        // Condition chain where the previous stmt was inserted
+        // This is because certain `Node` stmts depends on memport...
+        for nidx in topo_sort_order {
+            let node = fg.graph.node_weight(nidx).unwrap();
+            match &node.nt {
+                FirNodeType::ReadMemPort(..) |
+                FirNodeType::WriteMemPort(..) |
+                FirNodeType::InferMemPort(..) => {
+                    let pconds = insert_memport_stmts(fg, nidx, &mut whentree);
+                    pconds_map.insert(nidx, pconds.clone());
+                }
+                FirNodeType::Mux |
+                    FirNodeType::PrimOp2Expr(..) |
+                    FirNodeType::PrimOp1Expr(..) |
+                    FirNodeType::PrimOp1Expr1Int(..) |
+                    FirNodeType::PrimOp1Expr2Int(..) => {
+                    let pconds = insert_op_stmts(fg, nidx, &pconds_map, &mut whentree);
+                    pconds_map.insert(nidx, pconds.clone());
+                }
+                _ => {
+                    continue;
+                }
             }
         }
-        FirNodeType::PrimOp1Expr1Int(op, x) => {
-            let op0_eid = fg.parent_with_type(id, FirEdgeType::Operand0).unwrap();
-            let op0 = fg.graph.edge_weight(op0_eid).unwrap().src.clone();
-            let primop = Expr::PrimOp1Expr1Int(op.clone(), Box::new(op0), x.clone());
-
-            let name = node.name.as_ref().unwrap().clone();
-            let stmt = Stmt::Node(name, primop, Info::default());
-            stmts.push(Box::new(stmt));
-        }
-        FirNodeType::PrimOp1Expr2Int(op, x, y) => {
-            let op0_eid = fg.parent_with_type(id, FirEdgeType::Operand0).unwrap();
-            let op0 = fg.graph.edge_weight(op0_eid).unwrap().src.clone();
-            let primop = Expr::PrimOp1Expr2Int(op.clone(), Box::new(op0), x.clone(), y.clone());
-
-            let name = node.name.as_ref().unwrap().clone();
-            let stmt = Stmt::Node(name, primop, Info::default());
-            stmts.push(Box::new(stmt));
-        }
-        _ => {  }
     }
-}
 
-fn collect_invalidate_stmts(fg: &FirGraph, stmts: &mut Stmts) {
-    for eid in fg.graph.edge_indices() {
-        let edge = fg.graph.edge_weight(eid).unwrap();
-        if edge.dst.is_none() {
-            continue;
-        }
+    // Insert connection stmts
+    insert_conn_stmts(fg, &pconds_map, &mut whentree);
 
-        let lhs = Expr::Reference(edge.dst.as_ref().unwrap().clone());
-        if edge.et == FirEdgeType::DontCare {
-            let stmt = Stmt::Invalidate(lhs, Info::default());
-            stmts.push(Box::new(stmt));
-        };
-    }
+    // Export the WhenTree to stmts
+    whentree.to_stmts(stmts);
 }
 
 fn reconstruct_whentree(fg: &FirGraph) -> WhenTree {
@@ -336,14 +304,17 @@ fn reconstruct_whentree(fg: &FirGraph) -> WhenTree {
     WhenTree::from_conditions(cond_priority_pair)
 }
 
-fn insert_memport_stmts(fg: &FirGraph, whentree: &mut WhenTree) {
-    // Add memory port definition statements
-    for id in fg.graph.node_indices() {
-        let node = fg.graph.node_weight(id).unwrap();
-        match &node.nt {
-            FirNodeType::ReadMemPort(pconds)      |
-                FirNodeType::WriteMemPort(pconds) |
-                FirNodeType::InferMemPort(pconds) => {
+/// Add memory port definition statements
+fn insert_memport_stmts(
+    fg: &FirGraph,
+    id: NodeIndex,
+    whentree: &mut WhenTree
+) -> PrioritizedConds {
+    let node = fg.graph.node_weight(id).unwrap();
+    match &node.nt {
+        FirNodeType::ReadMemPort(pconds)      |
+            FirNodeType::WriteMemPort(pconds) |
+            FirNodeType::InferMemPort(pconds) => {
                 let clk_eid  = fg.parent_with_type(id, FirEdgeType::Clock).unwrap();
                 let addr_eid = fg.parent_with_type(id, FirEdgeType::MemPortAddr).unwrap();
                 let mem_eid = fg.parent_with_type(id, FirEdgeType::MemPortEdge).unwrap();
@@ -362,15 +333,15 @@ fn insert_memport_stmts(fg: &FirGraph, whentree: &mut WhenTree) {
                     let port = match &node.nt {
                         FirNodeType::ReadMemPort(..) => {
                             ChirrtlMemoryPort::Read(name, mem_name.clone(),
-                                addr, clk_ref.clone(), Info::default())
+                            addr, clk_ref.clone(), Info::default())
                         }
                         FirNodeType::WriteMemPort(..) => {
                             ChirrtlMemoryPort::Write(name, mem_name.clone(),
-                                addr, clk_ref.clone(), Info::default())
+                            addr, clk_ref.clone(), Info::default())
                         }
                         FirNodeType::InferMemPort(..) => {
                             ChirrtlMemoryPort::Infer(name, mem_name.clone(),
-                                addr, clk_ref.clone(), Info::default())
+                            addr, clk_ref.clone(), Info::default())
                         }
                         _ => { unreachable!(); }
                     };
@@ -387,15 +358,110 @@ fn insert_memport_stmts(fg: &FirGraph, whentree: &mut WhenTree) {
                     &pconds,
                     Some(&pconds.leaf().unwrap().prior)).unwrap();
                 when_leaf.stmts.push(Box::new(port_stmt));
-            }
-            _ => {
-                continue;
-            }
+                pconds.clone()
+        }
+        _ => {
+            unreachable!();
         }
     }
 }
 
-fn insert_conn_stmts(fg: &FirGraph, whentree: &mut WhenTree) {
+/// Collect the connect and mport stmts and insert them into the WhenTree
+fn insert_op_stmts(
+    fg: &FirGraph,
+    id: NodeIndex,
+    pconds_map: &IndexMap<NodeIndex, PrioritizedConds>,
+    whentree: &mut WhenTree
+) -> PrioritizedConds {
+
+    let parents = fg.graph.neighbors_directed(id, Incoming);
+    let mut max_pconds = PrioritizedConds::root();
+    for pid in parents {
+        if pconds_map.contains_key(&pid) {
+// let parent = fg.graph.node_weight(pid).unwrap();
+// println!("parent {:?}", parent);
+            let pconds = pconds_map.get(&pid).unwrap();
+// println!("parent_pconds {:?}", pconds);
+            max_pconds = min(max_pconds, pconds.clone());
+        }
+    }
+
+// println!("max_pconds {:?}", max_pconds.leaf());
+
+    let when_leaf = whentree.get_node_mut(
+        &max_pconds,
+        Some(&max_pconds.leaf().unwrap().prior))
+            .unwrap();
+
+    let node = fg.graph.node_weight(id).unwrap();
+    match &node.nt {
+        FirNodeType::Mux => {
+            let true_eid  = fg.parent_with_type(id, FirEdgeType::MuxTrue).unwrap();
+            let false_eid = fg.parent_with_type(id, FirEdgeType::MuxFalse).unwrap();
+            let cond_eid  = fg.parent_with_type(id, FirEdgeType::MuxCond).unwrap();
+
+            let t = fg.graph.edge_weight(true_eid).unwrap().src.clone();
+            let f = fg.graph.edge_weight(false_eid).unwrap().src.clone();
+            let c = fg.graph.edge_weight(cond_eid).unwrap().src.clone();
+            let mux = Expr::Mux(Box::new(c), Box::new(t), Box::new(f));
+
+            let name = node.name.as_ref().unwrap().clone();
+            let stmt = Stmt::Node(name, mux, Info::default());
+            when_leaf.stmts.push(Box::new(stmt));
+        }
+        FirNodeType::PrimOp2Expr(op) => {
+            let op0_eid = fg.parent_with_type(id, FirEdgeType::Operand0).unwrap();
+            let op1_eid = fg.parent_with_type(id, FirEdgeType::Operand1).unwrap();
+
+            let op0 = fg.graph.edge_weight(op0_eid).unwrap().src.clone();
+            let op1 = fg.graph.edge_weight(op1_eid).unwrap().src.clone();
+            let primop = Expr::PrimOp2Expr(op.clone(), Box::new(op0), Box::new(op1));
+
+            let name = node.name.as_ref().unwrap().clone();
+            let stmt = Stmt::Node(name, primop, Info::default());
+            when_leaf.stmts.push(Box::new(stmt));
+        }
+        FirNodeType::PrimOp1Expr(op) => {
+            if let Some(name) = node.name.as_ref() {
+                let op0_eid = fg.parent_with_type(id, FirEdgeType::Operand0).unwrap();
+                let op0 = fg.graph.edge_weight(op0_eid).unwrap().src.clone();
+                let primop = Expr::PrimOp1Expr(op.clone(), Box::new(op0));
+
+                let stmt = Stmt::Node(name.clone(), primop, Info::default());
+                when_leaf.stmts.push(Box::new(stmt));
+            }
+        }
+        FirNodeType::PrimOp1Expr1Int(op, x) => {
+            let op0_eid = fg.parent_with_type(id, FirEdgeType::Operand0).unwrap();
+            let op0 = fg.graph.edge_weight(op0_eid).unwrap().src.clone();
+            let primop = Expr::PrimOp1Expr1Int(op.clone(), Box::new(op0), x.clone());
+
+            let name = node.name.as_ref().unwrap().clone();
+            let stmt = Stmt::Node(name, primop, Info::default());
+            when_leaf.stmts.push(Box::new(stmt));
+        }
+        FirNodeType::PrimOp1Expr2Int(op, x, y) => {
+            let op0_eid = fg.parent_with_type(id, FirEdgeType::Operand0).unwrap();
+            let op0 = fg.graph.edge_weight(op0_eid).unwrap().src.clone();
+            let primop = Expr::PrimOp1Expr2Int(op.clone(), Box::new(op0), x.clone(), y.clone());
+
+            let name = node.name.as_ref().unwrap().clone();
+            let stmt = Stmt::Node(name, primop, Info::default());
+            when_leaf.stmts.push(Box::new(stmt));
+        }
+        _ => {
+            unreachable!();
+        }
+    }
+    max_pconds
+}
+
+/// Insert connection stmts to the appropriate position in the whentree
+fn insert_conn_stmts(
+    fg: &FirGraph,
+    pconds_map: &IndexMap<NodeIndex, PrioritizedConds>,
+    whentree: &mut WhenTree
+) {
     let mut ordered_stmts: IndexMap<&PrioritizedConds, Vec<(PhiPrior, Stmt)>> = IndexMap::new();
     for eid in fg.graph.edge_indices() {
         let edge = fg.graph.edge_weight(eid).unwrap();
@@ -420,7 +486,13 @@ fn insert_conn_stmts(fg: &FirGraph, whentree: &mut WhenTree) {
                     .push((pconds.leaf().unwrap().prior.clone(), stmt));
             }
             _ => {
-                let leaf = whentree.get_node_mut(&PrioritizedConds::root(), None).unwrap();
+                let src_id = fg.graph.edge_endpoints(eid).unwrap().0;
+                let leaf = if pconds_map.contains_key(&src_id) {
+                    let pconds = pconds_map.get(&src_id).unwrap();
+                    whentree.get_node_mut(&pconds, None).unwrap()
+                } else {
+                    whentree.get_node_mut(&PrioritizedConds::root(), None).unwrap()
+                };
                 leaf.stmts.push(Box::new(stmt));
             }
         }
@@ -448,13 +520,6 @@ fn insert_conn_stmts(fg: &FirGraph, whentree: &mut WhenTree) {
             phi_priority_prev = Some(prior);
         }
     }
-}
-
-fn collect_conn_stmts(fg: &FirGraph, stmts: &mut Stmts) {
-    let mut whentree = reconstruct_whentree(fg);
-    insert_memport_stmts(fg, &mut whentree);
-    insert_conn_stmts(fg, &mut whentree);
-    whentree.to_stmts(stmts);
 }
 
 #[cfg(test)]
@@ -497,7 +562,7 @@ mod test {
                 for (fnode, fconds) in fir_leaves {
                     if !ast_leaves.contains_key(fnode) {
                         assert_eq!(fnode.cond, Condition::Root);
-                        assert_eq!(fnode.priority, BlockPrior(1));
+                        assert_eq!(fnode.priority, BlockPrior::max());
                     } else {
                         let aconds = ast_leaves.get(fnode).unwrap();
                         assert_eq!(aconds, &fconds);
