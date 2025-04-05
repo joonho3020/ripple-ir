@@ -1,3 +1,4 @@
+use crate::ir::hierarchy::Hierarchy;
 use crate::ir::whentree::BlockPrior;
 use crate::ir::whentree::StmtPrior;
 use crate::ir::whentree::PhiPrior;
@@ -36,6 +37,8 @@ pub fn from_circuit(ast: &Circuit) -> FirIR {
         let (name, ripple_graph) = from_circuit_module(module);
         ret.graphs.insert(name.clone(), ripple_graph);
     }
+    let hier = Hierarchy::new(&ret);
+    ret.hier = hier;
     return ret;
 }
 

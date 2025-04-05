@@ -11,6 +11,7 @@ use crate::common::RippleIRErr;
 use crate::ir::typetree::typetree::*;
 use crate::impl_clean_display;
 
+use super::hierarchy::Hierarchy;
 use super::whentree::PrioritizedConds;
 
 #[derive(Derivative, Clone)]
@@ -178,12 +179,13 @@ pub struct FirIR {
     pub version: Version,
     pub name: Identifier,
     pub annos: Annotations,
-    pub graphs: IndexMap<Identifier, FirGraph>
+    pub graphs: IndexMap<Identifier, FirGraph>,
+    pub hier: Hierarchy,
 }
 
 impl FirIR {
     pub fn new(version: Version, name: Identifier, annos: Annotations) -> Self {
-        Self { version, name, annos, graphs: IndexMap::new() }
+        Self { version, name, annos, graphs: IndexMap::new(), hier: Hierarchy::default() }
     }
 
     pub fn export(&self, outdir: &str, pfx: &str) -> Result<(), RippleIRErr> {

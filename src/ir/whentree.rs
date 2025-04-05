@@ -391,7 +391,7 @@ impl WhenTree {
     }
 
     fn print_tree_recursive(&self, id: NodeIndex, depth: usize) {
-        println!("{}{:?}", "  ".repeat(depth), self.graph.node_weight(id).unwrap());
+        println!("{}{:?} {:?}", "  ".repeat(depth), self.graph.node_weight(id).unwrap(), id);
 
         let childs: Vec<NodeIndex> = self.graph.neighbors_directed(id, Outgoing)
                                                 .into_iter()
@@ -544,21 +544,17 @@ impl WhenTree {
 
         // Iterate over found condition paths
         for pconds in sorted_paths {
-// println!("----------------------------------------");
-// println!("pconds {:?}", pconds);
             let mut cur_id = root_id;
             // Traverse down the tree attaching nodes as needed
             for pcond in pconds.iter() {
                 if pcond.cond == Condition::Root {
                     if root_cond_nodes.contains(&pcond.prior.block) {
-// println!("Root condition with priority {:?} already found", pcond.prior.block);
                         continue;
                     } else {
                         // Found a Root condition: add as leaf node if not visited
                         let node = WhenTreeNode::new(pcond.cond.clone(), pcond.prior.block);
                         add_node_and_connect(&mut tree, node, cur_id);
                         root_cond_nodes.insert(pcond.prior.block);
-// println!("Found root condition with priority {:?}, inserting node", pcond.prior.block);
                     }
                 } else if !cond_to_node.contains_key(&(pcond.prior.block, &pcond.cond)) {
                     // Condition not yet visited: add to tree
@@ -566,12 +562,10 @@ impl WhenTree {
                     let id = add_node_and_connect(&mut tree, node, cur_id);
                     cond_to_node.insert((pcond.prior.block, &pcond.cond), id);
                     cur_id = id;
-// println!("Found non-root condition with priority {:?} cond {:?} inserting node ", pcond.prior.block, pcond.cond);
                 } else {
                     // Already added this condition before
                     cur_id = *cond_to_node.get(&(pcond.prior.block, &pcond.cond)).unwrap();
 
-// println!("Non-root condition with priority {:?} cond {:?} already found", pcond.prior.block, pcond.cond);
                 }
             }
         }
@@ -593,39 +587,6 @@ impl WhenTree {
         }
 
         tree
-    }
-
-    pub fn add_condition(&mut self, conds: &Conditions) {
-        let mut q: VecDeque<NodeIndex> = VecDeque::new();
-        q.push_back(self.root.unwrap());
-
-        let mut i = 0;
-        while !q.is_empty() && i < conds.len() {
-            let id = q.pop_front().unwrap();
-            let mut found_match = false;
-            for cid in self.graph.neighbors_directed(id, Outgoing) {
-                let cur_cond = conds.get(i);
-                let child = self.graph.node_weight(cid).unwrap();
-
-                // Found root node
-                if cur_cond == &Condition::Root && child.cond == Condition::Root {
-                    return;
-                } else if &child.cond == cur_cond {
-                    // Found a matching condition, go down one level in the tree
-                    q.push_back(cid);
-                    i += 1;
-                    found_match = true;
-                }
-            }
-
-            if !found_match {
-                let cur_cond = conds.get(i);
-                assert!(cur_cond == &Condition::Root);
-                let parent = self.graph.node_weight(id).unwrap();
-                let cid = self.graph.add_node(WhenTreeNode::new(Condition::Root, parent.priority));
-                self.graph.add_edge(id, cid, WhenTreeEdge::default());
-            }
-        }
     }
 
     /// Follow a given condition (and the priority when it is given) to the tree leaf node
@@ -671,7 +632,7 @@ impl WhenTree {
     }
 
     fn to_stmts_recursive(&self, id: NodeIndex, stmts: &mut Stmts) {
-        let mut cond_groups: IndexMap<Expr, (NodeIndex, Option<NodeIndex>)> = IndexMap::new();
+        let mut cond_groups: IndexMap<Expr, (Option<NodeIndex>, Option<NodeIndex>)> = IndexMap::new();
         let mut raw_stmt_nodes: Vec<(PrioritizedConds, NodeIndex)> = vec![];
 
         let childs: Vec<NodeIndex> = self.graph.neighbors_directed(id, Outgoing)
@@ -685,12 +646,12 @@ impl WhenTree {
                 Condition::Root => {
                     let prior = PhiPrior::new(child.priority, StmtPrior(0));
                     let pconds = PrioritizedConds::from_vec(vec![
-                            PrioritizedCond::new(prior, Condition::Root)
+                        PrioritizedCond::new(prior, Condition::Root)
                     ]);
                     raw_stmt_nodes.push((pconds, cid));
                 }
                 Condition::When(expr) => {
-                    cond_groups.entry(expr.clone()).or_default().0 = cid;
+                    cond_groups.entry(expr.clone()).or_default().0 = Some(cid);
                 }
                 Condition::Else(expr) => {
                     cond_groups.entry(expr.clone()).or_default().1 = Some(cid);
@@ -701,9 +662,13 @@ impl WhenTree {
         let mut when_stmts_by_priority: Vec<(PrioritizedConds, Stmt)> = vec![];
 
         // Recurse on condition branches and collect them by priority
-        for (expr, (when_id, else_id_opt)) in cond_groups {
+        for (expr, (when_id_opt, else_id_opt)) in cond_groups {
             let mut when_stmts = Stmts::new();
-            self.to_stmts_recursive(when_id, &mut when_stmts);
+            if let Some(when_id) = when_id_opt {
+                self.to_stmts_recursive(when_id, &mut when_stmts);
+            } else {
+                when_stmts.push(Box::new(Stmt::Skip(Info::default())));
+            };
 
             let else_stmts_opt =  if let Some(else_id) = else_id_opt {
                 let mut else_stmts = Stmts::new();
@@ -714,7 +679,12 @@ impl WhenTree {
             };
 
             let stmt = Stmt::When(expr.clone(), Info::default(), when_stmts, else_stmts_opt);
-            let when_prior = self.graph.node_weight(when_id).unwrap().priority;
+            let when_prior = if let Some(when_id) = when_id_opt {
+                self.graph.node_weight(when_id).unwrap().priority
+            } else {
+                // No when stmt: stmts inside when is only a skip
+                self.graph.node_weight(else_id_opt.unwrap()).unwrap().priority
+            };
             let prior = PhiPrior::new(when_prior, StmtPrior(0));
             let pconds = PrioritizedConds::from_vec(vec![
                 PrioritizedCond::new(prior, Condition::When(expr))

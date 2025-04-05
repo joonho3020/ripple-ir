@@ -1,4 +1,4 @@
-use crate::common::graphviz::{DefaultGraphVizCore, GraphViz};
+use crate::common::graphviz::DefaultGraphVizCore;
 use crate::ir::fir::{FirEdgeType, FirGraph, FirIR, FirNodeType};
 use crate::ir::whentree::{PhiPrior, PrioritizedConds, WhenTree};
 use chirrtl_parser::ast::*;
@@ -11,18 +11,24 @@ use petgraph::visit::VisitMap;
 use petgraph::visit::Visitable;
 use petgraph::prelude::Dfs;
 
+
+
+// STUFF TO FIX
+// - FIRRTL Version should be lowercase
+// - extmodule parameter should not be printed in hex
+// - Int used for index (e.g., [Int]) should not be hex
+
 pub fn to_ast(fir: &FirIR) -> Circuit {
     let mut cms = CircuitModules::new();
-    for (name, fg) in fir.graphs.iter() {
-        let cm = to_circuitmodule(name, fg);
+    for hier in fir.hier.topo_order() {
+        let fg = fir.graphs.get(hier.name()).unwrap();
+        let cm = to_circuitmodule(hier.name(), fg);
         cms.push(Box::new(cm));
-
     }
     Circuit::new(fir.version.clone(), fir.name.clone(), fir.annos.clone(), cms)
 }
 
 fn to_circuitmodule(name: &Identifier, fg: &FirGraph) -> CircuitModule {
-    println!("name {:?}", name);
     if fg.blackbox {
         CircuitModule::ExtModule(to_extmodule(name, fg))
     } else {
@@ -426,8 +432,6 @@ fn insert_conn_stmts(fg: &FirGraph, whentree: &mut WhenTree) {
     for (conds, prior_stmts) in ordered_stmts {
         let mut phi_priority_prev: Option<PhiPrior> = None;
         for (prior, stmt) in prior_stmts {
-// println!("-------------------------------------------------");
-// println!("conds {:?} prior {:?} stmt {:?}", conds, prior, stmt);
             let leaf = whentree.get_node_mut(conds, Some(&prior)).unwrap();
             leaf.stmts.push(Box::new(stmt));
 
@@ -455,7 +459,6 @@ fn collect_conn_stmts(fg: &FirGraph, stmts: &mut Stmts) {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::common::graphviz::GraphViz;
     use crate::ir::whentree::Condition;
     use crate::ir::whentree::BlockPrior;
     use crate::passes::ast::print::Printer;
@@ -483,18 +486,11 @@ mod test {
         }
 
         for (name, fg) in ir.graphs.iter() {
-// fg.export_graphviz(&format!("./test-outputs/{}.fir.pdf", name), None, None, false)?;
-
             if ast_whentrees.contains_key(name) {
                 let ast_whentree = ast_whentrees.get(name).unwrap();
                 let ast_leaves = ast_whentree.leaf_to_conditions();
 
-// println!("--------------- ast tree --------------");
-// ast_whentree.print_tree();
-
                 let fir_whentree = reconstruct_whentree(fg);
-// println!("--------------- fir tree --------------");
-// fir_whentree.print_tree();
                 let fir_leaves = fir_whentree.leaf_to_conditions();
 
                 for (fnode, fconds) in fir_leaves {
@@ -543,13 +539,9 @@ mod test {
 
         let mut printer = Printer::new();
         let circuit_str = printer.print_circuit(&circuit_reconstruct);
-        println!("{}", circuit_str);
+
+        std::fs::write(&format!("./test-outputs/{}.fir", name), circuit_str)?;
 
         Ok(())
     }
-
-    // TODO: Stuff to check
-    // (More) Last connect semantics
-    // Memory
-    // Invalid (i.e. DontCare)
 }

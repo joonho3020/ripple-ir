@@ -52,3 +52,22 @@ clean_build:
 
 [group: 'clean']
 clean_all: clean clean_build
+
+[group: 'firtool']
+firtool:
+  firtool \
+      --format=fir \
+      --export-module-hierarchy \
+      --verify-each=true \
+      --warn-on-unprocessed-annotations \
+      --disable-annotation-classless \
+      --disable-annotation-unknown \
+      --mlir-timing \
+      --lowering-options=emittedLineLength=2048,noAlwaysComb,disallowLocalVariables,verifLabels,disallowPortDeclSharing,locationInfoStyle=wrapInAtSquareBracket \
+      --repl-seq-mem \
+      --split-verilog \
+      -o test-outputs/verilog \
+      ./test-outputs/chipyard.harness.TestHarness.RocketConfig.fir
+
+# --repl-seq-mem-file=$(MFC_SMEMS_CONF) \
+# --annotation-file=$(FINAL_ANNO_FILE) \

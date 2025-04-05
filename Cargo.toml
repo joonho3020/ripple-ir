@@ -23,4 +23,5 @@ gif = "0.13.1"
 spinoff = "0.8.0"
 bimap = "0.6.3"
 test-case = "3.3.1"
-chirrtl-parser = "0.1.7"
+# chirrtl-parser = "0.1.8"
+chirrtl-parser = { git = "ssh://git@github.com/joonho3020/chirrtl-parser.git", branch = "main"}

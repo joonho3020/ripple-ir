@@ -70,6 +70,7 @@ impl Printer {
         ret.push_str("\n");
 
         self.print_stmts(&module.stmts, ret);
+        self.dedent();
     }
 
     fn print_ext_module(&mut self, ext: &ExtModule, ret: &mut String) {
@@ -83,6 +84,7 @@ impl Printer {
         for param in ext.params.iter() {
             ret.push_str(&self.println_indent(format!("{}", param)));
         }
+        self.dedent();
     }
 
     fn print_ports(&mut self, ports: &Ports, ret: &mut String) {
