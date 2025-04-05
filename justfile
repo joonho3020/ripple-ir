@@ -64,10 +64,10 @@ firtool:
       --disable-annotation-unknown \
       --mlir-timing \
       --lowering-options=emittedLineLength=2048,noAlwaysComb,disallowLocalVariables,verifLabels,disallowPortDeclSharing,locationInfoStyle=wrapInAtSquareBracket \
-      --repl-seq-mem \
       --split-verilog \
       -o test-outputs/verilog \
-      ./test-outputs/chipyard.harness.TestHarness.RocketConfig.fir
+      ./test-outputs/GCD.fir
+# ./test-outputs/chipyard.harness.TestHarness.RocketConfig.fir
 
 # --repl-seq-mem-file=$(MFC_SMEMS_CONF) \
 # --annotation-file=$(FINAL_ANNO_FILE) \

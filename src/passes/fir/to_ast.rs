@@ -594,6 +594,7 @@ mod test {
     #[test_case("TLFIFOFixer" ; "TLFIFOFixer")]
     #[test_case("TLBundleQueue" ; "TLBundleQueue")]
     #[test_case("ListBuffer" ; "ListBuffer")]
+    #[test_case("Atomics" ; "Atomics")]
     fn run(name: &str) -> Result<(), RippleIRErr> {
         let source = std::fs::read_to_string(format!("./test-inputs/{}.fir", name))?;
         let circuit = parse_circuit(&source).expect("firrtl parser");
