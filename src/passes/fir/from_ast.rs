@@ -378,7 +378,7 @@ fn add_graph_edge_from_stmt(ir: &mut FirGraph, stmt: &Stmt, nm: &mut NodeMap) {
 
                     let clk_edge = FirEdge::new(clk.clone(), None, FirEdgeType::Clock);
                     let rst_edge = FirEdge::new(rst.clone(), None, FirEdgeType::Reset);
-                    let init_edge = FirEdge::new(init.clone(), None, FirEdgeType::Wire);
+                    let init_edge = FirEdge::new(init.clone(), None, FirEdgeType::InitValue);
 
                     add_graph_edge_from_expr(ir, *reg_id, clk,  clk_edge, nm);
                     add_graph_edge_from_expr(ir, *reg_id, rst,  rst_edge, nm);

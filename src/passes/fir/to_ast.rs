@@ -105,7 +105,7 @@ fn collect_def_stmts(fg: &FirGraph, stmts: &mut Stmts) {
 
                 let clk_eid = fg.parent_with_type(id, FirEdgeType::Clock).unwrap();
                 let rst_eid = fg.parent_with_type(id, FirEdgeType::Reset).unwrap();
-                let init_eid = fg.parent_with_type(id, FirEdgeType::Wire).unwrap();
+                let init_eid = fg.parent_with_type(id, FirEdgeType::InitValue).unwrap();
 
                 let clk  = fg.graph.edge_weight(clk_eid).unwrap().src.clone();
                 let rst  = fg.graph.edge_weight(rst_eid).unwrap().src.clone();
@@ -348,14 +348,15 @@ fn insert_memport_stmts(fg: &FirGraph, whentree: &mut WhenTree) {
                 let addr_eid = fg.parent_with_type(id, FirEdgeType::MemPortAddr).unwrap();
                 let mem_eid = fg.parent_with_type(id, FirEdgeType::MemPortEdge).unwrap();
 
+                let mem_ep = fg.graph.edge_endpoints(mem_eid).unwrap();
+                let mem_node = fg.graph.node_weight(mem_ep.0).unwrap();
+                let mem_name = mem_node.name.as_ref().unwrap().clone();
+
                 let mem = &fg.graph.edge_weight(mem_eid).unwrap().src;
                 let clk = &fg.graph.edge_weight(clk_eid).unwrap().src;
                 let addr = fg.graph.edge_weight(addr_eid).unwrap().src.clone();
 
-                let port_stmt = if let (
-                    Expr::Reference(Reference::Ref(mem_name)),
-                    Expr::Reference(clk_ref)
-                ) = (mem, clk) {
+                let port_stmt = if let Expr::Reference(clk_ref) = clk {
                     let name = node.name.as_ref().unwrap().clone();
 
                     let port = match &node.nt {
@@ -525,6 +526,9 @@ mod test {
     #[test_case("chipyard.harness.TestHarness.RocketConfig" ; "Rocket")]
     #[test_case("MSHR1" ; "MSHR1")]
     #[test_case("EmptyAggregate" ; "EmptyAggregate")]
+    #[test_case("TLFIFOFixer" ; "TLFIFOFixer")]
+    #[test_case("TLBundleQueue" ; "TLBundleQueue")]
+    #[test_case("ListBuffer" ; "ListBuffer")]
     fn run(name: &str) -> Result<(), RippleIRErr> {
         let source = std::fs::read_to_string(format!("./test-inputs/{}.fir", name))?;
         let circuit = parse_circuit(&source).expect("firrtl parser");

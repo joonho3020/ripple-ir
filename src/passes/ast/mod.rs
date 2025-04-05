@@ -32,8 +32,9 @@ circuit NestedWhen :
         let ast = parse_circuit(&source).expect("Parse failed");
         let mut printer = Printer::new();
         let circuit = printer.print_circuit(&ast);
+        println!("{}", circuit);
         let expect =
-r#"FIRRTL Version 3.3.0
+r#"FIRRTL version 3.3.0
 circuit NestedWhen :
   module NestedWhen : @[src/main/scala/gcd/NestedWhen.scala 8:7]
     input clock : Clock @[src/main/scala/gcd/NestedWhen.scala 8:7]

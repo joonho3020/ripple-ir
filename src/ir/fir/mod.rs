@@ -78,6 +78,8 @@ pub struct FirEdge {
 pub enum FirEdgeType {
     Wire,
 
+    InitValue,
+
     Operand0,
     Operand1,
 

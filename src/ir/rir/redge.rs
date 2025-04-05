@@ -8,6 +8,8 @@ use crate::ir::whentree::PrioritizedConds;
 pub enum RippleEdgeType {
     Wire,
 
+    InitValue,
+
     Operand0,
     Operand1,
 
@@ -34,6 +36,7 @@ impl From<&FirEdgeType> for RippleEdgeType {
     fn from(value: &FirEdgeType) -> Self {
         match value {
             FirEdgeType::Wire => RippleEdgeType::Wire,
+            FirEdgeType::InitValue => RippleEdgeType::InitValue,
             FirEdgeType::Operand0 => RippleEdgeType::Operand0,
             FirEdgeType::Operand1 => RippleEdgeType::Operand1,
             FirEdgeType::MuxCond => RippleEdgeType::MuxCond,
