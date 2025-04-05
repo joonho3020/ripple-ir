@@ -242,14 +242,19 @@ impl TypeTree {
                     .collect();
 
                 if children.is_empty() {
-                    panic!("Array node has no children!");
+                    // There is no children.
+                    // Technically, the array can still have a valid type,
+                    // but if the array length is zero, the meaning of its
+                    // type is unimportant anyways
+                    return Type::TypeAggregate(
+                        Box::new(TypeAggregate::Fields(Box::new(vec![]))));
+                } else {
+                    // Assuming homogeneous array
+                    let (_, first_type) = children[0].clone();
+                    let len = children.len();
+                    Type::TypeAggregate(
+                        Box::new(TypeAggregate::Array(Box::new(first_type), Int::from(len as u32))))
                 }
-
-                // Assuming homogeneous array
-                let (_, first_type) = children[0].clone();
-                let len = children.len();
-                Type::TypeAggregate(
-                    Box::new(TypeAggregate::Array(Box::new(first_type), Int::from(len as u32))))
             }
         }
     }

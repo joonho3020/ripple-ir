@@ -1,6 +1,6 @@
-use crate::common::graphviz::DefaultGraphVizCore;
+use crate::common::graphviz::{DefaultGraphVizCore, GraphViz};
 use crate::ir::fir::{FirEdgeType, FirGraph, FirIR, FirNodeType};
-use crate::ir::whentree::{Conditions, PhiPrior, PrioritizedConds, WhenTree};
+use crate::ir::whentree::{PhiPrior, PrioritizedConds, WhenTree};
 use chirrtl_parser::ast::*;
 use std::collections::VecDeque;
 use indexmap::IndexMap;
@@ -22,6 +22,7 @@ pub fn to_ast(fir: &FirIR) -> Circuit {
 }
 
 fn to_circuitmodule(name: &Identifier, fg: &FirGraph) -> CircuitModule {
+    println!("name {:?}", name);
     if fg.blackbox {
         CircuitModule::ExtModule(to_extmodule(name, fg))
     } else {
@@ -425,6 +426,8 @@ fn insert_conn_stmts(fg: &FirGraph, whentree: &mut WhenTree) {
     for (conds, prior_stmts) in ordered_stmts {
         let mut phi_priority_prev: Option<PhiPrior> = None;
         for (prior, stmt) in prior_stmts {
+// println!("-------------------------------------------------");
+// println!("conds {:?} prior {:?} stmt {:?}", conds, prior, stmt);
             let leaf = whentree.get_node_mut(conds, Some(&prior)).unwrap();
             leaf.stmts.push(Box::new(stmt));
 
@@ -480,7 +483,7 @@ mod test {
         }
 
         for (name, fg) in ir.graphs.iter() {
-            fg.export_graphviz(&format!("./test-outputs/{}.fir.pdf", name), None, None, false)?;
+// fg.export_graphviz(&format!("./test-outputs/{}.fir.pdf", name), None, None, false)?;
 
             if ast_whentrees.contains_key(name) {
                 let ast_whentree = ast_whentrees.get(name).unwrap();
@@ -523,6 +526,9 @@ mod test {
     #[test_case("SinglePortSRAM" ; "SinglePortSRAM")]
     #[test_case("OneReadOneWritePortSRAM" ; "OneReadOneWritePortSRAM")]
     #[test_case("OneReadOneReadWritePortSRAM" ; "OneReadOneReadWritePortSRAM")]
+    #[test_case("chipyard.harness.TestHarness.RocketConfig" ; "Rocket")]
+    #[test_case("MSHR1" ; "MSHR1")]
+    #[test_case("EmptyAggregate" ; "EmptyAggregate")]
     fn run(name: &str) -> Result<(), RippleIRErr> {
         let source = std::fs::read_to_string(format!("./test-inputs/{}.fir", name))?;
         let circuit = parse_circuit(&source).expect("firrtl parser");

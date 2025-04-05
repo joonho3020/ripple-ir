@@ -193,7 +193,7 @@ fn add_graph_node_from_stmt(ir: &mut FirGraph, stmt: &Stmt, nm: &mut NodeMap) {
             // in `nm.node_map`
             match expr {
                 Expr::Mux(_, _, _) => {
-                    let id = add_node(ir, None, None, TypeDirection::Outgoing, FirNodeType::Mux);
+                    let id = add_node(ir, None, Some(out_name.clone()), TypeDirection::Outgoing, FirNodeType::Mux);
                     nm.node_map.insert(Reference::Ref(out_name.clone()), id);
                 }
                 Expr::PrimOp2Expr(op, _, _) => {

@@ -1,4 +1,5 @@
 use chirrtl_parser::ast::*;
+use derivative::Derivative;
 use petgraph::{graph::{Graph, NodeIndex}, Direction::Outgoing};
 use indexmap::IndexMap;
 use indexmap::IndexSet;
@@ -308,7 +309,8 @@ impl Conditions {
     }
 }
 
-#[derive(Debug, Default, Clone, Eq)]
+#[derive(Derivative, Default, Clone, Eq)]
+#[derivative(Debug)]
 pub struct WhenTreeNode {
     /// Condition to reach this node
     pub cond: Condition,
@@ -317,6 +319,7 @@ pub struct WhenTreeNode {
     pub priority: BlockPrior,
 
     /// Statements in this tree node
+    #[derivative(Debug="ignore")]
     pub stmts: Stmts
 }
 
@@ -520,7 +523,7 @@ impl WhenTree {
         let root_id = tree.graph.add_node(root_node);
         tree.root = Some(root_id);
 
-        let mut cond_to_node: IndexMap<Condition, NodeIndex> = IndexMap::new();
+        let mut cond_to_node: IndexMap<(BlockPrior, &Condition), NodeIndex> = IndexMap::new();
 
         // Root conditions can be indexed by its unique priority
         let mut root_cond_nodes: IndexSet<BlockPrior> = IndexSet::new();
@@ -541,27 +544,34 @@ impl WhenTree {
 
         // Iterate over found condition paths
         for pconds in sorted_paths {
+// println!("----------------------------------------");
+// println!("pconds {:?}", pconds);
             let mut cur_id = root_id;
             // Traverse down the tree attaching nodes as needed
             for pcond in pconds.iter() {
                 if pcond.cond == Condition::Root {
                     if root_cond_nodes.contains(&pcond.prior.block) {
+// println!("Root condition with priority {:?} already found", pcond.prior.block);
                         continue;
                     } else {
                         // Found a Root condition: add as leaf node if not visited
                         let node = WhenTreeNode::new(pcond.cond.clone(), pcond.prior.block);
                         add_node_and_connect(&mut tree, node, cur_id);
                         root_cond_nodes.insert(pcond.prior.block);
+// println!("Found root condition with priority {:?}, inserting node", pcond.prior.block);
                     }
-                } else if !cond_to_node.contains_key(&pcond.cond) {
+                } else if !cond_to_node.contains_key(&(pcond.prior.block, &pcond.cond)) {
                     // Condition not yet visited: add to tree
                     let node = WhenTreeNode::new(pcond.cond.clone(), pcond.prior.block);
                     let id = add_node_and_connect(&mut tree, node, cur_id);
-                    cond_to_node.insert(pcond.cond.clone(), id);
+                    cond_to_node.insert((pcond.prior.block, &pcond.cond), id);
                     cur_id = id;
+// println!("Found non-root condition with priority {:?} cond {:?} inserting node ", pcond.prior.block, pcond.cond);
                 } else {
                     // Already added this condition before
-                    cur_id = *cond_to_node.get(&pcond.cond).unwrap();
+                    cur_id = *cond_to_node.get(&(pcond.prior.block, &pcond.cond)).unwrap();
+
+// println!("Non-root condition with priority {:?} cond {:?} already found", pcond.prior.block, pcond.cond);
                 }
             }
         }
@@ -633,11 +643,13 @@ impl WhenTree {
             let id = q.pop_front().unwrap();
             for cid in self.graph.neighbors_directed(id, Outgoing) {
                 let pcond = conds.get(i);
-                let cur_cond = &pcond.cond;
                 let child = self.graph.node_weight(cid).unwrap();
 
                 // Found root node
-                if cur_cond == &Condition::Root && child.cond == Condition::Root {
+                if pcond.cond == Condition::Root &&
+                    pcond.prior.block == child.priority &&
+                    child.cond == Condition::Root
+                {
                     if prior.is_some() {
                         if child.priority == prior.unwrap().block {
                             // No priority given, just return the first matching one
@@ -647,7 +659,8 @@ impl WhenTree {
                         // No priority given, just return the first matching one
                         return self.graph.node_weight_mut(cid);
                     }
-                } else if &child.cond == cur_cond {
+                } else if child.cond == pcond.cond &&
+                    child.priority == pcond.prior.block {
                     // Found a matching condition, go down one level in the tree
                     q.push_back(cid);
                     i += 1;
