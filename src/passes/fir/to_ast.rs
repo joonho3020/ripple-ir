@@ -1,5 +1,5 @@
 use crate::common::graphviz::DefaultGraphVizCore;
-use crate::ir::fir::{FirEdgeType, FirGraph, FirIR, FirNodeType};
+use crate::ir::fir::{FirEdgeType, FirGraph, FirIR, FirNode, FirNodeType};
 use crate::ir::whentree::{PhiPrior, PrioritizedConds, WhenTree};
 use chirrtl_parser::ast::*;
 use std::cmp::min;
@@ -65,101 +65,20 @@ fn get_ports(fg: &FirGraph) -> Ports {
 }
 
 fn to_module(name: &Identifier, fg: &FirGraph) -> Module {
+    println!("name {:?}", name);
     let ports = get_ports(fg);
 
     let mut stmts: Stmts = Stmts::new();
-    collect_def_stmts(fg, &mut stmts);
-    collect_invalidate_stmts(fg, &mut stmts);
-    collect_memport_node_conn_stmts(fg, &mut stmts);
+    collect_stmts(fg, &mut stmts);
     Module::new(name.clone(), ports, stmts, Info::default())
 }
 
 /// Statements that defines a structural element
-fn collect_def_stmts(fg: &FirGraph, stmts: &mut Stmts) {
-    for id in fg.node_indices() {
-        let node = fg.node_weight(id).unwrap();
-        match &node.nt {
-            FirNodeType::Wire => {
-                let tpe = node.ttree.as_ref().unwrap().to_type();
-
-                let name = node.name.as_ref().unwrap().clone();
-                stmts.push(Box::new(Stmt::Wire(name, tpe, Info::default())));
-            }
-            FirNodeType::Reg => {
-                let tpe = node.ttree.as_ref().unwrap().to_type();
-
-                let clk_eid = fg.parent_with_type(id, FirEdgeType::Clock).unwrap();
-                let clk = fg.graph.edge_weight(clk_eid).unwrap().src.clone();
-
-                let name = node.name.as_ref().unwrap().clone();
-                let reg = Stmt::Reg(name, tpe, clk, Info::default());
-                stmts.push(Box::new(reg));
-            }
-            FirNodeType::RegReset => {
-                let tpe = node.ttree.as_ref().unwrap().to_type();
-
-                let clk_eid = fg.parent_with_type(id, FirEdgeType::Clock).unwrap();
-                let rst_eid = fg.parent_with_type(id, FirEdgeType::Reset).unwrap();
-                let init_eid = fg.parent_with_type(id, FirEdgeType::InitValue).unwrap();
-
-                let clk  = fg.graph.edge_weight(clk_eid).unwrap().src.clone();
-                let rst  = fg.graph.edge_weight(rst_eid).unwrap().src.clone();
-                let init = fg.graph.edge_weight(init_eid).unwrap().src.clone();
-
-                let name = node.name.as_ref().unwrap().clone();
-                let reg_init = Stmt::RegReset(name, tpe, clk, rst, init, Info::default());
-                stmts.push(Box::new(reg_init));
-            }
-            FirNodeType::SMem(ruw_opt) => {
-                let tpe = node.ttree.as_ref().unwrap().to_type();
-
-                let name = node.name.as_ref().unwrap().clone();
-                let smem = ChirrtlMemory::SMem(name, tpe, ruw_opt.clone(), Info::default());
-                let mem = Stmt::ChirrtlMemory(smem);
-                stmts.push(Box::new(mem));
-            }
-            FirNodeType::CMem => {
-                let tpe = node.ttree.as_ref().unwrap().to_type();
-
-                let name = node.name.as_ref().unwrap().clone();
-                let cmem = ChirrtlMemory::CMem(name, tpe, Info::default());
-                let mem = Stmt::ChirrtlMemory(cmem);
-                stmts.push(Box::new(mem));
-            }
-            FirNodeType::Inst(module) => {
-                let name = node.name.as_ref().unwrap().clone();
-                let inst = Stmt::Inst(name, module.clone(), Info::default());
-                stmts.push(Box::new(inst));
-            }
-            _ => {
-                continue;
-            }
-        }
-    }
-}
-
-/// Collect invalidate stmts
-fn collect_invalidate_stmts(fg: &FirGraph, stmts: &mut Stmts) {
-    for eid in fg.graph.edge_indices() {
-        let edge = fg.graph.edge_weight(eid).unwrap();
-        if edge.dst.is_none() {
-            continue;
-        }
-
-        let lhs = Expr::Reference(edge.dst.as_ref().unwrap().clone());
-        if edge.et == FirEdgeType::DontCare {
-            let stmt = Stmt::Invalidate(lhs, Info::default());
-            stmts.push(Box::new(stmt));
-        };
-    }
-}
-
 fn topo_start_node(fg: &FirGraph, id: NodeIndex) -> bool {
     let node = fg.graph.node_weight(id).unwrap();
 
     match node.nt {
         FirNodeType::Invalid  |
-        FirNodeType::DontCare |
         FirNodeType::SMem(..) |
         FirNodeType::CMem     |
         FirNodeType::Inst(..) |
@@ -168,27 +87,30 @@ fn topo_start_node(fg: &FirGraph, id: NodeIndex) -> bool {
         FirNodeType::UIntLiteral(..)  |
         FirNodeType::SIntLiteral(..)  |
         FirNodeType::Wire             |
-        FirNodeType::Reg              |
-        FirNodeType::RegReset => {
+        FirNodeType::RegReset         |
+        FirNodeType::Reg  => {
             true
         }
         _ => {
             false
         }
     }
+
 }
 
-fn find_array_addr_chain(fg: &FirGraph, id: NodeIndex) -> Vec<NodeIndex> {
-    let mut array_parents: Vec<NodeIndex> = vec![];
+fn find_array_addr_chain(fg: &FirGraph, id: NodeIndex) -> IndexSet<NodeIndex> {
+    let mut array_parents: IndexSet<NodeIndex> = IndexSet::new();
     for peid in fg.graph.edges_directed(id, Incoming) {
         let pedge = fg.graph.edge_weight(peid.id()).unwrap();
         let ep = fg.graph.edge_endpoints(peid.id()).unwrap();
         if pedge.et == FirEdgeType::ArrayAddr {
-            array_parents.push(ep.0);
+            array_parents.insert(ep.0);
 
             if let Expr::Reference(r) = &pedge.src {
                 match r {
                     Reference::RefIdxExpr(_par, _leaf) => {
+                        let node = fg.graph.node_weight(id).unwrap();
+                        println!("find_array_addr_chain {:?}", node);
                         let mut p_arr = find_array_addr_chain(fg, ep.0);
                         array_parents.append(&mut p_arr);
                     }
@@ -199,14 +121,18 @@ fn find_array_addr_chain(fg: &FirGraph, id: NodeIndex) -> Vec<NodeIndex> {
             }
         }
     }
+    for pid in array_parents.iter() {
+        println!("parent {:?}", fg.graph.node_weight(*pid).unwrap());
+    }
     array_parents
 }
 
-fn collect_memport_node_conn_stmts(fg: &FirGraph, stmts: &mut Stmts) {
+fn collect_stmts(fg: &FirGraph, stmts: &mut Stmts) {
     let mut whentree = reconstruct_whentree(fg);
 // whentree.print_tree();
 
     let mut array_addr_edges: IndexMap<NodeIndex, IndexSet<NodeIndex>> = IndexMap::new();
+    let mut invalidate_edges: IndexMap<NodeIndex, IndexSet<NodeIndex>> = IndexMap::new();
 
     // Compute indeg for the entire graph
     let mut indeg: IndexMap<NodeIndex, u32> = IndexMap::new();
@@ -218,11 +144,24 @@ fn collect_memport_node_conn_stmts(fg: &FirGraph, stmts: &mut Stmts) {
         let ep = fg.graph.edge_endpoints(eid).unwrap();
         let dst = ep.1;
         *indeg.get_mut(&dst).unwrap() += 1;
+    }
+
+    // Add implicit dependency edges for nested references
+    let mut visited_dst = fg.graph.visit_map();
+    for eid in fg.graph.edge_indices() {
+        let ep = fg.graph.edge_endpoints(eid).unwrap();
+        let dst = ep.1;
+
+        if visited_dst.is_visited(&dst) {
+            continue;
+        }
+        visited_dst.visit(dst);
 
         let edge = fg.graph.edge_weight(eid).unwrap();
         if let Expr::Reference(ref_expr) = &edge.src {
             match ref_expr {
                 Reference::RefIdxExpr(..) => {
+                    println!("edge.src {:?}, dst {:?}", edge.src, fg.graph.node_weight(dst).unwrap());
                     let chain = find_array_addr_chain(fg, ep.0);
                     *indeg.get_mut(&dst).unwrap() += chain.len() as u32;
                     for addr_src in chain {
@@ -237,6 +176,52 @@ fn collect_memport_node_conn_stmts(fg: &FirGraph, stmts: &mut Stmts) {
             }
         }
     }
+
+    // Add implicit dependency edges for invalidate stmts
+    for eid in fg.graph.edge_indices() {
+        let edge = fg.graph.edge_weight(eid).unwrap();
+        if edge.dst.is_none() {
+            continue;
+        }
+        let ep = fg.graph.edge_endpoints(eid).unwrap();
+        let inv_id = ep.0;
+        let ref_id = ep.1;
+
+        if edge.et == FirEdgeType::DontCare {
+            if !invalidate_edges.contains_key(&ref_id) {
+                invalidate_edges.insert(ref_id, IndexSet::new());
+            }
+            invalidate_edges.get_mut(&ref_id).unwrap().insert(inv_id);
+
+            assert!(indeg.get(&inv_id).unwrap() == &0);
+            *indeg.get_mut(&inv_id).unwrap() += 1;
+            *indeg.get_mut(&ref_id).unwrap() -= 1;
+        };
+    }
+
+    // Check for cases where RegInit source is a Reference
+    // for eid in fg.graph.edge_indices() {
+    //     let edge = fg.graph.edge_weight(eid).unwrap();
+    //     if edge.et == FirEdgeType::InitValue {
+    //         let ep = fg.graph.edge_endpoints(eid).unwrap();
+    //         let node = fg.graph.node_weight(ep.1).unwrap();
+    //         assert!(node.nt == FirNodeType::RegReset);
+
+    //         let init = fg.graph.node_weight(ep.0).unwrap();
+    //         match init.nt {
+    //             FirNodeType::UIntLiteral(..) |
+    //             FirNodeType::SIntLiteral(..) => {
+    //                 // Remove clock, reset, init
+    //                 *indeg.get_mut(&ep.1).unwrap() -= 3;
+    //             }
+    //             _ => {
+    //                 // Remove clock, reset
+    //                 *indeg.get_mut(&ep.1).unwrap() -= 2;
+    //             }
+    //         }
+    //     }
+    // }
+
 
     // Topo sort nodes in each CC.
     // Must insert stmts in this order to prevent accessing into undeclared
@@ -253,9 +238,13 @@ fn collect_memport_node_conn_stmts(fg: &FirGraph, stmts: &mut Stmts) {
 
         let mut q: VecDeque<NodeIndex> = VecDeque::new();
         let mut dfs = Dfs::new(&undir_graph, id);
+        let mut cc_vismap = fg.graph.visit_map();
         while let Some(nx) = dfs.next(&undir_graph) {
             vis_map.visit(nx);
-            if topo_start_node(&fg, nx) {
+            cc_vismap.visit(nx);
+
+            let is_reginit = fg.graph.node_weight(nx).unwrap().nt == FirNodeType::RegReset;
+            if topo_start_node(&fg, nx) && !is_reginit {
                 q.push_back(nx);
             }
         }
@@ -269,12 +258,14 @@ fn collect_memport_node_conn_stmts(fg: &FirGraph, stmts: &mut Stmts) {
                 continue;
             }
 
+// println!("Topo sorting... {:?}", fg.graph.node_weight(nidx).unwrap());
+
             topo_vis_map.visit(nidx);
             topo_sort_order.push(nidx);
 
-            let childs = fg.graph.neighbors_directed(nidx, Outgoing);
-            for cidx in childs {
-                if !topo_vis_map.is_visited(&cidx) && !topo_start_node(&fg, cidx) {
+            if array_addr_edges.contains_key(&nidx) {
+                let addr_childs = array_addr_edges.get(&nidx).unwrap();
+                for &cidx in addr_childs {
                     *indeg.get_mut(&cidx).unwrap() -= 1;
                     if *indeg.get(&cidx).unwrap() == 0 {
                         q.push_back(cidx);
@@ -282,17 +273,43 @@ fn collect_memport_node_conn_stmts(fg: &FirGraph, stmts: &mut Stmts) {
                 }
             }
 
-            if array_addr_edges.contains_key(&nidx) {
-                let addr_childs = array_addr_edges.get(&nidx).unwrap();
-                for &cidx in addr_childs {
-                    if !topo_vis_map.is_visited(&cidx) && !topo_start_node(&fg, cidx) {
-                        *indeg.get_mut(&cidx).unwrap() -= 1;
-                        if *indeg.get(&cidx).unwrap() == 0 {
-                            q.push_back(cidx);
-                        }
+            if invalidate_edges.contains_key(&nidx) {
+                let inv_childs = invalidate_edges.get(&nidx).unwrap();
+                for &cidx in inv_childs {
+                    *indeg.get_mut(&cidx).unwrap() -= 1;
+                    if *indeg.get(&cidx).unwrap() == 0 {
+                        q.push_back(cidx);
                     }
                 }
             }
+
+            let childs = fg.graph.neighbors_directed(nidx, Outgoing);
+            for cidx in childs {
+                let is_reginit = fg.graph.node_weight(cidx).unwrap().nt == FirNodeType::RegReset;
+// if is_reginit {
+// println!("is_reginit indeg {:?}", indeg.get(&cidx).unwrap());
+// }
+                if !topo_vis_map.is_visited(&cidx) && (!topo_start_node(&fg, cidx) || is_reginit) {
+                    *indeg.get_mut(&cidx).unwrap() -= 1;
+                    if *indeg.get(&cidx).unwrap() == 0 {
+                        q.push_back(cidx);
+                    }
+                }
+            }
+        }
+
+        if cc_vismap != topo_vis_map {
+            for id in fg.graph.node_indices() {
+                if cc_vismap.is_visited(&id) && !topo_vis_map.is_visited(&id) {
+                    let node = fg.graph.node_weight(id).unwrap();
+                    println!("Visited during DFS Node {:?}", node);
+                }
+                if !cc_vismap.is_visited(&id) && topo_vis_map.is_visited(&id) {
+                    let node = fg.graph.node_weight(id).unwrap();
+                    println!("Visited during Topo Node {:?}", node);
+                }
+            }
+            assert!(false);
         }
 
         visited += topo_sort_order.len();
@@ -309,11 +326,24 @@ fn collect_memport_node_conn_stmts(fg: &FirGraph, stmts: &mut Stmts) {
                     pconds_map.insert(nidx, pconds.clone());
                 }
                 FirNodeType::Mux |
-                    FirNodeType::PrimOp2Expr(..) |
-                    FirNodeType::PrimOp1Expr(..) |
-                    FirNodeType::PrimOp1Expr1Int(..) |
-                    FirNodeType::PrimOp1Expr2Int(..) => {
+                FirNodeType::PrimOp2Expr(..) |
+                FirNodeType::PrimOp1Expr(..) |
+                FirNodeType::PrimOp1Expr1Int(..) |
+                FirNodeType::PrimOp1Expr2Int(..) => {
                     let pconds = insert_op_stmts(fg, nidx, &pconds_map, &mut whentree);
+                    pconds_map.insert(nidx, pconds.clone());
+                }
+                FirNodeType::DontCare => {
+                    let pconds = insert_invalidate_stmts(fg, nidx, &pconds_map, &mut whentree);
+                    pconds_map.insert(nidx, pconds.clone());
+                }
+                FirNodeType::Wire |
+                FirNodeType::Reg  |
+                FirNodeType::RegReset |
+                FirNodeType::SMem(..) |
+                FirNodeType::CMem     |
+                FirNodeType::Inst(..) => {
+                    let pconds = insert_def_stmts(fg, nidx, &pconds_map, &mut whentree);
                     pconds_map.insert(nidx, pconds.clone());
                 }
                 _ => {
@@ -370,6 +400,127 @@ fn reconstruct_whentree(fg: &FirGraph) -> WhenTree {
     }
     WhenTree::from_conditions(cond_priority_pair)
 }
+
+fn insert_def_stmts(
+    fg: &FirGraph,
+    id: NodeIndex,
+    pconds_map: &IndexMap<NodeIndex, PrioritizedConds>,
+    whentree: &mut WhenTree
+) -> PrioritizedConds {
+    let parents = fg.graph.neighbors_directed(id, Incoming);
+    let mut max_pconds = PrioritizedConds::root();
+    for pid in parents {
+        if pconds_map.contains_key(&pid) {
+            let pconds = pconds_map.get(&pid).unwrap();
+            max_pconds = min(max_pconds, pconds.clone());
+        }
+    }
+
+    let when_leaf = whentree.get_node_mut(
+        &max_pconds,
+        Some(&max_pconds.leaf().unwrap().prior))
+            .unwrap();
+
+    let node = fg.node_weight(id).unwrap();
+    match &node.nt {
+        FirNodeType::Wire => {
+            let tpe = node.ttree.as_ref().unwrap().to_type();
+
+            let name = node.name.as_ref().unwrap().clone();
+            when_leaf.stmts.push(Box::new(Stmt::Wire(name, tpe, Info::default())));
+        }
+        FirNodeType::Reg => {
+            let tpe = node.ttree.as_ref().unwrap().to_type();
+
+            let clk_eid = fg.parent_with_type(id, FirEdgeType::Clock).unwrap();
+            let clk = fg.graph.edge_weight(clk_eid).unwrap().src.clone();
+
+            let name = node.name.as_ref().unwrap().clone();
+            let reg = Stmt::Reg(name, tpe, clk, Info::default());
+            when_leaf.stmts.push(Box::new(reg));
+        }
+        FirNodeType::RegReset => {
+            let tpe = node.ttree.as_ref().unwrap().to_type();
+
+            let clk_eid = fg.parent_with_type(id, FirEdgeType::Clock).unwrap();
+            let rst_eid = fg.parent_with_type(id, FirEdgeType::Reset).unwrap();
+            let init_eid = fg.parent_with_type(id, FirEdgeType::InitValue).unwrap();
+
+            let clk  = fg.graph.edge_weight(clk_eid).unwrap().src.clone();
+            let rst  = fg.graph.edge_weight(rst_eid).unwrap().src.clone();
+            let init = fg.graph.edge_weight(init_eid).unwrap().src.clone();
+
+            let name = node.name.as_ref().unwrap().clone();
+            let reg_init = Stmt::RegReset(name, tpe, clk, rst, init, Info::default());
+            when_leaf.stmts.push(Box::new(reg_init));
+        }
+        FirNodeType::SMem(ruw_opt) => {
+            let tpe = node.ttree.as_ref().unwrap().to_type();
+
+            let name = node.name.as_ref().unwrap().clone();
+            let smem = ChirrtlMemory::SMem(name, tpe, ruw_opt.clone(), Info::default());
+            let mem = Stmt::ChirrtlMemory(smem);
+            when_leaf.stmts.push(Box::new(mem));
+        }
+        FirNodeType::CMem => {
+            let tpe = node.ttree.as_ref().unwrap().to_type();
+
+            let name = node.name.as_ref().unwrap().clone();
+            let cmem = ChirrtlMemory::CMem(name, tpe, Info::default());
+            let mem = Stmt::ChirrtlMemory(cmem);
+            when_leaf.stmts.push(Box::new(mem));
+        }
+        FirNodeType::Inst(module) => {
+            let name = node.name.as_ref().unwrap().clone();
+            let inst = Stmt::Inst(name, module.clone(), Info::default());
+            when_leaf.stmts.push(Box::new(inst));
+        }
+        _ => {
+            unreachable!();
+        }
+    }
+    max_pconds
+}
+
+/// Collect invalidate stmts
+fn insert_invalidate_stmts(
+    fg: &FirGraph,
+    id: NodeIndex,
+    pconds_map: &IndexMap<NodeIndex, PrioritizedConds>,
+    whentree: &mut WhenTree
+) -> PrioritizedConds {
+    let childs = fg.graph.neighbors_directed(id, Outgoing);
+    let mut max_pconds = PrioritizedConds::root();
+    for cid in childs {
+        if pconds_map.contains_key(&cid) {
+            let pconds = pconds_map.get(&cid).unwrap();
+            max_pconds = min(max_pconds, pconds.clone());
+        }
+    }
+
+    let when_leaf = whentree.get_node_mut(
+        &max_pconds,
+        Some(&max_pconds.leaf().unwrap().prior))
+            .unwrap();
+
+    let edges = fg.graph.edges_directed(id, Outgoing);
+    for eref in edges {
+        let eid = eref.id();
+        let edge = fg.graph.edge_weight(eid).unwrap();
+        if edge.dst.is_none() {
+            continue;
+        }
+
+        let lhs = Expr::Reference(edge.dst.as_ref().unwrap().clone());
+        if edge.et == FirEdgeType::DontCare {
+            let stmt = Stmt::Invalidate(lhs, Info::default());
+            when_leaf.stmts.push(Box::new(stmt));
+        };
+    }
+
+    max_pconds
+}
+
 
 /// Add memory port definition statements
 fn insert_memport_stmts(
@@ -615,8 +766,9 @@ mod test {
         }
 
         for (name, fg) in ir.graphs.iter() {
-// if name == &Identifier::Name("Atomics".to_string()) {
-// fg.export_graphviz("./test-outputs/DTLB/fir", None, None, true)?;
+// fg.export_graphviz(&format!("./test-outputs/{}.fir.pdf", name), None, None, true)?;
+// if name == &Identifier::Name("BTB".to_string()) {
+// fg.export_graphviz("./test-outputs/BTB/fir", None, None, true)?;
 // }
             if ast_whentrees.contains_key(name) {
                 let ast_whentree = ast_whentrees.get(name).unwrap();
@@ -651,6 +803,8 @@ mod test {
     #[test_case("LCS8" ; "LCS8")]
     #[test_case("BitSel1" ; "BitSel1")]
     #[test_case("BitSel2" ; "BitSel2")]
+    #[test_case("RegInit" ; "RegInit")]
+    #[test_case("RegInitWire" ; "RegInitWire")]
     #[test_case("SinglePortSRAM" ; "SinglePortSRAM")]
     #[test_case("OneReadOneWritePortSRAM" ; "OneReadOneWritePortSRAM")]
     #[test_case("OneReadOneReadWritePortSRAM" ; "OneReadOneReadWritePortSRAM")]
