@@ -5,19 +5,13 @@ use chirrtl_parser::ast::*;
 use std::cmp::min;
 use std::collections::VecDeque;
 use indexmap::IndexMap;
+use indexmap::IndexSet;
 use petgraph::{visit::EdgeRef, Direction::Incoming, Direction::Outgoing};
 use petgraph::graph::NodeIndex;
 use petgraph::Undirected;
 use petgraph::visit::VisitMap;
 use petgraph::visit::Visitable;
 use petgraph::prelude::Dfs;
-
-
-
-// STUFF TO FIX
-// - FIRRTL Version should be lowercase
-// - extmodule parameter should not be printed in hex
-// - Int used for index (e.g., [Int]) should not be hex
 
 pub fn to_ast(fir: &FirIR) -> Circuit {
     let mut cms = CircuitModules::new();
@@ -160,41 +154,88 @@ fn collect_invalidate_stmts(fg: &FirGraph, stmts: &mut Stmts) {
     }
 }
 
-fn topo_start_node(nt: &FirNodeType) -> bool {
-    match nt {
-        FirNodeType::Invalid              |
-            FirNodeType::DontCare         |
-            FirNodeType::UIntLiteral(..)  |
-            FirNodeType::SIntLiteral(..)  |
-            FirNodeType::Wire             |
-            FirNodeType::Reg              |
-            FirNodeType::RegReset         |
-            FirNodeType::SMem(..)         |
-            FirNodeType::CMem             |
-            FirNodeType::Inst(..)         |
-            FirNodeType::Input            |
-            FirNodeType::Output => {
-                return true;
-            }
+fn topo_start_node(fg: &FirGraph, id: NodeIndex) -> bool {
+    let node = fg.graph.node_weight(id).unwrap();
+
+    match node.nt {
+        FirNodeType::Invalid  |
+        FirNodeType::DontCare |
+        FirNodeType::SMem(..) |
+        FirNodeType::CMem     |
+        FirNodeType::Inst(..) |
+        FirNodeType::Input    |
+        FirNodeType::Output   |
+        FirNodeType::UIntLiteral(..)  |
+        FirNodeType::SIntLiteral(..)  |
+        FirNodeType::Wire             |
+        FirNodeType::Reg              |
+        FirNodeType::RegReset => {
+            true
+        }
         _ => {
-            return false;
+            false
         }
     }
+}
+
+fn find_array_addr_chain(fg: &FirGraph, id: NodeIndex) -> Vec<NodeIndex> {
+    let mut array_parents: Vec<NodeIndex> = vec![];
+    for peid in fg.graph.edges_directed(id, Incoming) {
+        let pedge = fg.graph.edge_weight(peid.id()).unwrap();
+        let ep = fg.graph.edge_endpoints(peid.id()).unwrap();
+        if pedge.et == FirEdgeType::ArrayAddr {
+            array_parents.push(ep.0);
+
+            if let Expr::Reference(r) = &pedge.src {
+                match r {
+                    Reference::RefIdxExpr(_par, _leaf) => {
+                        let mut p_arr = find_array_addr_chain(fg, ep.0);
+                        array_parents.append(&mut p_arr);
+                    }
+                    _ => {
+                        continue;
+                    }
+                }
+            }
+        }
+    }
+    array_parents
 }
 
 fn collect_memport_node_conn_stmts(fg: &FirGraph, stmts: &mut Stmts) {
     let mut whentree = reconstruct_whentree(fg);
 // whentree.print_tree();
 
+    let mut array_addr_edges: IndexMap<NodeIndex, IndexSet<NodeIndex>> = IndexMap::new();
+
     // Compute indeg for the entire graph
     let mut indeg: IndexMap<NodeIndex, u32> = IndexMap::new();
     for id in fg.graph.node_indices() {
         indeg.insert(id, 0);
     }
+
     for eid in fg.graph.edge_indices() {
         let ep = fg.graph.edge_endpoints(eid).unwrap();
         let dst = ep.1;
         *indeg.get_mut(&dst).unwrap() += 1;
+
+        let edge = fg.graph.edge_weight(eid).unwrap();
+        if let Expr::Reference(ref_expr) = &edge.src {
+            match ref_expr {
+                Reference::RefIdxExpr(..) => {
+                    let chain = find_array_addr_chain(fg, ep.0);
+                    *indeg.get_mut(&dst).unwrap() += chain.len() as u32;
+                    for addr_src in chain {
+                        if !array_addr_edges.contains_key(&addr_src) {
+                            array_addr_edges.insert(addr_src, IndexSet::new());
+                        }
+                        array_addr_edges.get_mut(&addr_src).unwrap().insert(dst);
+                    }
+                }
+                _ => {
+                }
+            }
+        }
     }
 
     // Topo sort nodes in each CC.
@@ -202,8 +243,9 @@ fn collect_memport_node_conn_stmts(fg: &FirGraph, stmts: &mut Stmts) {
     // variables
     let undir_graph = fg.graph.clone().into_edge_type::<Undirected>();
     let mut vis_map = fg.graph.visit_map();
-
+    let mut visited = 0;
     let mut pconds_map: IndexMap<NodeIndex, PrioritizedConds> = IndexMap::new();
+
     for id in fg.graph.node_indices() {
         if vis_map.is_visited(&id) {
             continue;
@@ -213,9 +255,7 @@ fn collect_memport_node_conn_stmts(fg: &FirGraph, stmts: &mut Stmts) {
         let mut dfs = Dfs::new(&undir_graph, id);
         while let Some(nx) = dfs.next(&undir_graph) {
             vis_map.visit(nx);
-
-            let node = fg.graph.node_weight(nx).unwrap();
-            if topo_start_node(&node.nt) {
+            if topo_start_node(&fg, nx) {
                 q.push_back(nx);
             }
         }
@@ -234,15 +274,28 @@ fn collect_memport_node_conn_stmts(fg: &FirGraph, stmts: &mut Stmts) {
 
             let childs = fg.graph.neighbors_directed(nidx, Outgoing);
             for cidx in childs {
-                let child = fg.graph.node_weight(cidx).unwrap();
-                if !topo_vis_map.is_visited(&cidx) && !topo_start_node(&child.nt) {
+                if !topo_vis_map.is_visited(&cidx) && !topo_start_node(&fg, cidx) {
                     *indeg.get_mut(&cidx).unwrap() -= 1;
                     if *indeg.get(&cidx).unwrap() == 0 {
                         q.push_back(cidx);
                     }
                 }
             }
+
+            if array_addr_edges.contains_key(&nidx) {
+                let addr_childs = array_addr_edges.get(&nidx).unwrap();
+                for &cidx in addr_childs {
+                    if !topo_vis_map.is_visited(&cidx) && !topo_start_node(&fg, cidx) {
+                        *indeg.get_mut(&cidx).unwrap() -= 1;
+                        if *indeg.get(&cidx).unwrap() == 0 {
+                            q.push_back(cidx);
+                        }
+                    }
+                }
+            }
         }
+
+        visited += topo_sort_order.len();
 
         // Condition chain where the previous stmt was inserted
         // This is because certain `Node` stmts depends on memport...
@@ -268,6 +321,20 @@ fn collect_memport_node_conn_stmts(fg: &FirGraph, stmts: &mut Stmts) {
                 }
             }
         }
+    }
+
+    if visited != fg.graph.node_count() {
+        for id in fg.graph.node_indices() {
+            if !vis_map.is_visited(&id) {
+                let node = fg.graph.node_weight(id).unwrap();
+                println!("Unvisited Node {:?}", node);
+            }
+        }
+        assert!(
+            visited == fg.graph.node_count(),
+            "visited {} nodes out of {} nodes while topo sorting",
+            visited,
+            fg.graph.node_count());
     }
 
     // Insert connection stmts
@@ -378,15 +445,10 @@ fn insert_op_stmts(
     let mut max_pconds = PrioritizedConds::root();
     for pid in parents {
         if pconds_map.contains_key(&pid) {
-// let parent = fg.graph.node_weight(pid).unwrap();
-// println!("parent {:?}", parent);
             let pconds = pconds_map.get(&pid).unwrap();
-// println!("parent_pconds {:?}", pconds);
             max_pconds = min(max_pconds, pconds.clone());
         }
     }
-
-// println!("max_pconds {:?}", max_pconds.leaf());
 
     let when_leaf = whentree.get_node_mut(
         &max_pconds,
@@ -525,6 +587,7 @@ fn insert_conn_stmts(
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::common::graphviz::GraphViz;
     use crate::ir::whentree::Condition;
     use crate::ir::whentree::BlockPrior;
     use crate::passes::ast::print::Printer;
@@ -552,6 +615,9 @@ mod test {
         }
 
         for (name, fg) in ir.graphs.iter() {
+// if name == &Identifier::Name("Atomics".to_string()) {
+// fg.export_graphviz("./test-outputs/DTLB/fir", None, None, true)?;
+// }
             if ast_whentrees.contains_key(name) {
                 let ast_whentree = ast_whentrees.get(name).unwrap();
                 let ast_leaves = ast_whentree.leaf_to_conditions();
