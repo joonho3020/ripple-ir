@@ -200,27 +200,27 @@ fn collect_stmts(fg: &FirGraph, stmts: &mut Stmts) {
     }
 
     // Check for cases where RegInit source is a Reference
-    // for eid in fg.graph.edge_indices() {
-    //     let edge = fg.graph.edge_weight(eid).unwrap();
-    //     if edge.et == FirEdgeType::InitValue {
-    //         let ep = fg.graph.edge_endpoints(eid).unwrap();
-    //         let node = fg.graph.node_weight(ep.1).unwrap();
-    //         assert!(node.nt == FirNodeType::RegReset);
+    for eid in fg.graph.edge_indices() {
+        let edge = fg.graph.edge_weight(eid).unwrap();
+        if edge.et == FirEdgeType::InitValue {
+            let ep = fg.graph.edge_endpoints(eid).unwrap();
+            let node = fg.graph.node_weight(ep.1).unwrap();
+            assert!(node.nt == FirNodeType::RegReset);
 
-    //         let init = fg.graph.node_weight(ep.0).unwrap();
-    //         match init.nt {
-    //             FirNodeType::UIntLiteral(..) |
-    //             FirNodeType::SIntLiteral(..) => {
-    //                 // Remove clock, reset, init
-    //                 *indeg.get_mut(&ep.1).unwrap() -= 3;
-    //             }
-    //             _ => {
-    //                 // Remove clock, reset
-    //                 *indeg.get_mut(&ep.1).unwrap() -= 2;
-    //             }
-    //         }
-    //     }
-    // }
+            let init = fg.graph.node_weight(ep.0).unwrap();
+            match init.nt {
+                FirNodeType::UIntLiteral(..) |
+                FirNodeType::SIntLiteral(..) => {
+                    // Remove clock, reset, init
+                    *indeg.get_mut(&ep.1).unwrap() = 0;
+                }
+                _ => {
+                    // Remove clock, reset
+                    *indeg.get_mut(&ep.1).unwrap() = 1;
+                }
+            }
+        }
+    }
 
 
     // Topo sort nodes in each CC.
@@ -244,8 +244,10 @@ fn collect_stmts(fg: &FirGraph, stmts: &mut Stmts) {
             cc_vismap.visit(nx);
 
             let is_reginit = fg.graph.node_weight(nx).unwrap().nt == FirNodeType::RegReset;
-            if topo_start_node(&fg, nx) && !is_reginit {
-                q.push_back(nx);
+            if topo_start_node(&fg, nx) {
+                if !is_reginit || *indeg.get(&nx).unwrap() == 0 {
+                    q.push_back(nx);
+                }
             }
         }
 
@@ -285,10 +287,11 @@ fn collect_stmts(fg: &FirGraph, stmts: &mut Stmts) {
 
             let childs = fg.graph.neighbors_directed(nidx, Outgoing);
             for cidx in childs {
-                let is_reginit = fg.graph.node_weight(cidx).unwrap().nt == FirNodeType::RegReset;
-// if is_reginit {
-// println!("is_reginit indeg {:?}", indeg.get(&cidx).unwrap());
-// }
+                let child = fg.graph.node_weight(cidx).unwrap();
+                let is_reginit = child.nt == FirNodeType::RegReset;
+                if is_reginit {
+                    println!("TopoSort child {:?} indeg {:?}", child, indeg.get(&cidx).unwrap());
+                }
                 if !topo_vis_map.is_visited(&cidx) && (!topo_start_node(&fg, cidx) || is_reginit) {
                     *indeg.get_mut(&cidx).unwrap() -= 1;
                     if *indeg.get(&cidx).unwrap() == 0 {
