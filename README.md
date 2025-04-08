@@ -15,15 +15,76 @@ Graph based intermediate representation for RTL design.
 
 ## Prerequisites
 
-- pdfium: for reading pdf files and processing it
-    - [pdfium dylib binaries](https://github.com/bblanchon/pdfium-binaries/releases)
-    - Go to the above link
-    - As we are using this as a dylib, as long as you don't use the `create_gif` function, you don't have to install this
+### pdfium: for reading pdf files and processing it
+
+- [pdfium dylib binaries](https://github.com/bblanchon/pdfium-binaries/releases)
+- Go to the above link
+- **As we are using this as a dylib, as long as you don't use the `create_gif` function, you don't have to install this**
 
 ```bash
 wget <link>
 mkdir pdfium
 tar -xvzf <what you downloaded.tgz> -C pdfium
+```
+
+### [CIRCT](https://circt.llvm.org)
+
+- First download circt
+
+```bash
+git clone git@github.com:circt/circt.git
+cd circt
+git submodule init
+git submodule update
+```
+
+- Get LLVM submodule
+
+```bash
+cd llvm
+git fetch --unshallow
+```
+
+- Build and test LLVM
+
+```bash
+cd circt
+mkdir llvm/build
+cd llvm/build
+cmake -G Ninja ../llvm \
+  -DLLVM_ENABLE_PROJECTS="mlir" \
+  -DLLVM_TARGETS_TO_BUILD="host" \
+  -DLLVM_ENABLE_ASSERTIONS=ON \
+  -DCMAKE_BUILD_TYPE=DEBUG \
+  -DLLVM_USE_SPLIT_DWARF=ON \
+  -DLLVM_ENABLE_LLD=ON
+ninja
+ninja check-mlir
+```
+
+- Build and test CIRCT
+
+```bash
+cd circt
+mkdir build
+cd build
+cmake -G Ninja .. \
+  -DMLIR_DIR=$PWD/../llvm/build/lib/cmake/mlir \
+  -DLLVM_DIR=$PWD/../llvm/build/lib/cmake/llvm \
+  -DLLVM_ENABLE_ASSERTIONS=ON \
+  -DCMAKE_BUILD_TYPE=DEBUG \
+  -DLLVM_USE_SPLIT_DWARF=ON \
+  -DLLVM_ENABLE_LLD=ON
+ninja
+ninja check-circt
+ninja check-circt-integration # Run the integration tests.
+```
+
+- Add the binary to your path
+
+```bash
+cd circt/build/bin
+export PATH=$PWD:$PATH # Or just add this line to your .{bash, zsh}rc
 ```
 
 

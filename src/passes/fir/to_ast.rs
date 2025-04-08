@@ -1,5 +1,5 @@
 use crate::common::graphviz::DefaultGraphVizCore;
-use crate::ir::fir::{FirEdgeType, FirGraph, FirIR, FirNode, FirNodeType};
+use crate::ir::fir::{FirEdgeType, FirGraph, FirIR, FirNodeType};
 use crate::ir::whentree::{PhiPrior, PrioritizedConds, WhenTree};
 use chirrtl_parser::ast::*;
 use std::cmp::min;
@@ -748,9 +748,11 @@ mod test {
     use crate::passes::fir::remove_unnecessary_phi::remove_unnecessary_phi;
     use crate::passes::fir::check_phi_nodes::check_phi_node_connections;
     use crate::common::RippleIRErr;
+    use crate::common::run_firtool;
     use chirrtl_parser::parse_circuit;
     use test_case::test_case;
     use indexmap::IndexMap;
+    use std::process::Command;
 
     fn check_whentree_equivalence(ir: &FirIR, circuit: &Circuit) -> Result<(), RippleIRErr> {
         let mut ast_whentrees: IndexMap<&Identifier, WhenTree> = IndexMap::new();
@@ -818,6 +820,7 @@ mod test {
     #[test_case("ListBuffer" ; "ListBuffer")]
     #[test_case("Atomics" ; "Atomics")]
     #[test_case("PhitArbiter" ; "PhitArbiter")]
+    #[test_case("TLMonitor" ; "TLMonitor")]
     fn run(name: &str) -> Result<(), RippleIRErr> {
         let source = std::fs::read_to_string(format!("./test-inputs/{}.fir", name))?;
         let circuit = parse_circuit(&source).expect("firrtl parser");
@@ -833,8 +836,19 @@ mod test {
         let mut printer = Printer::new();
         let circuit_str = printer.print_circuit(&circuit_reconstruct);
 
-        std::fs::write(&format!("./test-outputs/{}.fir", name), circuit_str)?;
-
-        Ok(())
+        let firrtl = format!("./test-outputs/{}.fir", name);
+        std::fs::write(&firrtl, circuit_str)?;
+        match run_firtool(&firrtl) {
+            Ok(..) => {
+                Ok(())
+            }
+            Err(RippleIRErr::CIRCTError(e)) => {
+                println!("{}", e);
+                Err(RippleIRErr::MiscError(format!("to_ast failed for module {:?}", name)))
+            }
+            _ => {
+                unreachable!()
+            }
+        }
     }
 }
