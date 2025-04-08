@@ -65,7 +65,7 @@ fn get_ports(fg: &FirGraph) -> Ports {
 }
 
 fn to_module(name: &Identifier, fg: &FirGraph) -> Module {
-    println!("name {:?}", name);
+// println!("name {:?}", name);
     let ports = get_ports(fg);
 
     let mut stmts: Stmts = Stmts::new();
@@ -110,7 +110,6 @@ fn find_array_addr_chain(fg: &FirGraph, id: NodeIndex) -> IndexSet<NodeIndex> {
                 match r {
                     Reference::RefIdxExpr(_par, _leaf) => {
                         let node = fg.graph.node_weight(id).unwrap();
-                        println!("find_array_addr_chain {:?}", node);
                         let mut p_arr = find_array_addr_chain(fg, ep.0);
                         array_parents.append(&mut p_arr);
                     }
@@ -121,10 +120,12 @@ fn find_array_addr_chain(fg: &FirGraph, id: NodeIndex) -> IndexSet<NodeIndex> {
             }
         }
     }
-    for pid in array_parents.iter() {
-        println!("parent {:?}", fg.graph.node_weight(*pid).unwrap());
-    }
     array_parents
+}
+
+fn is_reginit(fg: &FirGraph, id: NodeIndex) -> bool {
+    let node = fg.graph.node_weight(id).unwrap();
+    node.nt == FirNodeType::RegReset
 }
 
 fn collect_stmts(fg: &FirGraph, stmts: &mut Stmts) {
@@ -147,31 +148,33 @@ fn collect_stmts(fg: &FirGraph, stmts: &mut Stmts) {
     }
 
     // Add implicit dependency edges for nested references
-    let mut visited_dst = fg.graph.visit_map();
-    for eid in fg.graph.edge_indices() {
-        let ep = fg.graph.edge_endpoints(eid).unwrap();
-        let dst = ep.1;
-
-        if visited_dst.is_visited(&dst) {
-            continue;
-        }
-        visited_dst.visit(dst);
-
-        let edge = fg.graph.edge_weight(eid).unwrap();
-        if let Expr::Reference(ref_expr) = &edge.src {
-            match ref_expr {
-                Reference::RefIdxExpr(..) => {
-                    println!("edge.src {:?}, dst {:?}", edge.src, fg.graph.node_weight(dst).unwrap());
-                    let chain = find_array_addr_chain(fg, ep.0);
-                    *indeg.get_mut(&dst).unwrap() += chain.len() as u32;
-                    for addr_src in chain {
-                        if !array_addr_edges.contains_key(&addr_src) {
-                            array_addr_edges.insert(addr_src, IndexSet::new());
-                        }
-                        array_addr_edges.get_mut(&addr_src).unwrap().insert(dst);
-                    }
+    let mut visited_refs: IndexSet<(NodeIndex, &Reference)> = IndexSet::new();
+    for id in fg.graph.node_indices() {
+        let parents = fg.graph.edges_directed(id, Incoming);
+        for peid in parents {
+            let edge = fg.graph.edge_weight(peid.id()).unwrap();
+            let ep = fg.graph.edge_endpoints(peid.id()).unwrap();
+            let dst = ep.1;
+            if let Expr::Reference(ref_expr) = &edge.src {
+                if visited_refs.contains(&(dst, ref_expr)) {
+                    continue;
                 }
-                _ => {
+                visited_refs.insert((dst, ref_expr));
+
+                match ref_expr {
+                    Reference::RefIdxExpr(..) => {
+// println!("edge.src {:?}, dst {:?}", edge.src, fg.graph.node_weight(dst).unwrap());
+                        let chain = find_array_addr_chain(fg, ep.0);
+                        *indeg.get_mut(&dst).unwrap() += chain.len() as u32;
+                        for addr_src in chain {
+                            if !array_addr_edges.contains_key(&addr_src) {
+                                array_addr_edges.insert(addr_src, IndexSet::new());
+                            }
+                            array_addr_edges.get_mut(&addr_src).unwrap().insert(dst);
+                        }
+                    }
+                    _ => {
+                    }
                 }
             }
         }
@@ -199,7 +202,7 @@ fn collect_stmts(fg: &FirGraph, stmts: &mut Stmts) {
         };
     }
 
-    // Check for cases where RegInit source is a Reference
+    // Check for cases where RegInit
     for eid in fg.graph.edge_indices() {
         let edge = fg.graph.edge_weight(eid).unwrap();
         if edge.et == FirEdgeType::InitValue {
@@ -207,21 +210,9 @@ fn collect_stmts(fg: &FirGraph, stmts: &mut Stmts) {
             let node = fg.graph.node_weight(ep.1).unwrap();
             assert!(node.nt == FirNodeType::RegReset);
 
-            let init = fg.graph.node_weight(ep.0).unwrap();
-            match init.nt {
-                FirNodeType::UIntLiteral(..) |
-                FirNodeType::SIntLiteral(..) => {
-                    // Remove clock, reset, init
-                    *indeg.get_mut(&ep.1).unwrap() = 0;
-                }
-                _ => {
-                    // Remove clock, reset
-                    *indeg.get_mut(&ep.1).unwrap() = 1;
-                }
-            }
+            *indeg.get_mut(&ep.1).unwrap() = 3;
         }
     }
-
 
     // Topo sort nodes in each CC.
     // Must insert stmts in this order to prevent accessing into undeclared
@@ -268,6 +259,9 @@ fn collect_stmts(fg: &FirGraph, stmts: &mut Stmts) {
             if array_addr_edges.contains_key(&nidx) {
                 let addr_childs = array_addr_edges.get(&nidx).unwrap();
                 for &cidx in addr_childs {
+                    if is_reginit(fg, cidx) {
+                        continue;
+                    }
                     *indeg.get_mut(&cidx).unwrap() -= 1;
                     if *indeg.get(&cidx).unwrap() == 0 {
                         q.push_back(cidx);
@@ -278,6 +272,9 @@ fn collect_stmts(fg: &FirGraph, stmts: &mut Stmts) {
             if invalidate_edges.contains_key(&nidx) {
                 let inv_childs = invalidate_edges.get(&nidx).unwrap();
                 for &cidx in inv_childs {
+                    if is_reginit(fg, cidx) {
+                        continue;
+                    }
                     *indeg.get_mut(&cidx).unwrap() -= 1;
                     if *indeg.get(&cidx).unwrap() == 0 {
                         q.push_back(cidx);
@@ -285,17 +282,23 @@ fn collect_stmts(fg: &FirGraph, stmts: &mut Stmts) {
                 }
             }
 
-            let childs = fg.graph.neighbors_directed(nidx, Outgoing);
-            for cidx in childs {
-                let child = fg.graph.node_weight(cidx).unwrap();
-                let is_reginit = child.nt == FirNodeType::RegReset;
-                if is_reginit {
-                    println!("TopoSort child {:?} indeg {:?}", child, indeg.get(&cidx).unwrap());
-                }
-                if !topo_vis_map.is_visited(&cidx) && (!topo_start_node(&fg, cidx) || is_reginit) {
-                    *indeg.get_mut(&cidx).unwrap() -= 1;
-                    if *indeg.get(&cidx).unwrap() == 0 {
-                        q.push_back(cidx);
+            let cedges = fg.graph.edges_directed(nidx, Outgoing);
+            for cedge in cedges {
+                let ep = fg.graph.edge_endpoints(cedge.id()).unwrap();
+                let edge = fg.graph.edge_weight(cedge.id()).unwrap();
+                if !topo_vis_map.is_visited(&ep.1) && is_reginit(fg, ep.1) &&
+                    (edge.et == FirEdgeType::Clock ||
+                     edge.et == FirEdgeType::Reset ||
+                     edge.et == FirEdgeType::InitValue)
+                {
+                    *indeg.get_mut(&ep.1).unwrap() -= 1;
+                    if *indeg.get(&ep.1).unwrap() == 0 {
+                        q.push_back(ep.1);
+                    }
+                } else if !topo_vis_map.is_visited(&ep.1) && !topo_start_node(&fg, ep.1) {
+                    *indeg.get_mut(&ep.1).unwrap() -= 1;
+                    if *indeg.get(&ep.1).unwrap() == 0 {
+                        q.push_back(ep.1);
                     }
                 }
             }
@@ -306,10 +309,6 @@ fn collect_stmts(fg: &FirGraph, stmts: &mut Stmts) {
                 if cc_vismap.is_visited(&id) && !topo_vis_map.is_visited(&id) {
                     let node = fg.graph.node_weight(id).unwrap();
                     println!("Visited during DFS Node {:?}", node);
-                }
-                if !cc_vismap.is_visited(&id) && topo_vis_map.is_visited(&id) {
-                    let node = fg.graph.node_weight(id).unwrap();
-                    println!("Visited during Topo Node {:?}", node);
                 }
             }
             assert!(false);
@@ -818,6 +817,7 @@ mod test {
     #[test_case("TLBundleQueue" ; "TLBundleQueue")]
     #[test_case("ListBuffer" ; "ListBuffer")]
     #[test_case("Atomics" ; "Atomics")]
+    #[test_case("PhitArbiter" ; "PhitArbiter")]
     fn run(name: &str) -> Result<(), RippleIRErr> {
         let source = std::fs::read_to_string(format!("./test-inputs/{}.fir", name))?;
         let circuit = parse_circuit(&source).expect("firrtl parser");
