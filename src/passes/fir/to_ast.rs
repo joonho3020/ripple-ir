@@ -3,6 +3,7 @@ use crate::ir::fir::{FirEdgeType, FirGraph, FirIR, FirNodeType};
 use crate::ir::whentree::{PhiPrior, PrioritizedConds, WhenTree};
 use chirrtl_parser::ast::*;
 use std::cmp::min;
+use std::cmp::max;
 use std::collections::VecDeque;
 use indexmap::IndexMap;
 use indexmap::IndexSet;
@@ -86,10 +87,28 @@ fn topo_start_node(fg: &FirGraph, id: NodeIndex) -> bool {
         FirNodeType::Output   |
         FirNodeType::UIntLiteral(..)  |
         FirNodeType::SIntLiteral(..)  |
-        FirNodeType::Wire             |
         FirNodeType::RegReset         |
         FirNodeType::Reg  => {
             true
+        }
+        FirNodeType::Wire => {
+            if let Some(eid) = fg.parent_with_type(id, FirEdgeType::PhiOut) {
+                let mut has_dontcare = false;
+
+                let ep = fg.graph.edge_endpoints(eid).unwrap();
+                let phi_id = ep.0;
+                let phi_parents = fg.graph.neighbors_directed(phi_id, Incoming);
+
+                for pid in phi_parents {
+                    let parent = fg.graph.node_weight(pid).unwrap();
+                    if parent.nt == FirNodeType::DontCare {
+                        has_dontcare = true;
+                    }
+                }
+                has_dontcare
+            } else {
+                true
+            }
         }
         _ => {
             false
@@ -109,7 +128,6 @@ fn find_array_addr_chain(fg: &FirGraph, id: NodeIndex) -> IndexSet<NodeIndex> {
             if let Expr::Reference(r) = &pedge.src {
                 match r {
                     Reference::RefIdxExpr(_par, _leaf) => {
-                        let node = fg.graph.node_weight(id).unwrap();
                         let mut p_arr = find_array_addr_chain(fg, ep.0);
                         array_parents.append(&mut p_arr);
                     }
@@ -130,8 +148,6 @@ fn is_reginit(fg: &FirGraph, id: NodeIndex) -> bool {
 
 fn collect_stmts(fg: &FirGraph, stmts: &mut Stmts) {
     let mut whentree = reconstruct_whentree(fg);
-// whentree.print_tree();
-
     let mut array_addr_edges: IndexMap<NodeIndex, IndexSet<NodeIndex>> = IndexMap::new();
     let mut invalidate_edges: IndexMap<NodeIndex, IndexSet<NodeIndex>> = IndexMap::new();
 
@@ -163,7 +179,6 @@ fn collect_stmts(fg: &FirGraph, stmts: &mut Stmts) {
 
                 match ref_expr {
                     Reference::RefIdxExpr(..) => {
-// println!("edge.src {:?}, dst {:?}", edge.src, fg.graph.node_weight(dst).unwrap());
                         let chain = find_array_addr_chain(fg, ep.0);
                         *indeg.get_mut(&dst).unwrap() += chain.len() as u32;
                         for addr_src in chain {
@@ -208,8 +223,8 @@ fn collect_stmts(fg: &FirGraph, stmts: &mut Stmts) {
         if edge.et == FirEdgeType::InitValue {
             let ep = fg.graph.edge_endpoints(eid).unwrap();
             let node = fg.graph.node_weight(ep.1).unwrap();
-            assert!(node.nt == FirNodeType::RegReset);
 
+            assert!(node.nt == FirNodeType::RegReset);
             *indeg.get_mut(&ep.1).unwrap() = 3;
         }
     }
@@ -250,8 +265,6 @@ fn collect_stmts(fg: &FirGraph, stmts: &mut Stmts) {
             if topo_vis_map.is_visited(&nidx) {
                 continue;
             }
-
-// println!("Topo sorting... {:?}", fg.graph.node_weight(nidx).unwrap());
 
             topo_vis_map.visit(nidx);
             topo_sort_order.push(nidx);
@@ -403,6 +416,92 @@ fn reconstruct_whentree(fg: &FirGraph) -> WhenTree {
     WhenTree::from_conditions(cond_priority_pair)
 }
 
+fn insert_def_wire_stmt(
+    fg: &FirGraph,
+    id: NodeIndex,
+    pconds_map: &IndexMap<NodeIndex, PrioritizedConds>,
+    whentree: &mut WhenTree
+) {
+
+    fn find_priority(
+        fg: &FirGraph,
+        id: NodeIndex,
+        pconds_map: &IndexMap<NodeIndex, PrioritizedConds>
+    ) -> PrioritizedConds {
+        let parents = fg.graph.neighbors_directed(id, Incoming);
+        let mut min_pconds = PrioritizedConds::root();
+        for pid in parents {
+            if pconds_map.contains_key(&pid) {
+                let pconds = pconds_map.get(&pid).unwrap();
+                min_pconds = min(min_pconds, pconds.clone());
+            }
+        }
+        min_pconds
+    }
+
+    fn find_phi_priority(fg: &FirGraph, id: NodeIndex) -> PrioritizedConds {
+        let mut ret = PrioritizedConds::leaf();
+        let pedges = fg.graph.edges_directed(id, Incoming);
+        for peid in pedges {
+            let pedge = fg.graph.edge_weight(peid.id()).unwrap();
+            match &pedge.et {
+                FirEdgeType::PhiInput(pcond)=> {
+                    ret = max(ret, pcond.clone());
+                }
+                _ => {
+                    continue;
+                }
+            }
+        }
+        ret
+    }
+
+    fn insert_stmt_with_priority(
+        stmt: Stmt,
+        pconds: &PrioritizedConds,
+        whentree: &mut WhenTree
+    ) {
+        let when_leaf = whentree.get_node_mut(
+            &pconds,
+            Some(&pconds.last().unwrap().prior))
+            .unwrap();
+        when_leaf.stmts.push(Box::new(stmt));
+    }
+
+    let node = fg.graph.node_weight(id).unwrap();
+    let tpe = node.ttree.as_ref().unwrap().to_type();
+    let name = node.name.as_ref().unwrap().clone();
+    let wire_stmt = Stmt::Wire(name, tpe, Info::default());
+
+    if let Some(eid) = fg.parent_with_type(id, FirEdgeType::PhiOut) {
+        assert_eq!(fg.graph.edges_directed(id, Incoming).count(), 1);
+
+        let ep = fg.graph.edge_endpoints(eid).unwrap();
+        let phi_id = ep.0;
+
+        let mut has_dontcare = false;
+        let phi_parents = fg.graph.neighbors_directed(phi_id, Incoming);
+        for pid in phi_parents {
+            let parent = fg.graph.node_weight(pid).unwrap();
+            if parent.nt == FirNodeType::DontCare {
+                has_dontcare = true;
+            }
+        }
+
+        let wire_pconds = find_priority(fg, id, pconds_map);
+        if has_dontcare {
+            insert_stmt_with_priority(wire_stmt, &wire_pconds, whentree);
+        } else {
+            let phi_pconds = find_phi_priority(fg, phi_id);
+            let pconds = min(wire_pconds, phi_pconds);
+            insert_stmt_with_priority(wire_stmt, &pconds, whentree);
+        }
+    } else {
+        let wire_pconds = find_priority(fg, id, pconds_map);
+        insert_stmt_with_priority(wire_stmt, &wire_pconds, whentree);
+    }
+}
+
 fn insert_def_stmts(
     fg: &FirGraph,
     id: NodeIndex,
@@ -410,26 +509,23 @@ fn insert_def_stmts(
     whentree: &mut WhenTree
 ) -> PrioritizedConds {
     let parents = fg.graph.neighbors_directed(id, Incoming);
-    let mut max_pconds = PrioritizedConds::root();
+    let mut min_pconds = PrioritizedConds::root();
     for pid in parents {
         if pconds_map.contains_key(&pid) {
             let pconds = pconds_map.get(&pid).unwrap();
-            max_pconds = min(max_pconds, pconds.clone());
+            min_pconds = min(min_pconds, pconds.clone());
         }
     }
 
     let when_leaf = whentree.get_node_mut(
-        &max_pconds,
-        Some(&max_pconds.leaf().unwrap().prior))
+        &min_pconds,
+        Some(&min_pconds.last().unwrap().prior))
             .unwrap();
 
     let node = fg.node_weight(id).unwrap();
     match &node.nt {
         FirNodeType::Wire => {
-            let tpe = node.ttree.as_ref().unwrap().to_type();
-
-            let name = node.name.as_ref().unwrap().clone();
-            when_leaf.stmts.push(Box::new(Stmt::Wire(name, tpe, Info::default())));
+            insert_def_wire_stmt(fg, id, pconds_map, whentree);
         }
         FirNodeType::Reg => {
             let tpe = node.ttree.as_ref().unwrap().to_type();
@@ -481,7 +577,7 @@ fn insert_def_stmts(
             unreachable!();
         }
     }
-    max_pconds
+    min_pconds
 }
 
 /// Collect invalidate stmts
@@ -502,7 +598,7 @@ fn insert_invalidate_stmts(
 
     let when_leaf = whentree.get_node_mut(
         &max_pconds,
-        Some(&max_pconds.leaf().unwrap().prior))
+        Some(&max_pconds.last().unwrap().prior))
             .unwrap();
 
     let edges = fg.graph.edges_directed(id, Outgoing);
@@ -576,7 +672,7 @@ fn insert_memport_stmts(
                 // However, this shouldn't affect the behavior anyways
                 let when_leaf = whentree.get_node_mut(
                     &pconds,
-                    Some(&pconds.leaf().unwrap().prior)).unwrap();
+                    Some(&pconds.last().unwrap().prior)).unwrap();
                 when_leaf.stmts.push(Box::new(port_stmt));
                 pconds.clone()
         }
@@ -605,7 +701,7 @@ fn insert_op_stmts(
 
     let when_leaf = whentree.get_node_mut(
         &max_pconds,
-        Some(&max_pconds.leaf().unwrap().prior))
+        Some(&max_pconds.last().unwrap().prior))
             .unwrap();
 
     let node = fg.graph.node_weight(id).unwrap();
@@ -698,7 +794,7 @@ fn insert_conn_stmts(
                 ordered_stmts
                     .get_mut(&pconds)
                     .unwrap()
-                    .push((pconds.leaf().unwrap().prior.clone(), stmt));
+                    .push((pconds.last().unwrap().prior.clone(), stmt));
             }
             _ => {
                 let src_id = fg.graph.edge_endpoints(eid).unwrap().0;
@@ -821,6 +917,7 @@ mod test {
     #[test_case("Atomics" ; "Atomics")]
     #[test_case("PhitArbiter" ; "PhitArbiter")]
     #[test_case("TLMonitor" ; "TLMonitor")]
+    #[test_case("WireRegInsideWhen" ; "WireRegInsideWhen")]
     fn run(name: &str) -> Result<(), RippleIRErr> {
         let source = std::fs::read_to_string(format!("./test-inputs/{}.fir", name))?;
         let circuit = parse_circuit(&source).expect("firrtl parser");

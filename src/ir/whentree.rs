@@ -142,6 +142,12 @@ impl PrioritizedConds {
         ])
     }
 
+    pub fn leaf() -> Self {
+        Self(vec![
+            PrioritizedCond::new(PhiPrior::new(BlockPrior::min(), StmtPrior(0)), Condition::Root)
+        ])
+    }
+
     pub fn iter(&self) -> std::slice::Iter<'_, PrioritizedCond> {
         self.0.iter()
     }
@@ -158,7 +164,7 @@ impl PrioritizedConds {
         self.0.last_mut()
     }
 
-    pub fn leaf(&self) -> Option<&PrioritizedCond> {
+    pub fn last(&self) -> Option<&PrioritizedCond> {
         self.0.last()
     }
 

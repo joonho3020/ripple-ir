@@ -54,7 +54,7 @@ clean_build:
 clean_all: clean clean_build
 
 [group: 'firtool']
-firtool:
+firtool fir:
   firtool \
       --format=fir \
       --export-module-hierarchy \
@@ -66,7 +66,7 @@ firtool:
       --lowering-options=emittedLineLength=2048,noAlwaysComb,disallowLocalVariables,verifLabels,disallowPortDeclSharing,locationInfoStyle=wrapInAtSquareBracket \
       --split-verilog \
       -o test-outputs/verilog \
-      ./test-outputs/TLMonitor.fir
+      {{fir}}
 # --repl-seq-mem \
 # ./test-outputs/TLMonitor.fir
 # ./test-outputs/chipyard.harness.TestHarness.RocketConfig.fir
