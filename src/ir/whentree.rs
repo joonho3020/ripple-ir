@@ -542,6 +542,7 @@ impl WhenTree {
         tree
     }
 
+    /// Get the PrioritizedConds that represents the first stmt block
     pub fn get_top_pcond(&self) -> PrioritizedConds {
         let mut max_root_prior = BlockPrior::bottom();
         for cid in self.graph.neighbors_directed(self.god.unwrap(), Outgoing) {
@@ -602,7 +603,9 @@ impl WhenTree {
     }
 
     fn to_stmts_recursive(&self, id: NodeIndex, stmts: &mut Stmts) {
-        let mut cond_groups: IndexMap<Expr, (Option<NodeIndex>, Option<NodeIndex>)> = IndexMap::new();
+        // Can be cases when there are multiple When Stmts with the same conditional Expr
+        type WhenElseNodePair = (Option<NodeIndex>, Option<NodeIndex>);
+        let mut cond_groups: IndexMap<Expr, Vec<WhenElseNodePair>> = IndexMap::new();
         let mut raw_stmt_nodes: Vec<(PrioritizedConds, NodeIndex)> = vec![];
 
         let childs: Vec<NodeIndex> = self.graph.neighbors_directed(id, Outgoing)
@@ -621,10 +624,26 @@ impl WhenTree {
                     raw_stmt_nodes.push((pconds, cid));
                 }
                 Condition::When(expr) => {
-                    cond_groups.entry(expr.clone()).or_default().0 = Some(cid);
+                    if !cond_groups.contains_key(expr) {
+                        cond_groups.insert(expr.clone(), vec![]);
+                    }
+                    let we_pairs = cond_groups.get_mut(expr).unwrap();
+                    if we_pairs.last().is_none() || we_pairs.last().unwrap().0.is_some() {
+                        we_pairs.push(WhenElseNodePair::default());
+                    }
+                    we_pairs.last_mut().unwrap().0 = Some(cid);
                 }
                 Condition::Else(expr) => {
-                    cond_groups.entry(expr.clone()).or_default().1 = Some(cid);
+                    if !cond_groups.contains_key(expr) {
+                        cond_groups.insert(expr.clone(), vec![]);
+                    }
+                    let we_pairs = cond_groups.get_mut(expr).unwrap();
+
+                    // In case the the when just contained a skip stmt
+                    if we_pairs.last().is_none() || we_pairs.last().unwrap().0.is_none() {
+                        we_pairs.push(WhenElseNodePair::default());
+                    }
+                    we_pairs.last_mut().unwrap().1 = Some(cid);
                 }
             }
         }
@@ -632,34 +651,36 @@ impl WhenTree {
         let mut when_stmts_by_priority: Vec<(PrioritizedConds, Stmt)> = vec![];
 
         // Recurse on condition branches and collect them by priority
-        for (expr, (when_id_opt, else_id_opt)) in cond_groups {
-            let mut when_stmts = Stmts::new();
-            if let Some(when_id) = when_id_opt {
-                self.to_stmts_recursive(when_id, &mut when_stmts);
-            } else {
-                when_stmts.push(Box::new(Stmt::Skip(Info::default())));
-            };
+        for (expr, we_vec) in cond_groups {
+            for (when_id_opt, else_id_opt) in we_vec {
+                let mut when_stmts = Stmts::new();
+                if let Some(when_id) = when_id_opt {
+                    self.to_stmts_recursive(when_id, &mut when_stmts);
+                } else {
+                    when_stmts.push(Box::new(Stmt::Skip(Info::default())));
+                };
 
-            let else_stmts_opt =  if let Some(else_id) = else_id_opt {
-                let mut else_stmts = Stmts::new();
-                self.to_stmts_recursive(else_id, &mut else_stmts);
-                Some(else_stmts)
-            } else {
-                None
-            };
+                let else_stmts_opt =  if let Some(else_id) = else_id_opt {
+                    let mut else_stmts = Stmts::new();
+                    self.to_stmts_recursive(else_id, &mut else_stmts);
+                    Some(else_stmts)
+                } else {
+                    None
+                };
 
-            let stmt = Stmt::When(expr.clone(), Info::default(), when_stmts, else_stmts_opt);
-            let when_prior = if let Some(when_id) = when_id_opt {
-                self.graph.node_weight(when_id).unwrap().priority
-            } else {
-                // No when stmt: stmts inside when is only a skip
-                self.graph.node_weight(else_id_opt.unwrap()).unwrap().priority
-            };
-            let prior = PhiPrior::new(when_prior, StmtPrior(0));
-            let pconds = PrioritizedConds::from_vec(vec![
-                PrioritizedCond::new(prior, Condition::When(expr))
-            ]);
-            when_stmts_by_priority.push((pconds, stmt));
+                let stmt = Stmt::When(expr.clone(), Info::default(), when_stmts, else_stmts_opt);
+                let when_prior = if let Some(when_id) = when_id_opt {
+                    self.graph.node_weight(when_id).unwrap().priority
+                } else {
+                    // No when stmt: stmts inside when is only a skip
+                    self.graph.node_weight(else_id_opt.unwrap()).unwrap().priority
+                };
+                let prior = PhiPrior::new(when_prior, StmtPrior(0));
+                let pconds = PrioritizedConds::from_vec(vec![
+                    PrioritizedCond::new(prior, Condition::When(expr.clone()))
+                ]);
+                when_stmts_by_priority.push((pconds, stmt));
+            }
         }
 
         enum RawOrWhen {
