@@ -19,11 +19,15 @@ impl BlockPrior {
         Self::from(1u32)
     }
 
-    pub fn min() -> Self {
+    pub fn bottom() -> Self {
         Self::from(u32::MIN)
     }
 
-    pub fn max() -> Self {
+    pub fn top() -> Self {
+        Self::from(u32::MAX - 1)
+    }
+
+    pub fn god() -> Self {
         Self::from(u32::MAX)
     }
 }
@@ -136,15 +140,15 @@ impl PrioritizedConds {
         self.0.len()
     }
 
-    pub fn root() -> Self {
+    pub fn top() -> Self {
         Self(vec![
-            PrioritizedCond::new(PhiPrior::new(BlockPrior::max(), StmtPrior(0)), Condition::Root)
+            PrioritizedCond::new(PhiPrior::new(BlockPrior::top(), StmtPrior(0)), Condition::Root)
         ])
     }
 
-    pub fn leaf() -> Self {
+    pub fn bottom() -> Self {
         Self(vec![
-            PrioritizedCond::new(PhiPrior::new(BlockPrior::min(), StmtPrior(0)), Condition::Root)
+            PrioritizedCond::new(PhiPrior::new(BlockPrior::bottom(), StmtPrior(0)), Condition::Root)
         ])
     }
 
@@ -245,7 +249,15 @@ impl WhenTreeNode {
     }
 
     pub fn god() -> Self {
-        Self::new(Condition::Root, BlockPrior::max())
+        Self::new(Condition::Root, BlockPrior::god())
+    }
+
+    pub fn top() -> Self {
+        Self::new(Condition::Root, BlockPrior::top())
+    }
+
+    pub fn bottom() -> Self {
+        Self::new(Condition::Root, BlockPrior::bottom())
     }
 }
 
@@ -392,7 +404,7 @@ impl WhenTree {
         let god_node = WhenTreeNode::god();
         let god_id = self.graph.add_node(god_node);
         self.god = Some(god_id);
-        self.from_stmts_recursive(&mut BlockPrior::min(), god_id, stmts);
+        self.from_stmts_recursive(&mut BlockPrior::bottom(), god_id, stmts);
     }
 
     /// Returns all the leaf nodes along with the condition path to reach it
@@ -492,21 +504,21 @@ impl WhenTree {
 
         // Add a node that will be the default node where stmts under to condition
         // will be inserted into if it already doesn't exist
-// let mut has_default_node = false;
-// for cid in tree.graph.neighbors_directed(god_id, Outgoing) {
-// let child = tree.graph.node_weight(cid).unwrap();
-// if child.priority == BlockPrior::min() && child.cond == Condition::Root {
-// has_default_node = true;
-// break;
-// }
-// }
+        let mut has_bottom_node = false;
+        for cid in tree.graph.neighbors_directed(god_id, Outgoing) {
+            let child = tree.graph.node_weight(cid).unwrap();
+            if child.priority == BlockPrior::bottom() && child.cond == Condition::Root {
+                has_bottom_node = true;
+                break;
+            }
+        }
 
-// if !has_default_node {
-// let id = tree.graph.add_node(WhenTreeNode::new(Condition::Root, BlockPrior::min()));
-// tree.graph.add_edge(god_id, id, WhenTreeEdge::default());
-// }
+        if !has_bottom_node {
+            let id = tree.graph.add_node(WhenTreeNode::new(Condition::Root, BlockPrior::bottom()));
+            tree.graph.add_edge(god_id, id, WhenTreeEdge::default());
+        }
 
-        let id = tree.graph.add_node(WhenTreeNode::new(Condition::Root, BlockPrior::max()));
+        let id = tree.graph.add_node(WhenTreeNode::new(Condition::Root, BlockPrior::top()));
         tree.graph.add_edge(god_id, id, WhenTreeEdge::default());
 
         tree

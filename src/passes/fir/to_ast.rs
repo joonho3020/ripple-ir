@@ -94,18 +94,32 @@ fn topo_start_node(fg: &FirGraph, id: NodeIndex) -> bool {
         FirNodeType::Wire => {
             if let Some(eid) = fg.parent_with_type(id, FirEdgeType::PhiOut) {
                 let mut has_dontcare = false;
+                let mut has_default = false;
 
                 let ep = fg.graph.edge_endpoints(eid).unwrap();
                 let phi_id = ep.0;
-                let phi_parents = fg.graph.neighbors_directed(phi_id, Incoming);
 
-                for pid in phi_parents {
-                    let parent = fg.graph.node_weight(pid).unwrap();
+                let phi_iedges = fg.graph.edges_directed(phi_id, Incoming);
+                for phi_eid in phi_iedges {
+                    let phi_in_edge = fg.graph.edge_weight(phi_eid.id()).unwrap();
+                    match &phi_in_edge.et {
+                        FirEdgeType::PhiInput(pconds) => {
+                            if pconds.always_true() {
+                                has_default = true;
+                            }
+                        }
+                        _ => {
+                            continue;
+                        }
+                    }
+
+                    let ep = fg.graph.edge_endpoints(phi_eid.id()).unwrap();
+                    let parent = fg.graph.node_weight(ep.0).unwrap();
                     if parent.nt == FirNodeType::DontCare {
                         has_dontcare = true;
                     }
                 }
-                has_dontcare
+                has_dontcare || has_default
             } else {
                 true
             }
@@ -206,10 +220,17 @@ fn collect_stmts(fg: &FirGraph, stmts: &mut Stmts) {
         let ref_id = ep.1;
 
         if edge.et == FirEdgeType::DontCare {
-            if !invalidate_edges.contains_key(&ref_id) {
-                invalidate_edges.insert(ref_id, IndexSet::new());
+            let ref_node = fg.graph.node_weight(ref_id).unwrap();
+            let id = if ref_node.nt == FirNodeType::Phi {
+                let childs = fg.graph.neighbors_directed(ref_id, Outgoing);
+                childs.last().unwrap()
+            } else {
+                ref_id
+            };
+            if !invalidate_edges.contains_key(&id) {
+                invalidate_edges.insert(id, IndexSet::new());
             }
-            invalidate_edges.get_mut(&ref_id).unwrap().insert(inv_id);
+            invalidate_edges.get_mut(&id).unwrap().insert(inv_id);
 
             assert!(indeg.get(&inv_id).unwrap() == &0);
             *indeg.get_mut(&inv_id).unwrap() += 1;
@@ -383,7 +404,7 @@ fn collect_stmts(fg: &FirGraph, stmts: &mut Stmts) {
     }
 
     // Insert connection stmts
-    insert_conn_stmts(fg, &pconds_map, &mut whentree);
+    insert_conn_stmts(fg, &mut whentree);
 
     // Export the WhenTree to stmts
     whentree.to_stmts(stmts);
@@ -429,7 +450,7 @@ fn insert_def_wire_stmt(
         pconds_map: &IndexMap<NodeIndex, PrioritizedConds>
     ) -> PrioritizedConds {
         let parents = fg.graph.neighbors_directed(id, Incoming);
-        let mut min_pconds = PrioritizedConds::root();
+        let mut min_pconds = PrioritizedConds::top();
         for pid in parents {
             if pconds_map.contains_key(&pid) {
                 let pconds = pconds_map.get(&pid).unwrap();
@@ -440,7 +461,7 @@ fn insert_def_wire_stmt(
     }
 
     fn find_phi_priority(fg: &FirGraph, id: NodeIndex) -> PrioritizedConds {
-        let mut ret = PrioritizedConds::leaf();
+        let mut ret = PrioritizedConds::bottom();
         let pedges = fg.graph.edges_directed(id, Incoming);
         for peid in pedges {
             let pedge = fg.graph.edge_weight(peid.id()).unwrap();
@@ -509,7 +530,7 @@ fn insert_def_stmts(
     whentree: &mut WhenTree
 ) -> PrioritizedConds {
     let parents = fg.graph.neighbors_directed(id, Incoming);
-    let mut min_pconds = PrioritizedConds::root();
+    let mut min_pconds = PrioritizedConds::top();
     for pid in parents {
         if pconds_map.contains_key(&pid) {
             let pconds = pconds_map.get(&pid).unwrap();
@@ -588,7 +609,7 @@ fn insert_invalidate_stmts(
     whentree: &mut WhenTree
 ) -> PrioritizedConds {
     let childs = fg.graph.neighbors_directed(id, Outgoing);
-    let mut max_pconds = PrioritizedConds::root();
+    let mut max_pconds = PrioritizedConds::top();
     for cid in childs {
         if pconds_map.contains_key(&cid) {
             let pconds = pconds_map.get(&cid).unwrap();
@@ -691,7 +712,7 @@ fn insert_op_stmts(
 ) -> PrioritizedConds {
 
     let parents = fg.graph.neighbors_directed(id, Incoming);
-    let mut max_pconds = PrioritizedConds::root();
+    let mut max_pconds = PrioritizedConds::top();
     for pid in parents {
         if pconds_map.contains_key(&pid) {
             let pconds = pconds_map.get(&pid).unwrap();
@@ -770,7 +791,6 @@ fn insert_op_stmts(
 /// Insert connection stmts to the appropriate position in the whentree
 fn insert_conn_stmts(
     fg: &FirGraph,
-    pconds_map: &IndexMap<NodeIndex, PrioritizedConds>,
     whentree: &mut WhenTree
 ) {
     let mut ordered_stmts: IndexMap<&PrioritizedConds, Vec<(PhiPrior, Stmt)>> = IndexMap::new();
@@ -797,14 +817,16 @@ fn insert_conn_stmts(
                     .push((pconds.last().unwrap().prior.clone(), stmt));
             }
             _ => {
-                let src_id = fg.graph.edge_endpoints(eid).unwrap().0;
-                let leaf = if pconds_map.contains_key(&src_id) {
-                    let pconds = pconds_map.get(&src_id).unwrap();
-                    whentree.get_node_mut(&pconds, None).unwrap()
-                } else {
-                    whentree.get_node_mut(&PrioritizedConds::root(), None).unwrap()
-                };
+                let leaf = whentree.get_node_mut(&PrioritizedConds::bottom(), None).unwrap();
                 leaf.stmts.push(Box::new(stmt));
+// let src_id = fg.graph.edge_endpoints(eid).unwrap().0;
+// let leaf = if pconds_map.contains_key(&src_id) {
+// let pconds = pconds_map.get(&src_id).unwrap();
+// whentree.get_node_mut(&pconds, None).unwrap()
+// } else {
+// whentree.get_node_mut(&PrioritizedConds::top(), None).unwrap()
+// };
+// leaf.stmts.push(Box::new(stmt));
             }
         }
     }
@@ -880,7 +902,9 @@ mod test {
                 for (fnode, fconds) in fir_leaves {
                     if !ast_leaves.contains_key(fnode) {
                         assert_eq!(fnode.cond, Condition::Root);
-                        assert_eq!(fnode.priority, BlockPrior::max());
+                        assert!(
+                            (fnode.priority == BlockPrior::top()) ||
+                            (fnode.priority == BlockPrior::bottom()));
                     } else {
                         let aconds = ast_leaves.get(fnode).unwrap();
                         assert_eq!(aconds, &fconds);
