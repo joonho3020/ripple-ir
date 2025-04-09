@@ -1079,6 +1079,7 @@ mod test {
     #[test_case("Atomics" ; "Atomics")]
     #[test_case("PhitArbiter" ; "PhitArbiter")]
     #[test_case("TLMonitor" ; "TLMonitor")]
+    #[test_case("TLBusBypassBar" ; "TLBusBypassBar")]
     #[test_case("WireRegInsideWhen" ; "WireRegInsideWhen")]
     #[test_case("MultiWhen" ; "MultiWhen")]
     #[test_case("DCacheDataArray" ; "DCacheDataArray")]
