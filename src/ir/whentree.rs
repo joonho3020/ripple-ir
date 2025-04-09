@@ -187,6 +187,23 @@ impl PrioritizedConds {
         }
         return ret;
     }
+
+    pub fn contains(&self, other: &Self) -> bool {
+        if self.len() > other.len() {
+            return false;
+        }
+        let other_len = other.len();
+        for (i, other_pcond) in other.iter().enumerate() {
+            if i == other_len - 1 {
+                assert!(other_pcond.cond == Condition::Root);
+            } else {
+                if self.0[i] != *other_pcond {
+                    return false;
+                }
+            }
+        }
+        true
+    }
 }
 
 impl PartialOrd for PrioritizedConds {
@@ -842,6 +859,23 @@ impl WhenTree {
     pub fn to_stmts(&self, stmts: &mut Stmts) {
         if let Some(god_id) = self.god {
             self.to_stmts_recursive(god_id, stmts)
+        }
+    }
+
+    /// Checks if all conditions in the tree are covered given a vector of PrioritizedConds.
+    pub fn is_fully_covered(&self, conds: &Vec<PrioritizedConds>) -> bool {
+        let lca_opt = self.lowest_common_ancester(conds);
+        match lca_opt {
+            Some(lca) => {
+                if lca == self.god.unwrap() {
+                    true
+                } else {
+                    false
+                }
+            }
+            None => {
+                false
+            }
         }
     }
 }

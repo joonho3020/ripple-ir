@@ -1,7 +1,6 @@
 use crate::common::graphviz::DefaultGraphVizCore;
 use crate::ir::fir::{FirEdgeType, FirGraph, FirIR, FirNodeType};
 use crate::ir::whentree::{PhiPrior, PrioritizedConds, WhenTree};
-use crate::ir::whentree::Condition;
 use chirrtl_parser::ast::*;
 use std::cmp::min;
 use std::cmp::max;
@@ -76,11 +75,41 @@ fn to_module(name: &Identifier, fg: &FirGraph) -> Module {
 }
 
 
-fn is_wire_topo_start_node(fg: &FirGraph, id: NodeIndex) -> bool {
+fn is_wire_topo_start_node(fg: &FirGraph, whentree: &WhenTree, id: NodeIndex) -> bool {
+    if let Some(eid) = fg.parent_with_type(id, FirEdgeType::PhiOut) {
+        let ep = fg.graph.edge_endpoints(eid).unwrap();
+        let phi_id = ep.0;
+
+        let phi_iedges = fg.graph.edges_directed(phi_id, Incoming);
+        let mut pconds_vec: Vec<PrioritizedConds> = vec![];
+        for phi_eid in phi_iedges {
+            let phi_in_edge = fg.graph.edge_weight(phi_eid.id()).unwrap();
+            match &phi_in_edge.et {
+                FirEdgeType::PhiInput(pconds) => {
+                    if pconds.always_true() {
+                        return true;
+                    }
+                    pconds_vec.push(pconds.clone());
+                }
+                _ => {
+                    continue;
+                }
+            }
+
+            let ep = fg.graph.edge_endpoints(phi_eid.id()).unwrap();
+            let parent = fg.graph.node_weight(ep.0).unwrap();
+            if parent.nt == FirNodeType::DontCare {
+                return true;
+            }
+        }
+        whentree.is_fully_covered(&pconds_vec)
+    } else {
+        true
+    }
 }
 
 /// Statements that defines a structural element
-fn topo_start_node(fg: &FirGraph, id: NodeIndex) -> bool {
+fn topo_start_node(fg: &FirGraph, whentree: &WhenTree, id: NodeIndex) -> bool {
     let node = fg.graph.node_weight(id).unwrap();
 
     match node.nt {
@@ -97,13 +126,12 @@ fn topo_start_node(fg: &FirGraph, id: NodeIndex) -> bool {
             true
         }
         FirNodeType::Wire => {
-            is_wire_topo_start_node(fg, id)
+            is_wire_topo_start_node(fg, whentree, id)
         }
         _ => {
             false
         }
     }
-
 }
 
 fn find_array_addr_chain(fg: &FirGraph, id: NodeIndex) -> IndexSet<NodeIndex> {
@@ -280,7 +308,7 @@ fn collect_stmts(fg: &FirGraph, stmts: &mut Stmts) {
             cc_vismap.visit(nx);
 
             let is_reginit = fg.graph.node_weight(nx).unwrap().nt == FirNodeType::RegReset;
-            if topo_start_node(&fg, nx) {
+            if topo_start_node(&fg, &whentree, nx) {
                 if !is_reginit || *indeg.get(&nx).unwrap() == 0 {
                     q.push_back(nx);
                 }
@@ -338,7 +366,7 @@ fn collect_stmts(fg: &FirGraph, stmts: &mut Stmts) {
                     if *indeg.get(&ep.1).unwrap() == 0 {
                         q.push_back(ep.1);
                     }
-                } else if !topo_vis_map.is_visited(&ep.1) && !topo_start_node(&fg, ep.1) {
+                } else if !topo_vis_map.is_visited(&ep.1) && !topo_start_node(&fg, &whentree, ep.1) {
                     *indeg.get_mut(&ep.1).unwrap() -= 1;
                     if *indeg.get(&ep.1).unwrap() == 0 {
                         q.push_back(ep.1);
@@ -385,13 +413,16 @@ fn collect_stmts(fg: &FirGraph, stmts: &mut Stmts) {
                     let pconds = insert_invalidate_stmts(fg, nidx, &emission_info, &mut whentree);
                     emission_info.topdown.insert(nidx, pconds.clone());
                 }
-                FirNodeType::Wire |
                 FirNodeType::Reg  |
                 FirNodeType::RegReset |
                 FirNodeType::SMem(..) |
                 FirNodeType::CMem     |
                 FirNodeType::Inst(..) => {
                     let pconds = insert_def_stmts(fg, nidx, &emission_info, &mut whentree);
+                    emission_info.topdown.insert(nidx, pconds.clone());
+                }
+                FirNodeType::Wire => {
+                    let pconds = insert_def_wire_stmts(fg, nidx, &emission_info, &mut whentree);
                     emission_info.topdown.insert(nidx, pconds.clone());
                 }
                 _ => {
@@ -510,6 +541,39 @@ fn insert_def_wire_stmt(
     }
 }
 
+fn insert_def_wire_stmts(
+    fg: &FirGraph,
+    id: NodeIndex,
+    emission_info: &EmissionInfo,
+    whentree: &mut WhenTree
+) -> PrioritizedConds {
+    let node = fg.node_weight(id).unwrap();
+    if is_wire_topo_start_node(fg, whentree, id) {
+        let tpe = node.ttree.as_ref().unwrap().to_type();
+        let name = node.name.as_ref().unwrap().clone();
+
+        let parents = fg.graph.neighbors_directed(id, Incoming);
+        let mut min_pconds = whentree.get_top_pcond();
+        for pid in parents {
+            if emission_info.topdown.contains_key(&pid) {
+                let pconds = emission_info.topdown.get(&pid).unwrap();
+                min_pconds = min(min_pconds, pconds.clone());
+            }
+        }
+
+        let when_leaf = whentree.get_node_mut(
+            &min_pconds,
+            Some(&min_pconds.last().unwrap().prior))
+            .unwrap();
+
+        when_leaf.stmts.push(Box::new(Stmt::Wire(name, tpe, Info::default())));
+        return min_pconds;
+    } else {
+        let wire_pconds = insert_def_wire_stmt(fg, id, emission_info, whentree);
+        return wire_pconds;
+    }
+}
+
 fn insert_def_stmts(
     fg: &FirGraph,
     id: NodeIndex,
@@ -532,17 +596,6 @@ fn insert_def_stmts(
 
     let node = fg.node_weight(id).unwrap();
     match &node.nt {
-        FirNodeType::Wire => {
-            if is_wire_topo_start_node(fg, id) {
-                let tpe = node.ttree.as_ref().unwrap().to_type();
-                let name = node.name.as_ref().unwrap().clone();
-                when_leaf.stmts.push(Box::new(Stmt::Wire(name, tpe, Info::default())));
-                return min_pconds;
-            } else {
-                let wire_pconds = insert_def_wire_stmt(fg, id, emission_info, whentree);
-                return wire_pconds;
-            }
-        }
         FirNodeType::Reg => {
             let tpe = node.ttree.as_ref().unwrap().to_type();
 
@@ -718,8 +771,6 @@ fn insert_op_stmts(
         }
     }
 
-// println!("  - max_pconds {:?}", max_pconds);
-
     let bu_pconds = emission_info.bottomup.get(&id);
     if bu_pconds.is_some() {
         let bu_pconds = bu_pconds.unwrap();
@@ -729,7 +780,6 @@ fn insert_op_stmts(
             println!("node {:?}", fg.graph.node_weight(id).unwrap());
             assert!(false);
         }
-// println!("  - bu_pconds {:?}", bu_pconds);
         if max_pconds.len() > bu_pconds.len() {
             max_pconds = bu_pconds.clone();
         }
