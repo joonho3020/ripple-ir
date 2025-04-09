@@ -1,6 +1,7 @@
 use crate::common::graphviz::DefaultGraphVizCore;
 use crate::ir::fir::{FirEdgeType, FirGraph, FirIR, FirNodeType};
 use crate::ir::whentree::{PhiPrior, PrioritizedConds, WhenTree};
+use crate::ir::whentree::Condition;
 use chirrtl_parser::ast::*;
 use std::cmp::min;
 use std::cmp::max;
@@ -74,6 +75,10 @@ fn to_module(name: &Identifier, fg: &FirGraph) -> Module {
     Module::new(name.clone(), ports, stmts, Info::default())
 }
 
+
+fn is_wire_topo_start_node(fg: &FirGraph, id: NodeIndex) -> bool {
+}
+
 /// Statements that defines a structural element
 fn topo_start_node(fg: &FirGraph, id: NodeIndex) -> bool {
     let node = fg.graph.node_weight(id).unwrap();
@@ -92,37 +97,7 @@ fn topo_start_node(fg: &FirGraph, id: NodeIndex) -> bool {
             true
         }
         FirNodeType::Wire => {
-            if let Some(eid) = fg.parent_with_type(id, FirEdgeType::PhiOut) {
-                let mut has_dontcare = false;
-                let mut has_default = false;
-
-                let ep = fg.graph.edge_endpoints(eid).unwrap();
-                let phi_id = ep.0;
-
-                let phi_iedges = fg.graph.edges_directed(phi_id, Incoming);
-                for phi_eid in phi_iedges {
-                    let phi_in_edge = fg.graph.edge_weight(phi_eid.id()).unwrap();
-                    match &phi_in_edge.et {
-                        FirEdgeType::PhiInput(pconds) => {
-                            if pconds.always_true() {
-                                has_default = true;
-                            }
-                        }
-                        _ => {
-                            continue;
-                        }
-                    }
-
-                    let ep = fg.graph.edge_endpoints(phi_eid.id()).unwrap();
-                    let parent = fg.graph.node_weight(ep.0).unwrap();
-                    if parent.nt == FirNodeType::DontCare {
-                        has_dontcare = true;
-                    }
-                }
-                has_dontcare || has_default
-            } else {
-                true
-            }
+            is_wire_topo_start_node(fg, id)
         }
         _ => {
             false
@@ -558,7 +533,7 @@ fn insert_def_stmts(
     let node = fg.node_weight(id).unwrap();
     match &node.nt {
         FirNodeType::Wire => {
-            if topo_start_node(fg, id) {
+            if is_wire_topo_start_node(fg, id) {
                 let tpe = node.ttree.as_ref().unwrap().to_type();
                 let name = node.name.as_ref().unwrap().clone();
                 when_leaf.stmts.push(Box::new(Stmt::Wire(name, tpe, Info::default())));
