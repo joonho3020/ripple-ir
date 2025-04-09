@@ -66,7 +66,7 @@ fn get_ports(fg: &FirGraph) -> Ports {
 }
 
 fn to_module(name: &Identifier, fg: &FirGraph) -> Module {
-// println!("name {:?}", name);
+    println!("name {:?}", name);
     let ports = get_ports(fg);
 
     let mut stmts: Stmts = Stmts::new();
@@ -442,15 +442,16 @@ fn insert_def_wire_stmt(
     id: NodeIndex,
     pconds_map: &IndexMap<NodeIndex, PrioritizedConds>,
     whentree: &mut WhenTree
-) {
+) -> PrioritizedConds {
 
     fn find_priority(
         fg: &FirGraph,
         id: NodeIndex,
-        pconds_map: &IndexMap<NodeIndex, PrioritizedConds>
+        pconds_map: &IndexMap<NodeIndex, PrioritizedConds>,
+        whentree: &WhenTree
     ) -> PrioritizedConds {
         let parents = fg.graph.neighbors_directed(id, Incoming);
-        let mut min_pconds = PrioritizedConds::top();
+        let mut min_pconds = whentree.get_top_pcond();
         for pid in parents {
             if pconds_map.contains_key(&pid) {
                 let pconds = pconds_map.get(&pid).unwrap();
@@ -495,8 +496,6 @@ fn insert_def_wire_stmt(
     let wire_stmt = Stmt::Wire(name, tpe, Info::default());
 
     if let Some(eid) = fg.parent_with_type(id, FirEdgeType::PhiOut) {
-        assert_eq!(fg.graph.edges_directed(id, Incoming).count(), 1);
-
         let ep = fg.graph.edge_endpoints(eid).unwrap();
         let phi_id = ep.0;
 
@@ -509,17 +508,20 @@ fn insert_def_wire_stmt(
             }
         }
 
-        let wire_pconds = find_priority(fg, id, pconds_map);
+        let wire_pconds = find_priority(fg, id, pconds_map, whentree);
         if has_dontcare {
             insert_stmt_with_priority(wire_stmt, &wire_pconds, whentree);
+            return wire_pconds;
         } else {
             let phi_pconds = find_phi_priority(fg, phi_id);
             let pconds = min(wire_pconds, phi_pconds);
             insert_stmt_with_priority(wire_stmt, &pconds, whentree);
+            return pconds;
         }
     } else {
-        let wire_pconds = find_priority(fg, id, pconds_map);
+        let wire_pconds = find_priority(fg, id, pconds_map, whentree);
         insert_stmt_with_priority(wire_stmt, &wire_pconds, whentree);
+        return wire_pconds;
     }
 }
 
@@ -530,7 +532,7 @@ fn insert_def_stmts(
     whentree: &mut WhenTree
 ) -> PrioritizedConds {
     let parents = fg.graph.neighbors_directed(id, Incoming);
-    let mut min_pconds = PrioritizedConds::top();
+    let mut min_pconds = whentree.get_top_pcond();
     for pid in parents {
         if pconds_map.contains_key(&pid) {
             let pconds = pconds_map.get(&pid).unwrap();
@@ -546,7 +548,15 @@ fn insert_def_stmts(
     let node = fg.node_weight(id).unwrap();
     match &node.nt {
         FirNodeType::Wire => {
-            insert_def_wire_stmt(fg, id, pconds_map, whentree);
+            if topo_start_node(fg, id) {
+                let tpe = node.ttree.as_ref().unwrap().to_type();
+                let name = node.name.as_ref().unwrap().clone();
+                when_leaf.stmts.push(Box::new(Stmt::Wire(name, tpe, Info::default())));
+                return min_pconds;
+            } else {
+                let wire_pconds = insert_def_wire_stmt(fg, id, pconds_map, whentree);
+                return wire_pconds;
+            }
         }
         FirNodeType::Reg => {
             let tpe = node.ttree.as_ref().unwrap().to_type();
@@ -609,7 +619,7 @@ fn insert_invalidate_stmts(
     whentree: &mut WhenTree
 ) -> PrioritizedConds {
     let childs = fg.graph.neighbors_directed(id, Outgoing);
-    let mut max_pconds = PrioritizedConds::top();
+    let mut max_pconds = whentree.get_top_pcond();
     for cid in childs {
         if pconds_map.contains_key(&cid) {
             let pconds = pconds_map.get(&cid).unwrap();
@@ -687,6 +697,8 @@ fn insert_memport_stmts(
                     panic!("Unrecognized MPORT with memory {:?} and clk {:?}", mem, clk);
                 };
 
+                println!("Memory port {:?} stmt {:?}", node, port_stmt);
+
                 // Priority is set to `None`
                 // This can change the port position when the port has no
                 // enable signal (from the very end of the module to the very top.
@@ -712,7 +724,7 @@ fn insert_op_stmts(
 ) -> PrioritizedConds {
 
     let parents = fg.graph.neighbors_directed(id, Incoming);
-    let mut max_pconds = PrioritizedConds::top();
+    let mut max_pconds = whentree.get_top_pcond();
     for pid in parents {
         if pconds_map.contains_key(&pid) {
             let pconds = pconds_map.get(&pid).unwrap();
@@ -819,14 +831,6 @@ fn insert_conn_stmts(
             _ => {
                 let leaf = whentree.get_node_mut(&PrioritizedConds::bottom(), None).unwrap();
                 leaf.stmts.push(Box::new(stmt));
-// let src_id = fg.graph.edge_endpoints(eid).unwrap().0;
-// let leaf = if pconds_map.contains_key(&src_id) {
-// let pconds = pconds_map.get(&src_id).unwrap();
-// whentree.get_node_mut(&pconds, None).unwrap()
-// } else {
-// whentree.get_node_mut(&PrioritizedConds::top(), None).unwrap()
-// };
-// leaf.stmts.push(Box::new(stmt));
             }
         }
     }
@@ -870,7 +874,6 @@ mod test {
     use chirrtl_parser::parse_circuit;
     use test_case::test_case;
     use indexmap::IndexMap;
-    use std::process::Command;
 
     fn check_whentree_equivalence(ir: &FirIR, circuit: &Circuit) -> Result<(), RippleIRErr> {
         let mut ast_whentrees: IndexMap<&Identifier, WhenTree> = IndexMap::new();
@@ -898,6 +901,10 @@ mod test {
 
                 let fir_whentree = reconstruct_whentree(fg);
                 let fir_leaves = fir_whentree.leaf_to_conditions();
+
+                if name == &Identifier::Name("Directory".to_string()) {
+                    fir_whentree.print_tree();
+                }
 
                 for (fnode, fconds) in fir_leaves {
                     if !ast_leaves.contains_key(fnode) {
@@ -933,7 +940,7 @@ mod test {
     #[test_case("OneReadOneWritePortSRAM" ; "OneReadOneWritePortSRAM")]
     #[test_case("OneReadOneReadWritePortSRAM" ; "OneReadOneReadWritePortSRAM")]
     #[test_case("chipyard.harness.TestHarness.RocketConfig" ; "Rocket")]
-    #[test_case("MSHR1" ; "MSHR1")]
+    #[test_case("MSHR" ; "MSHR")]
     #[test_case("EmptyAggregate" ; "EmptyAggregate")]
     #[test_case("TLFIFOFixer" ; "TLFIFOFixer")]
     #[test_case("TLBundleQueue" ; "TLBundleQueue")]

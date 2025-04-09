@@ -3,7 +3,7 @@ use derivative::Derivative;
 use petgraph::{graph::{Graph, NodeIndex}, Direction::Outgoing};
 use indexmap::IndexMap;
 use indexmap::IndexSet;
-use std::{collections::VecDeque, u32, usize};
+use std::{cmp::max, collections::VecDeque, u32, usize};
 use std::hash::Hash;
 
 use crate::define_index_type;
@@ -513,15 +513,50 @@ impl WhenTree {
             }
         }
 
+        let mut max_when_prior = BlockPrior::bottom();
+        let mut max_root_prior = BlockPrior::bottom();
+        for cid in tree.graph.neighbors_directed(god_id, Outgoing) {
+            let child = tree.graph.node_weight(cid).unwrap();
+            match child.cond {
+                Condition::When(..) => {
+                    max_when_prior = max(max_when_prior, child.priority);
+                }
+                Condition::Root => {
+                    max_root_prior = max(max_root_prior, child.priority);
+                }
+                _ => {
+                }
+            }
+        }
+
         if !has_bottom_node {
             let id = tree.graph.add_node(WhenTreeNode::new(Condition::Root, BlockPrior::bottom()));
             tree.graph.add_edge(god_id, id, WhenTreeEdge::default());
         }
 
-        let id = tree.graph.add_node(WhenTreeNode::new(Condition::Root, BlockPrior::top()));
-        tree.graph.add_edge(god_id, id, WhenTreeEdge::default());
+        if max_when_prior > max_root_prior {
+            let id = tree.graph.add_node(WhenTreeNode::new(Condition::Root, BlockPrior::top()));
+            tree.graph.add_edge(god_id, id, WhenTreeEdge::default());
+        }
 
         tree
+    }
+
+    pub fn get_top_pcond(&self) -> PrioritizedConds {
+        let mut max_root_prior = BlockPrior::bottom();
+        for cid in self.graph.neighbors_directed(self.god.unwrap(), Outgoing) {
+            let child = self.graph.node_weight(cid).unwrap();
+            match child.cond {
+                Condition::Root => {
+                    max_root_prior = max(max_root_prior, child.priority);
+                }
+                _ => {
+                }
+            }
+        }
+        PrioritizedConds(vec![
+            PrioritizedCond::new(PhiPrior::new(max_root_prior, StmtPrior(0)), Condition::Root)
+        ])
     }
 
     /// Follow a given condition (and the priority when it is given) to the tree leaf node
