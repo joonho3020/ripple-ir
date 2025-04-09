@@ -707,8 +707,6 @@ fn insert_memport_stmts(
                     panic!("Unrecognized MPORT with memory {:?} and clk {:?}", mem, clk);
                 };
 
-                println!("Memory port {:?} stmt {:?}", node, port_stmt);
-
                 // Priority is set to `None`
                 // This can change the port position when the port has no
                 // enable signal (from the very end of the module to the very top.
@@ -733,6 +731,9 @@ fn insert_op_stmts(
     whentree: &mut WhenTree
 ) -> PrioritizedConds {
 
+
+// println!("- Node {:?}", fg.graph.node_weight(id).unwrap());
+
     let parents = fg.graph.neighbors_directed(id, Incoming);
     let mut max_pconds = whentree.get_top_pcond();
     for pid in parents {
@@ -741,6 +742,8 @@ fn insert_op_stmts(
             max_pconds = min(max_pconds, pconds.clone());
         }
     }
+
+// println!("  - max_pconds {:?}", max_pconds);
 
     let bu_pconds = emission_info.bottomup.get(&id);
     if bu_pconds.is_some() {
@@ -751,7 +754,10 @@ fn insert_op_stmts(
             println!("node {:?}", fg.graph.node_weight(id).unwrap());
             assert!(false);
         }
-        max_pconds = bu_pconds.clone();
+// println!("  - bu_pconds {:?}", bu_pconds);
+        if max_pconds.len() > bu_pconds.len() {
+            max_pconds = bu_pconds.clone();
+        }
     }
 
     let when_leaf = whentree.get_node_mut(
@@ -833,20 +839,21 @@ fn fill_bottom_up_emission_info(
         let mut conds: Vec<PrioritizedConds> = vec![];
         for ceid in cedges {
             let edge = fg.graph.edge_weight(ceid.id()).unwrap();
-            if edge.dst.is_none() {
-                continue;
-            }
-
-            match &edge.et {
-                FirEdgeType::DontCare => {
-                    continue;
+            let cid = fg.graph.edge_endpoints(ceid.id()).unwrap().1;
+            if edge.dst.is_some() {
+                match &edge.et {
+                    FirEdgeType::DontCare => {
+                        continue;
+                    }
+                    FirEdgeType::PhiInput(pconds) => {
+                        conds.push(pconds.clone());
+                    }
+                    _ => {
+                        conds.push(PrioritizedConds::bottom());
+                    }
                 }
-                FirEdgeType::PhiInput(pconds) => {
-                    conds.push(pconds.clone());
-                }
-                _ => {
-                    conds.push(PrioritizedConds::bottom());
-                }
+            } else if emission_info.bottomup.contains_key(&cid) {
+                conds.push(emission_info.bottomup.get(&cid).unwrap().clone());
             }
         }
         let pcond_constraint = whentree.bottom_up_priority_constraint(&conds);
