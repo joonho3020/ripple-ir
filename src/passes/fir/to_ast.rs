@@ -91,15 +91,17 @@ fn is_wire_topo_start_node(fg: &FirGraph, whentree: &WhenTree, id: NodeIndex) ->
                     }
                     pconds_vec.push(pconds.clone());
                 }
+                FirEdgeType::DontCare => {
+                    let dst = phi_in_edge.dst.as_ref().unwrap();
+                    if let Expr::Reference(src) = &phi_in_edge.src {
+                        if src == dst {
+                            return true;
+                        }
+                    }
+                }
                 _ => {
                     continue;
                 }
-            }
-
-            let ep = fg.graph.edge_endpoints(phi_eid.id()).unwrap();
-            let parent = fg.graph.node_weight(ep.0).unwrap();
-            if parent.nt == FirNodeType::DontCare {
-                return true;
             }
         }
         whentree.is_fully_covered(&pconds_vec)
@@ -453,6 +455,23 @@ fn collect_stmts(fg: &FirGraph, stmts: &mut Stmts) {
     whentree.to_stmts(stmts);
 }
 
+fn find_phi_priority(fg: &FirGraph, id: NodeIndex) -> PrioritizedConds {
+    let mut ret = PrioritizedConds::bottom();
+    let pedges = fg.graph.edges_directed(id, Incoming);
+    for peid in pedges {
+        let pedge = fg.graph.edge_weight(peid.id()).unwrap();
+        match &pedge.et {
+            FirEdgeType::PhiInput(pcond)=> {
+                ret = max(ret, pcond.clone());
+            }
+            _ => {
+                continue;
+            }
+        }
+    }
+    ret
+}
+
 fn insert_def_wire_stmt(
     fg: &FirGraph,
     id: NodeIndex,
@@ -477,24 +496,7 @@ fn insert_def_wire_stmt(
         min_pconds
     }
 
-    fn find_phi_priority(fg: &FirGraph, id: NodeIndex) -> PrioritizedConds {
-        let mut ret = PrioritizedConds::bottom();
-        let pedges = fg.graph.edges_directed(id, Incoming);
-        for peid in pedges {
-            let pedge = fg.graph.edge_weight(peid.id()).unwrap();
-            match &pedge.et {
-                FirEdgeType::PhiInput(pcond)=> {
-                    ret = max(ret, pcond.clone());
-                }
-                _ => {
-                    continue;
-                }
-            }
-        }
-        ret
-    }
-
-    fn insert_stmt_with_priority(
+        fn insert_stmt_with_priority(
         stmt: Stmt,
         pconds: &PrioritizedConds,
         whentree: &mut WhenTree
@@ -516,11 +518,21 @@ fn insert_def_wire_stmt(
         let phi_id = ep.0;
 
         let mut has_dontcare = false;
-        let phi_parents = fg.graph.neighbors_directed(phi_id, Incoming);
-        for pid in phi_parents {
-            let parent = fg.graph.node_weight(pid).unwrap();
-            if parent.nt == FirNodeType::DontCare {
-                has_dontcare = true;
+        let phi_iedges = fg.graph.edges_directed(phi_id, Incoming);
+        for phi_eid in phi_iedges {
+            let phi_in_edge = fg.graph.edge_weight(phi_eid.id()).unwrap();
+            match &phi_in_edge.et {
+                FirEdgeType::DontCare => {
+                    let dst = phi_in_edge.dst.as_ref().unwrap();
+                    if let Expr::Reference(src) = &phi_in_edge.src {
+                        if src == dst {
+                            has_dontcare = true;
+                        }
+                    }
+                }
+                _ => {
+                    continue;
+                }
             }
         }
 
@@ -662,6 +674,18 @@ fn insert_invalidate_stmts(
         if emission_info.topdown.contains_key(&cid) {
             let pconds = emission_info.topdown.get(&cid).unwrap();
             max_pconds = min(max_pconds, pconds.clone());
+        }
+        let child = fg.graph.node_weight(cid).unwrap();
+        if child.nt == FirNodeType::Phi {
+            let grand_child_edges = fg.childs_with_type(cid, FirEdgeType::PhiOut);
+            for gc_eid in grand_child_edges {
+                let gc_id = fg.graph.edge_endpoints(gc_eid).unwrap().1;
+                let gc = fg.graph.node_weight(gc_id).unwrap();
+                if gc.nt == FirNodeType::Wire && !is_wire_topo_start_node(fg, whentree, gc_id) {
+                    let phi_pconds = find_phi_priority(fg, cid);
+                    max_pconds = min(max_pconds, phi_pconds);
+                }
+            }
         }
     }
 
