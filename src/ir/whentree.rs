@@ -1,6 +1,7 @@
 use chirrtl_parser::ast::*;
 use derivative::Derivative;
 use petgraph::{graph::{Graph, NodeIndex}, Direction::Outgoing};
+use petgraph::Direction::Incoming;
 use indexmap::IndexMap;
 use indexmap::IndexSet;
 use std::{cmp::max, collections::VecDeque, u32, usize};
@@ -560,6 +561,133 @@ impl WhenTree {
         ])
     }
 
+    fn corresponding_node(&self, conds: &PrioritizedConds) -> Option<NodeIndex> {
+        let mut q: VecDeque<NodeIndex> = VecDeque::new();
+        q.push_back(self.god.unwrap());
+
+        let mut i = 0;
+        while !q.is_empty() && i < conds.len() {
+            let id = q.pop_front().unwrap();
+            for cid in self.graph.neighbors_directed(id, Outgoing) {
+                let pcond = conds.get(i);
+                let child = self.graph.node_weight(cid).unwrap();
+
+                // Found root node
+                if pcond.cond == Condition::Root &&
+                    child.cond == Condition::Root &&
+                    pcond.prior.block == child.priority
+                {
+                    return Some(cid);
+                } else if child.cond == pcond.cond &&
+                    child.priority == pcond.prior.block {
+                    // Found a matching condition, go down one level in the tree
+                    q.push_back(cid);
+                    i += 1;
+                }
+            }
+        }
+        None
+    }
+
+    /// Find all ancestors of a node (including itself), walking up toward the root
+    fn collect_ancestors(
+        graph: &Graph<WhenTreeNode, WhenTreeEdge>,
+        start: NodeIndex,
+    ) -> Vec<NodeIndex> {
+        let mut ancestors = vec![start];
+        let mut current = start;
+        while let Some(parent) = graph.neighbors_directed(current, Incoming).next() {
+            ancestors.push(parent);
+            current = parent;
+        }
+        ancestors
+    }
+
+    fn lowest_common_ancester(&self, conds: &Vec<PrioritizedConds>) -> Option<NodeIndex> {
+        if conds.is_empty() {
+            return None;
+        }
+
+        let nodes: Vec<NodeIndex> = conds.iter().map(|c| self.corresponding_node(c).unwrap()).collect();
+
+        // Collect ancestor chains for each node
+        let ancestor_chains: Vec<Vec<NodeIndex>> =
+            nodes.iter().map(|&n| Self::collect_ancestors(&self.graph, n)).collect();
+
+        // Reverse chains so they go from root -> leaf
+        let ancestor_chains: Vec<Vec<NodeIndex>> =
+            ancestor_chains.into_iter().map(|mut v| { v.reverse(); v }).collect();
+
+        // Find the longest common prefix across all chains
+        let mut lca = None;
+        let min_len = ancestor_chains.iter().map(|v| v.len()).min().unwrap_or(0);
+
+        for i in 0..min_len {
+            let candidate = ancestor_chains[0][i];
+            if ancestor_chains.iter().all(|chain| chain[i] == candidate) {
+                lca = Some(candidate);
+            } else {
+                break;
+            }
+        }
+
+        lca
+    }
+
+    /// Returns the prioritized cond of this node
+    fn prioritized_conds(&self, id: NodeIndex) -> PrioritizedConds {
+        let mut ancestors = Self::collect_ancestors(&self.graph, id);
+
+        // remove god node
+        ancestors.pop();
+
+        // reverse order
+        ancestors.reverse();
+
+        // collect PrioritizedConds
+        let mut ret = PrioritizedConds::default();
+        for id in ancestors {
+            let node = self.graph.node_weight(id).unwrap();
+            let phi_prior = PhiPrior::new(node.priority, StmtPrior(0));
+            let pcond = PrioritizedCond::new(phi_prior, node.cond.clone());
+            ret.push(pcond);
+        }
+        return ret;
+    }
+
+    /// Find bottom up priority placement
+    pub fn bottom_up_priority_constraint(&self, conds: &Vec<PrioritizedConds>) -> Option<PrioritizedConds> {
+        let lca_opt = self.lowest_common_ancester(conds);
+        match lca_opt {
+            Some(lca) => {
+                let node = self.graph.node_weight(lca).unwrap();
+                if node.cond == Condition::Root && node.priority != BlockPrior::god() {
+                    Some(self.prioritized_conds(lca))
+                } else {
+                    let childs = self.graph.neighbors_directed(lca, Outgoing);
+                    let mut cur_prior = BlockPrior::bottom();
+                    let mut id: Option<NodeIndex> = None;
+                    for cid in childs {
+                        let child = self.graph.node_weight(cid).unwrap();
+                        if child.cond == Condition::Root && cur_prior < child.priority {
+                            cur_prior = child.priority;
+                            id = Some(cid);
+                        }
+                    }
+
+                    if id.is_some() {
+                        Some(self.prioritized_conds(id.unwrap()))
+                    } else {
+                        None
+                    }
+                }
+            }
+            None => {
+                None
+            }
+        }
+    }
+
     /// Follow a given condition (and the priority when it is given) to the tree leaf node
     /// and return a mutable reference to it
     pub fn get_node_mut(
@@ -579,12 +707,12 @@ impl WhenTree {
 
                 // Found root node
                 if pcond.cond == Condition::Root &&
-                    pcond.prior.block == child.priority &&
-                    child.cond == Condition::Root
+                    child.cond == Condition::Root &&
+                    pcond.prior.block == child.priority
                 {
                     if prior.is_some() {
+                        // Priority given, check if it matches
                         if child.priority == prior.unwrap().block {
-                            // No priority given, just return the first matching one
                             return self.graph.node_weight_mut(cid);
                         }
                     } else {

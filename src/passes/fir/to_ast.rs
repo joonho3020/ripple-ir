@@ -384,7 +384,7 @@ fn collect_stmts(fg: &FirGraph, stmts: &mut Stmts) {
 
         visited += topo_sort_order.len();
 
-        fill_bottom_up_emission_info(fg, &topo_sort_order, &mut emission_info);
+        fill_bottom_up_emission_info(fg, &topo_sort_order, &whentree, &mut emission_info);
 
 
         // Condition chain where the previous stmt was inserted
@@ -742,6 +742,18 @@ fn insert_op_stmts(
         }
     }
 
+    let bu_pconds = emission_info.bottomup.get(&id);
+    if bu_pconds.is_some() {
+        let bu_pconds = bu_pconds.unwrap();
+        if *bu_pconds > max_pconds {
+            println!("bu_pconds {:?}", bu_pconds);
+            println!("max_pconds {:?}", max_pconds);
+            println!("node {:?}", fg.graph.node_weight(id).unwrap());
+            assert!(false);
+        }
+        max_pconds = bu_pconds.clone();
+    }
+
     let when_leaf = whentree.get_node_mut(
         &max_pconds,
         Some(&max_pconds.last().unwrap().prior))
@@ -813,14 +825,14 @@ fn insert_op_stmts(
 fn fill_bottom_up_emission_info(
     fg: &FirGraph,
     topo_sort_order: &Vec<NodeIndex>,
+    whentree: &WhenTree,
     emission_info: &mut EmissionInfo
 ) {
     for &id in topo_sort_order.iter().rev() {
         let cedges = fg.graph.edges_directed(id, Outgoing);
-        let mut bu_pconds: Option<PrioritizedConds> = None;
+        let mut conds: Vec<PrioritizedConds> = vec![];
         for ceid in cedges {
             let edge = fg.graph.edge_weight(ceid.id()).unwrap();
-            let ep = fg.graph.edge_endpoints(ceid.id()).unwrap();
             if edge.dst.is_none() {
                 continue;
             }
@@ -830,16 +842,16 @@ fn fill_bottom_up_emission_info(
                     continue;
                 }
                 FirEdgeType::PhiInput(pconds) => {
-                    if bu_pconds.is_none() {
-                        bu_pconds = Some(pconds.clone());
-                    } else {
-                        bu_pconds = Some(max(pconds.clone(), bu_pconds.unwrap()));
-                    }
+                    conds.push(pconds.clone());
                 }
                 _ => {
-// bu_pconds = min(PrioritizedConds::bottom(), bu_pconds);
+                    conds.push(PrioritizedConds::bottom());
                 }
             }
+        }
+        let pcond_constraint = whentree.bottom_up_priority_constraint(&conds);
+        if pcond_constraint.is_some() {
+            emission_info.bottomup.insert(id, pcond_constraint.unwrap());
         }
     }
 }
