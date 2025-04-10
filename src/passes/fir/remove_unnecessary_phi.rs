@@ -1,8 +1,10 @@
-use crate::ir::fir::*;
+use crate::ir::{fir::*, whentree::PrioritizedConds};
+use chirrtl_parser::ast::Reference;
 use petgraph::{
     graph::{NodeIndex, EdgeIndex},
     visit::EdgeRef, Direction::{Incoming, Outgoing}
 };
+use indexmap::IndexMap;
 
 pub fn remove_unnecessary_phi(ir: &mut FirIR) {
     for (_id, rg) in ir.graphs.iter_mut() {
@@ -86,14 +88,23 @@ fn connect_phi_parent_to_child(rg: &mut FirGraph, id: NodeIndex) {
     assert!(childs.len() == 1, "Phi node is driving multiple nodes {}", childs.len());
 
     let pedges: Vec<EdgeIndex> = rg.graph.edges_directed(id, Incoming).into_iter().map(|x| x.id()).collect();
+    let mut dst_by_priority: IndexMap<Reference, (EdgeIndex, PrioritizedConds)> = IndexMap::new();
+
     for peid in pedges.iter() {
         let ew = rg.graph.edge_weight(*peid).unwrap();
         let ep = rg.graph.edge_endpoints(*peid).unwrap();
         let src = ep.0;
         match &ew.et {
-            FirEdgeType::PhiInput(_pcond) => {
-                let edge = FirEdge::new(ew.src.clone(), ew.dst.clone(), FirEdgeType::Wire);
-                rg.graph.add_edge(src, childs[0], edge);
+            FirEdgeType::PhiInput(pcond) => {
+                let dst_ref = ew.dst.as_ref().unwrap();
+                if !dst_by_priority.contains_key(dst_ref) {
+                    dst_by_priority.insert(dst_ref.clone(), (*peid, pcond.clone()));
+                } else {
+                    let cur_max = dst_by_priority.get(dst_ref).unwrap();
+                    if &cur_max.1 > pcond {
+                        dst_by_priority.insert(dst_ref.clone(), (*peid, pcond.clone()));
+                    }
+                }
             }
             FirEdgeType::DontCare => {
                 rg.graph.add_edge(src, childs[0], ew.clone());
@@ -102,6 +113,15 @@ fn connect_phi_parent_to_child(rg: &mut FirGraph, id: NodeIndex) {
                 panic!("Phi node driver edge should be PhiInput, got {:?}", ew);
             }
         }
+    }
+
+    // For cases when there are multiple connects with the same priority connecting to the
+    // same destination, just take the highest priority (for last connect semantics)
+    for (_dst_ref, (eid, _pconds)) in dst_by_priority {
+        let ew = rg.graph.edge_weight(eid).unwrap();
+        let src = rg.graph.edge_endpoints(eid).unwrap().0;
+        let edge = FirEdge::new(ew.src.clone(), ew.dst.clone(), FirEdgeType::Wire);
+        rg.graph.add_edge(src, childs[0], edge);
     }
 }
 
