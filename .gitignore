@@ -3,3 +3,4 @@ test-inputs
 test-outputs
 pdfium
 .DS_Store
+.vscode
