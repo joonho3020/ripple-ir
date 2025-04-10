@@ -405,7 +405,12 @@ impl WhenTree {
                 let mut id: Option<NodeIndex> = None;
                 for cid in childs {
                     let child = self.graph.node_weight(cid).unwrap();
-                    if child.cond == Condition::Root && cur_prior < child.prior {
+                    if child.cond != Condition::Root {
+                        continue;
+                    }
+                    if id.is_none() {
+                        cur_prior = child.prior;
+                    } else if cur_prior == higher(cur_prior, child.prior) {
                         cur_prior = child.prior;
                         id = Some(cid);
                     }

@@ -1,4 +1,4 @@
-use crate::ir::{fir::*, whentree::{CondPath, CondPathWithPrior}};
+use crate::ir::{fir::*, whentree::CondPathWithPrior};
 use chirrtl_parser::ast::Reference;
 use petgraph::{
     graph::{NodeIndex, EdgeIndex},

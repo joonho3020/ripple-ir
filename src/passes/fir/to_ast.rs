@@ -811,8 +811,9 @@ fn insert_op_stmts(
         let bu_pconds = bu_pconds.unwrap();
         if *bu_pconds > highest_path {
             println!("bu_pconds {:?}", bu_pconds);
-            println!("max_pconds {:?}", highest_path);
+            println!("highest_path {:?}", highest_path);
             println!("node {:?}", fg.graph.node_weight(id).unwrap());
+            whentree.print_tree();
             assert!(false);
         }
         if highest_path.len() > bu_pconds.len() {
@@ -982,7 +983,7 @@ fn insert_conn_stmts(
 mod test {
     use super::*;
     use crate::common::graphviz::GraphViz;
-    use crate::ir::whentree::Condition;
+    use crate::ir::whentree::*;
     use crate::passes::ast::print::Printer;
     use crate::passes::fir::from_ast::from_circuit;
     use crate::passes::fir::remove_unnecessary_phi::remove_unnecessary_phi;
