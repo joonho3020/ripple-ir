@@ -2,7 +2,7 @@ use crate::ir::hierarchy::Hierarchy;
 use crate::ir::whentree::BlockPrior;
 use crate::ir::whentree::StmtPrior;
 use crate::ir::whentree::PhiPrior;
-use crate::ir::whentree::PrioritizedConds;
+use crate::ir::whentree::PrioritizedCondPath;
 use crate::ir::whentree::WhenTree;
 use crate::ir::typetree::typetree::TypeTree;
 use crate::ir::typetree::tnode::*;
@@ -169,17 +169,17 @@ fn add_graph_node_from_stmt(ir: &mut FirGraph, stmt: &Stmt, nm: &mut NodeMap) {
             let dir = TypeDirection::Outgoing;
             let (name, id) = match mport {
                 ChirrtlMemoryPort::Write(port, _mem, _addr, _clk, _info) => {
-                    let nt = FirNodeType::WriteMemPort(PrioritizedConds::default());
+                    let nt = FirNodeType::WriteMemPort(PrioritizedCondPath::default());
                     let id = add_node(ir, None, Some(port.clone()), dir, nt);
                     (port, id)
                 }
                 ChirrtlMemoryPort::Read(port, _mem, _addr, _clk, _info) => {
-                    let nt = FirNodeType::ReadMemPort(PrioritizedConds::default());
+                    let nt = FirNodeType::ReadMemPort(PrioritizedCondPath::default());
                     let id = add_node(ir, None, Some(port.clone()), dir, nt);
                     (port, id)
                 }
                 ChirrtlMemoryPort::Infer(port, _mem, _addr, _clk, _info) => {
-                    let nt = FirNodeType::InferMemPort(PrioritizedConds::default());
+                    let nt = FirNodeType::InferMemPort(PrioritizedCondPath::default());
                     let id = add_node(ir, None, Some(port.clone()), dir, nt);
                     (port, id)
                 }
@@ -517,7 +517,7 @@ fn connect_phi_in_edges_from_stmts(ir: &mut FirGraph, stmts: &Stmts, nm: &mut No
     for l2c in leaf_to_conds {
         let leaf = l2c.0;
 
-        let block_prior = leaf.priority;
+        let block_prior = leaf.prior;
         if block_prior_set.contains(&block_prior) {
             panic!("When block prior {} overlaps {:?}", block_prior, block_prior_set);
         }

@@ -1,4 +1,4 @@
-use crate::ir::{fir::*, whentree::PrioritizedConds};
+use crate::ir::{fir::*, whentree::PrioritizedCondPath};
 use chirrtl_parser::ast::Reference;
 use petgraph::{
     graph::{NodeIndex, EdgeIndex},
@@ -88,7 +88,7 @@ fn connect_phi_parent_to_child(rg: &mut FirGraph, id: NodeIndex) {
     assert!(childs.len() == 1, "Phi node is driving multiple nodes {}", childs.len());
 
     let pedges: Vec<EdgeIndex> = rg.graph.edges_directed(id, Incoming).into_iter().map(|x| x.id()).collect();
-    let mut dst_by_priority: IndexMap<Reference, (EdgeIndex, PrioritizedConds)> = IndexMap::new();
+    let mut dst_by_priority: IndexMap<Reference, (EdgeIndex, PrioritizedCondPath)> = IndexMap::new();
 
     for peid in pedges.iter() {
         let ew = rg.graph.edge_weight(*peid).unwrap();

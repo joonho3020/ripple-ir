@@ -29,9 +29,9 @@ pub enum RippleNodeType {
     RegReset,
     SMem(Option<ChirrtlMemoryReadUnderWrite>),
     CMem,
-    WriteMemPort(PrioritizedConds),
-    ReadMemPort(PrioritizedConds),
-    InferMemPort(PrioritizedConds),
+    WriteMemPort(PrioritizedCondPath),
+    ReadMemPort(PrioritizedCondPath),
+    InferMemPort(PrioritizedCondPath),
     Inst(Identifier),
 
     // Port

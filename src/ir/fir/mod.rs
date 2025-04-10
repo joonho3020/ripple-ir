@@ -12,7 +12,7 @@ use crate::ir::typetree::typetree::*;
 use crate::impl_clean_display;
 
 use super::hierarchy::Hierarchy;
-use super::whentree::PrioritizedConds;
+use super::whentree::PrioritizedCondPath;
 
 #[derive(Derivative, Clone)]
 #[derivative(Debug)]
@@ -53,9 +53,9 @@ pub enum FirNodeType {
     RegReset,
     SMem(Option<ChirrtlMemoryReadUnderWrite>),
     CMem,
-    WriteMemPort(PrioritizedConds),
-    ReadMemPort(PrioritizedConds),
-    InferMemPort(PrioritizedConds),
+    WriteMemPort(PrioritizedCondPath),
+    ReadMemPort(PrioritizedCondPath),
+    InferMemPort(PrioritizedCondPath),
     Inst(Identifier),
 
     // Port
@@ -91,7 +91,7 @@ pub enum FirEdgeType {
     Reset,
     DontCare,
 
-    PhiInput(PrioritizedConds),
+    PhiInput(PrioritizedCondPath),
     PhiSel,
     PhiOut,
 
