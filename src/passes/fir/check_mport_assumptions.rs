@@ -88,22 +88,22 @@ fn has_inferred_readwrite_port(fg: &FirGraph, id: NodeIndex) -> bool {
     for port_id in port_ids {
         let port = fg.graph.node_weight(port_id).unwrap();
         match &port.nt {
-            FirNodeType::WriteMemPort(pcond) => {
-                assert!(pcond.collect_sels().len() < 2);
+            FirNodeType::WriteMemPort(ppath) => {
+                assert!(ppath.path.collect_sels().len() < 2);
                 if let Some(drivers) = add_drivers(fg, port_id) {
                     wport_en_drivers.push(drivers);
                 }
                 wport_addrs.push(address(fg, port_id));
             }
-            FirNodeType::ReadMemPort(pcond) => {
-                assert!(pcond.collect_sels().len() < 2);
+            FirNodeType::ReadMemPort(ppath) => {
+                assert!(ppath.path.collect_sels().len() < 2);
                 if let Some(drivers) = add_drivers(fg, port_id) {
                     rport_en_drivers.push(drivers);
                 }
                 rport_addrs.push(address(fg, port_id));
             }
-            FirNodeType::InferMemPort(pcond) => {
-                assert!(pcond.collect_sels().len() < 2);
+            FirNodeType::InferMemPort(ppath) => {
+                assert!(ppath.path.collect_sels().len() < 2);
                 todo!("Infer memory port type")
             }
             _ => {

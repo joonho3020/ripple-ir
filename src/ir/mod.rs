@@ -3,7 +3,7 @@ pub mod whentree;
 pub mod fir;
 pub mod hierarchy;
 pub mod rir;
-pub mod whentree_rewrite;
+pub mod whentree_impl;
 
 #[macro_export]
 macro_rules! define_index_type {

@@ -2,7 +2,7 @@ use chirrtl_parser::ast::Width;
 use crate::ir::fir::FirEdgeType;
 use crate::impl_clean_display;
 use crate::define_index_type;
-use crate::ir::whentree::PrioritizedCondPath;
+use crate::ir::whentree::CondPathWithPrior;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum RippleEdgeType {
@@ -21,7 +21,7 @@ pub enum RippleEdgeType {
     Reset,
     DontCare,
 
-    PhiInput(PrioritizedCondPath),
+    PhiInput(CondPathWithPrior),
     PhiSel,
     PhiOut,
 
