@@ -392,6 +392,8 @@ impl WhenTree {
     }
 
     /// Find bottom up priority placement
+    /// - Returns the CondPath that is located at the lowest (closest to bottom) position
+    /// that is a root node while also being a LCA of the `conds`
     pub fn bottom_up_priority_constraint(&self, conds: &Vec<CondPath>) -> Option<CondPath> {
         let lca_opt = self.lowest_common_ancester(conds);
 

@@ -8,9 +8,9 @@ use std::collections::VecDeque;
 use indexmap::IndexMap;
 use indexmap::IndexSet;
 use petgraph::{visit::EdgeRef, Direction::Incoming, Direction::Outgoing};
-use petgraph::graph::NodeIndex;
+use petgraph::graph::{EdgeIndex, NodeIndex};
 use petgraph::Undirected;
-use petgraph::visit::VisitMap;
+use petgraph::visit::{EdgeIndexable, VisitMap};
 use petgraph::visit::Visitable;
 use petgraph::prelude::Dfs;
 
@@ -74,12 +74,14 @@ fn to_module(name: &Identifier, fg: &FirGraph) -> Module {
     Module::new(name.clone(), ports, stmts, Info::default())
 }
 
-
 fn topo_start_node_with_phi(fg: &FirGraph, whentree: &WhenTree, id: NodeIndex) -> bool {
     if let Some(eid) = fg.parent_with_type(id, FirEdgeType::PhiOut) {
         let ep = fg.graph.edge_endpoints(eid).unwrap();
         let phi_id = ep.0;
 
+        // There can be partial connections so this isn't a perfect check
+        // However, if assuming that the format is correct, this check should
+        // provide the expected answer
         let phi_iedges = fg.graph.edges_directed(phi_id, Incoming);
         let mut path_vec: Vec<CondPath> = vec![];
         for phi_eid in phi_iedges {
@@ -128,6 +130,10 @@ fn topo_start_node(fg: &FirGraph, whentree: &WhenTree, id: NodeIndex) -> bool {
         }
         FirNodeType::Wire |
         FirNodeType::Inst(..) => {
+            let node = fg.graph.node_weight(id).unwrap();
+            if node.name.as_ref().unwrap() == &Identifier::Name("f3_fetch_bundle".to_string()) {
+                println!("f3_fetch_bundle {}", topo_start_node_with_phi(fg, whentree, id));
+            }
             topo_start_node_with_phi(fg, whentree, id)
         }
         _ => {
@@ -234,12 +240,41 @@ fn collect_stmts(fg: &FirGraph, stmts: &mut Stmts) {
                 match ref_expr {
                     Reference::RefIdxExpr(..) => {
                         let chain = find_array_addr_chain(fg, ep.0);
-                        *indeg.get_mut(&dst).unwrap() += chain.len() as u32;
+
+                        let node = fg.graph.node_weight(dst).unwrap();
+                        if node.name.as_ref().is_some() {
+                            if node.name.as_ref().unwrap() == &Identifier::Name("f3_fetch_bundle".to_string()) &&
+                                node.nt == FirNodeType::Phi {
+                                    println!("find_array_addr_chain {:?}", chain);
+                                    for c in chain.iter() {
+                                        println!("- {:?}", fg.graph.node_weight(*c).unwrap());
+                                    }
+                                    println!("- dst: {:?}", fg.graph.node_weight(dst).unwrap());
+                            }
+                        }
+
+
                         for addr_src in chain {
+                            // In cases like below, the sink of the phi node can
+                            // feed into the phi node itself.
+                            // In this case, if this node can be used as a starting node
+                            // during topological sort, don't increment the indeg count
+                            // as this phi node will not be traversed
+                            // - `connect a.b, my_array[a.b.c]`
+                            let phi_oedge_opt = fg.parent_with_type(addr_src, FirEdgeType::PhiOut);
+                            if phi_oedge_opt.is_some() {
+                                let phi_oedge_id = phi_oedge_opt.unwrap();
+                                let ep = fg.graph.edge_endpoints(phi_oedge_id).unwrap();
+                                if ep.0 == dst && topo_start_node_with_phi(fg, &whentree, dst) {
+                                    continue;
+                                }
+                            }
+
                             if !array_addr_edges.contains_key(&addr_src) {
                                 array_addr_edges.insert(addr_src, IndexSet::new());
                             }
                             array_addr_edges.get_mut(&addr_src).unwrap().insert(dst);
+                            *indeg.get_mut(&dst).unwrap() += 1;
                         }
                     }
                     _ => {
@@ -289,6 +324,8 @@ fn collect_stmts(fg: &FirGraph, stmts: &mut Stmts) {
             *indeg.get_mut(&ep.1).unwrap() = 3;
         }
     }
+
+    let mut node_inedge_map: IndexMap<NodeIndex, IndexSet<EdgeIndex>> = IndexMap::new();
 
     // Topo sort nodes in each CC.
     // Must insert stmts in this order to prevent accessing into undeclared
@@ -359,6 +396,7 @@ fn collect_stmts(fg: &FirGraph, stmts: &mut Stmts) {
             for cedge in cedges {
                 let ep = fg.graph.edge_endpoints(cedge.id()).unwrap();
                 let edge = fg.graph.edge_weight(cedge.id()).unwrap();
+
                 if !topo_vis_map.is_visited(&ep.1) && is_reginit(fg, ep.1) &&
                     (edge.et == FirEdgeType::Clock ||
                      edge.et == FirEdgeType::Reset ||
@@ -369,6 +407,10 @@ fn collect_stmts(fg: &FirGraph, stmts: &mut Stmts) {
                         q.push_back(ep.1);
                     }
                 } else if !topo_vis_map.is_visited(&ep.1) && !topo_start_node(&fg, &whentree, ep.1) {
+                    if !node_inedge_map.contains_key(&ep.1) {
+                        node_inedge_map.insert(ep.1, IndexSet::new());
+                    }
+                    node_inedge_map.get_mut(&ep.1).unwrap().insert(cedge.id());
                     *indeg.get_mut(&ep.1).unwrap() -= 1;
                     if *indeg.get(&ep.1).unwrap() == 0 {
                         q.push_back(ep.1);
@@ -381,7 +423,15 @@ fn collect_stmts(fg: &FirGraph, stmts: &mut Stmts) {
             for id in fg.graph.node_indices() {
                 if cc_vismap.is_visited(&id) && !topo_vis_map.is_visited(&id) {
                     let node = fg.graph.node_weight(id).unwrap();
-                    println!("Visited during DFS Node {:?}", node);
+                    println!("Visited during DFS Node {:?}, indeg {}", node, indeg.get(&id).unwrap());
+
+                    let visited_edges = node_inedge_map.get(&id).unwrap();
+                    for eid in fg.graph.edges_directed(id, Incoming) {
+                        let edge = fg.graph.edge_weight(eid.id()).unwrap();
+                        if !visited_edges.contains(&eid.id()) {
+                            println!("didn't visit edge {:?}", edge);
+                        }
+                    }
                 }
             }
             assert!(false);
@@ -390,7 +440,6 @@ fn collect_stmts(fg: &FirGraph, stmts: &mut Stmts) {
         visited += topo_sort_order.len();
 
         fill_bottom_up_emission_info(fg, &topo_sort_order, &whentree, &mut emission_info);
-
 
         // Condition chain where the previous stmt was inserted
         // This is because certain `Node` stmts depends on memport...

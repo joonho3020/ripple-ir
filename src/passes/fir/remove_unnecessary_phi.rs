@@ -1,10 +1,11 @@
 use crate::ir::{fir::*, whentree::CondPathWithPrior};
-use chirrtl_parser::ast::Reference;
 use petgraph::{
     graph::{NodeIndex, EdgeIndex},
     visit::EdgeRef, Direction::{Incoming, Outgoing}
 };
+use chirrtl_parser::ast::Reference;
 use indexmap::IndexMap;
+use crate::ir::whentree::CondPath;
 
 pub fn remove_unnecessary_phi(ir: &mut FirIR) {
     for (_id, rg) in ir.graphs.iter_mut() {
@@ -95,14 +96,14 @@ fn connect_phi_parent_to_child(rg: &mut FirGraph, id: NodeIndex) {
         let ep = rg.graph.edge_endpoints(*peid).unwrap();
         let src = ep.0;
         match &ew.et {
-            FirEdgeType::PhiInput(pcond) => {
+            FirEdgeType::PhiInput(ppath) => {
                 let dst_ref = ew.dst.as_ref().unwrap();
                 if !dst_by_priority.contains_key(dst_ref) {
-                    dst_by_priority.insert(dst_ref.clone(), (*peid, pcond.clone()));
+                    dst_by_priority.insert(dst_ref.clone(), (*peid, ppath.clone()));
                 } else {
                     let cur_max = dst_by_priority.get(dst_ref).unwrap();
-                    if &cur_max.1 > pcond {
-                        dst_by_priority.insert(dst_ref.clone(), (*peid, pcond.clone()));
+                    if &cur_max.1 > ppath {
+                        dst_by_priority.insert(dst_ref.clone(), (*peid, ppath.clone()));
                     }
                 }
             }
