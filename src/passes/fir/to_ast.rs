@@ -166,6 +166,56 @@ fn find_array_addr_chain(fg: &FirGraph, id: NodeIndex) -> IndexSet<NodeIndex> {
     array_parents
 }
 
+fn find_array_addr_chain_in_ref(
+    fg: &FirGraph,
+    src: NodeIndex,
+    dst: NodeIndex,
+    ref_expr: &Reference,
+    whentree: &WhenTree,
+    array_addr_edges: &mut IndexMap<NodeIndex, IndexSet<NodeIndex>>,
+    indeg: &mut IndexMap<NodeIndex, u32>
+) {
+    match ref_expr {
+        Reference::RefIdxExpr(x, _y) => {
+            let chain = find_array_addr_chain(fg, src);
+            for addr_src in chain {
+                // In cases like below, the sink of the phi node can
+                // feed into the phi node itself.
+                // In this case, if this node can be used as a starting node
+                // during topological sort, don't increment the indeg count
+                // as this phi node will not be traversed
+                // - `connect a.b, my_array[a.b.c]`
+                let phi_oedge_opt = fg.parent_with_type(addr_src, FirEdgeType::PhiOut);
+                if phi_oedge_opt.is_some() {
+                    let phi_oedge_id = phi_oedge_opt.unwrap();
+                    let ep = fg.graph.edge_endpoints(phi_oedge_id).unwrap();
+                    if ep.0 == dst && topo_start_node_with_phi(fg, &whentree, dst) {
+                        continue;
+                    }
+                }
+
+                if !array_addr_edges.contains_key(&addr_src) {
+                    array_addr_edges.insert(addr_src, IndexSet::new());
+                }
+                let dsts = array_addr_edges.get_mut(&addr_src).unwrap();
+                if !dsts.contains(&dst) {
+                    dsts.insert(dst);
+                    *indeg.get_mut(&dst).unwrap() += 1;
+                }
+            }
+            find_array_addr_chain_in_ref(fg, src, dst, x, whentree, array_addr_edges, indeg);
+        }
+        Reference::RefDot(a, _field) => {
+            find_array_addr_chain_in_ref(fg, src, dst, a, whentree, array_addr_edges, indeg);
+        }
+        Reference::RefIdxInt(a, _idx) => {
+            find_array_addr_chain_in_ref(fg, src, dst, a, whentree, array_addr_edges, indeg);
+        }
+        _ => {
+        }
+    }
+}
+
 fn is_reginit(fg: &FirGraph, id: NodeIndex) -> bool {
     let node = fg.graph.node_weight(id).unwrap();
     node.nt == FirNodeType::RegReset
@@ -230,59 +280,33 @@ fn collect_stmts(fg: &FirGraph, stmts: &mut Stmts) {
         for peid in parents {
             let edge = fg.graph.edge_weight(peid.id()).unwrap();
             let ep = fg.graph.edge_endpoints(peid.id()).unwrap();
-            let dst = ep.1;
+            let (src, dst) = ep;
             if let Expr::Reference(ref_expr) = &edge.src {
                 if visited_refs.contains(&(dst, ref_expr)) {
                     continue;
                 }
                 visited_refs.insert((dst, ref_expr));
 
-                match ref_expr {
-                    Reference::RefIdxExpr(..) => {
-                        let chain = find_array_addr_chain(fg, ep.0);
-
-                        let node = fg.graph.node_weight(dst).unwrap();
-                        if node.name.as_ref().is_some() {
-                            if node.name.as_ref().unwrap() ==
-                                &Identifier::Name("_io_ren2_uops_0_ppred_busy_T".to_string()) {
-                                    println!("find_array_addr_chain {:?}", chain);
-                                    for c in chain.iter() {
-                                        println!("- {:?}", fg.graph.node_weight(*c).unwrap());
-                                    }
-                                    println!("- dst: {:?}", fg.graph.node_weight(dst).unwrap());
+                let node = fg.graph.node_weight(dst).unwrap();
+                if node.name.as_ref().is_some() {
+                    if node.name.as_ref().unwrap() == &Identifier::Name("ctr_match".to_string()) {
+                        println!("dst: {:?} ref_expr {:?}",
+                            fg.graph.node_weight(dst).unwrap(), ref_expr);
+                        match ref_expr {
+                            Reference::RefIdxExpr(a, b) => {
+                                println!("RefIdxExpr({:?}, {:?}", a, b);
+                            }
+                            Reference::RefDot(a, b) => {
+                                println!("RefDot({:?}, {:?}", a, b);
+                            }
+                            _ => {
                             }
                         }
-
-
-                        for addr_src in chain {
-                            // In cases like below, the sink of the phi node can
-                            // feed into the phi node itself.
-                            // In this case, if this node can be used as a starting node
-                            // during topological sort, don't increment the indeg count
-                            // as this phi node will not be traversed
-                            // - `connect a.b, my_array[a.b.c]`
-                            let phi_oedge_opt = fg.parent_with_type(addr_src, FirEdgeType::PhiOut);
-                            if phi_oedge_opt.is_some() {
-                                let phi_oedge_id = phi_oedge_opt.unwrap();
-                                let ep = fg.graph.edge_endpoints(phi_oedge_id).unwrap();
-                                if ep.0 == dst && topo_start_node_with_phi(fg, &whentree, dst) {
-                                    continue;
-                                }
-                            }
-
-                            if !array_addr_edges.contains_key(&addr_src) {
-                                array_addr_edges.insert(addr_src, IndexSet::new());
-                            }
-                            let dsts = array_addr_edges.get_mut(&addr_src).unwrap();
-                            if !dsts.contains(&dst) {
-                                dsts.insert(dst);
-                                *indeg.get_mut(&dst).unwrap() += 1;
-                            }
-                        }
-                    }
-                    _ => {
                     }
                 }
+
+                find_array_addr_chain_in_ref(fg, src, dst, ref_expr, &whentree, &mut array_addr_edges, &mut indeg);
+
             }
         }
     }
@@ -1122,6 +1146,7 @@ mod test {
     #[test_case("MultiWhen" ; "MultiWhen")]
     #[test_case("DCacheDataArray" ; "DCacheDataArray")]
     #[test_case("PredRenameStage" ; "PredRenameStage")]
+    #[test_case("LoopBranchPredictorColumn" ; "LoopBranchPredictorColumn")]
     #[test_case("chipyard.harness.TestHarness.RocketConfig" ; "Rocket")]
     #[test_case("chipyard.harness.TestHarness.LargeBoomV3Config" ; "Boom")]
     fn run(name: &str) -> Result<(), RippleIRErr> {

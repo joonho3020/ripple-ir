@@ -5,7 +5,6 @@ use petgraph::{
 };
 use chirrtl_parser::ast::Reference;
 use indexmap::IndexMap;
-use crate::ir::whentree::CondPath;
 
 pub fn remove_unnecessary_phi(ir: &mut FirIR) {
     for (_id, rg) in ir.graphs.iter_mut() {
