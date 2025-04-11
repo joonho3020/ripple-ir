@@ -10,7 +10,7 @@ use indexmap::IndexSet;
 use petgraph::{visit::EdgeRef, Direction::Incoming, Direction::Outgoing};
 use petgraph::graph::{EdgeIndex, NodeIndex};
 use petgraph::Undirected;
-use petgraph::visit::{EdgeIndexable, VisitMap};
+use petgraph::visit::VisitMap;
 use petgraph::visit::Visitable;
 use petgraph::prelude::Dfs;
 
@@ -243,8 +243,8 @@ fn collect_stmts(fg: &FirGraph, stmts: &mut Stmts) {
 
                         let node = fg.graph.node_weight(dst).unwrap();
                         if node.name.as_ref().is_some() {
-                            if node.name.as_ref().unwrap() == &Identifier::Name("f3_fetch_bundle".to_string()) &&
-                                node.nt == FirNodeType::Phi {
+                            if node.name.as_ref().unwrap() ==
+                                &Identifier::Name("_io_ren2_uops_0_ppred_busy_T".to_string()) {
                                     println!("find_array_addr_chain {:?}", chain);
                                     for c in chain.iter() {
                                         println!("- {:?}", fg.graph.node_weight(*c).unwrap());
@@ -273,8 +273,11 @@ fn collect_stmts(fg: &FirGraph, stmts: &mut Stmts) {
                             if !array_addr_edges.contains_key(&addr_src) {
                                 array_addr_edges.insert(addr_src, IndexSet::new());
                             }
-                            array_addr_edges.get_mut(&addr_src).unwrap().insert(dst);
-                            *indeg.get_mut(&dst).unwrap() += 1;
+                            let dsts = array_addr_edges.get_mut(&addr_src).unwrap();
+                            if !dsts.contains(&dst) {
+                                dsts.insert(dst);
+                                *indeg.get_mut(&dst).unwrap() += 1;
+                            }
                         }
                     }
                     _ => {
@@ -1118,6 +1121,7 @@ mod test {
     #[test_case("WireRegInsideWhen" ; "WireRegInsideWhen")]
     #[test_case("MultiWhen" ; "MultiWhen")]
     #[test_case("DCacheDataArray" ; "DCacheDataArray")]
+    #[test_case("PredRenameStage" ; "PredRenameStage")]
     #[test_case("chipyard.harness.TestHarness.RocketConfig" ; "Rocket")]
     #[test_case("chipyard.harness.TestHarness.LargeBoomV3Config" ; "Boom")]
     fn run(name: &str) -> Result<(), RippleIRErr> {

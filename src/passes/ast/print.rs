@@ -1,4 +1,5 @@
 use chirrtl_parser::ast::*;
+use serde_json::Value;
 
 /// Can be used to stringify a FIRRTL AST:
 /// ```rust
@@ -30,7 +31,13 @@ impl Printer {
             ret.push_str(&format!("circuit {} :\n", circuit.name));
         } else {
             ret.push_str(&format!("circuit {} :%[[\n", circuit.name));
-            ret.push_str(&format!("{}\n", serde_json::to_string_pretty(&circuit.annos.0).unwrap()));
+            if let Value::Array(outer_array) = &circuit.annos.0 {
+                if let Some(inner_value) = outer_array.get(0) {
+                    if let Value::Array(inner_array) = inner_value {
+                        ret.push_str(&format!("{}\n", serde_json::to_string_pretty(&inner_array.get(0)).unwrap()));
+                    }
+                }
+            }
             ret.push_str(&format!("]]\n"));
         }
 
