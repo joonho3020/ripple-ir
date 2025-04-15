@@ -4,3 +4,4 @@ test-outputs
 pdfium
 .DS_Store
 .vscode
+**/jgproject
