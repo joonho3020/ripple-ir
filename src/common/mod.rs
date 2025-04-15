@@ -58,6 +58,7 @@ pub fn run_firtool(firrtl_filename: &str, outdir: &str) -> Result<String, Ripple
         .arg("--warn-on-unprocessed-annotations")
         .arg("--disable-annotation-classless")
         .arg("--disable-annotation-unknown")
+        .arg("--disable-all-randomization")
         .arg("--mlir-timing")
         .arg("--lowering-options=emittedLineLength=2048,noAlwaysComb,disallowLocalVariables,verifLabels,disallowPortDeclSharing,locationInfoStyle=wrapInAtSquareBracket")
         .arg("--split-verilog")

@@ -15,6 +15,7 @@ use std::fs::File;
 use std::io::Write;
 use std::str::Lines;
 use std::process::Command;
+use spinoff::{Spinner, spinners};
 
 pub fn equivalence_check(input_fir: &str) -> Result<(), RippleIRErr> {
     let filename = format!("./test-inputs/{}.fir", input_fir);
@@ -44,10 +45,18 @@ pub fn equivalence_check(input_fir: &str) -> Result<(), RippleIRErr> {
 
     export_tcl(&input_fir)?;
 
-    run_jaspergold(&input_fir, ".")?;
-
-
-    Ok(())
+    let result = run_jaspergold(&input_fir, ".")?;
+    match result {
+        EquivStatus::Proven => {
+            return Ok(())
+        }
+        EquivStatus::CounterExample => {
+            panic!("Found counter example");
+        }
+        EquivStatus::Unknown => {
+            panic!("Found unknown");
+        }
+    }
 }
 
 fn remove_dir_if_exists(path: &str) -> Result<(), RippleIRErr> {
@@ -254,7 +263,7 @@ fn generate_miter(module: &Module) -> String {
     for oport in &module.outputs {
         ret.push_str(&format!("  property {}_match;\n", oport.name));
         ret.push_str(&format!(
-            "    @(posedge clock) disable iff (reset) ({}_1 == {}_2);\n",
+            "    @(posedge clock) disable iff (!reset) ({}_1 == {}_2);\n",
             oport.name, oport.name
         ));
         ret.push_str("  endproperty\n");
@@ -320,6 +329,7 @@ fn export_tcl(firname: &str) -> Result<(), RippleIRErr> {
     tcl_content.push_str("clock clock\n");
     tcl_content.push_str("reset reset\n\n");
     tcl_content.push_str("prove -all\n\n");
+    tcl_content.push_str("report\n");
     tcl_content.push_str("exit\n");
 
     // Write to check_equiv.txt
@@ -329,22 +339,79 @@ fn export_tcl(firname: &str) -> Result<(), RippleIRErr> {
     Ok(())
 }
 
-fn run_jaspergold<P: AsRef<Path>>(firname: &str, dir: P) -> Result<(), RippleIRErr> {
+fn run_jaspergold<P: AsRef<Path>>(firname: &str, dir: P) -> Result<EquivStatus, RippleIRErr> {
+    let mut spinner = Spinner::new(
+        spinners::Dots,
+        format!("Running JasperGold on {}...", firname),
+        None);
+
     let status = Command::new("jaspergold")
         .arg("-allow_unsupported_OS")
         .arg("-no_gui")
         .arg("-tcl")
         .arg(tcl_filename(firname))
         .current_dir(dir)
-        .status()?;
+        .output()
+        .expect("jaspergold to run");
 
-    if status.success() {
-        println!("JasperGold ran successfully.");
-    } else {
-        eprintln!("JasperGold exited with status: {}", status);
+    spinner.success("Finished running JasperGold");
+
+    let stdout = String::from_utf8(status.stdout)?;
+    let jasper_status = parse_jasper_summary(&stdout);
+
+    Ok(jasper_status)
+}
+
+pub enum EquivStatus {
+    Proven,
+    CounterExample,
+    Unknown,
+}
+
+pub fn parse_jasper_summary(stdout: &str) -> EquivStatus {
+    let mut in_summary = false;
+    let mut proven = 0;
+    let mut cex = 0;
+
+    for line in stdout.lines() {
+        if line.contains("SUMMARY") {
+            in_summary = true;
+            continue;
+        }
+
+        if in_summary {
+            // exit summary if we hit another empty separator or unrelated line
+            if line.trim().is_empty() {
+                in_summary = false;
+                continue;
+            }
+
+            let tokens: Vec<_> = line.split(':').map(str::trim).collect();
+            if tokens.len() != 2 {
+                continue;
+            }
+
+            match tokens[0] {
+                "- proven" => {
+                    proven = tokens[1].split_whitespace().next().unwrap_or("0").parse().unwrap_or(0);
+                }
+                "- cex" | "- ar_cex" => {
+                    cex += tokens[1].split_whitespace().next().unwrap_or("0").parse::<u32>().unwrap_or(0);
+                }
+                _ => {}
+            }
+        }
     }
 
-    Ok(())
+// println!("proven {} cex {}", proven, cex);
+
+    if cex > 0 {
+        EquivStatus::CounterExample
+    } else if proven > 0 {
+        EquivStatus::Proven
+    } else {
+        EquivStatus::Unknown
+    }
 }
 
 #[cfg(test)]
