@@ -41,7 +41,7 @@ macro_rules! timeit {
     }};
 }
 
-pub fn run_firtool(firrtl_filename: &str) -> Result<String, RippleIRErr> {
+pub fn run_firtool(firrtl_filename: &str, outdir: &str) -> Result<String, RippleIRErr> {
     let mut spinner = Spinner::new(
         spinners::Dots,
         format!("Running firtool on {}...", firrtl_filename),
@@ -62,7 +62,7 @@ pub fn run_firtool(firrtl_filename: &str) -> Result<String, RippleIRErr> {
         .arg("--lowering-options=emittedLineLength=2048,noAlwaysComb,disallowLocalVariables,verifLabels,disallowPortDeclSharing,locationInfoStyle=wrapInAtSquareBracket")
         .arg("--split-verilog")
         .arg("-o")
-        .arg("test-outputs/verilog")
+        .arg(outdir)
         .arg(firrtl_filename).output().expect("firtool command to run");
 
     spinner.success("Finished running firtool");
@@ -72,5 +72,19 @@ pub fn run_firtool(firrtl_filename: &str) -> Result<String, RippleIRErr> {
         Err(RippleIRErr::CIRCTError(stderr))
     } else {
         Ok(String::from_utf8(cmd_out.stdout)?)
+    }
+}
+
+pub fn export_circuit(fir_file: &str, out_dir: &str) -> Result<(), RippleIRErr> {
+    match run_firtool(&fir_file, out_dir) {
+        Ok(..) => {
+            return Ok(())
+        }
+        Err(RippleIRErr::CIRCTError(_e)) => {
+            return Err(RippleIRErr::MiscError(format!("to_ast failed for module {:?}", fir_file)));
+        }
+        _ => {
+            unreachable!()
+        }
     }
 }

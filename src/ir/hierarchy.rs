@@ -2,6 +2,7 @@ use chirrtl_parser::ast::Identifier;
 use petgraph::graph::{Graph, NodeIndex};
 use petgraph::algo::toposort;
 use indexmap::IndexMap;
+use petgraph::Direction::Incoming;
 
 use super::fir::{FirIR, FirNodeType};
 use crate::common::graphviz::*;
@@ -22,6 +23,10 @@ impl_clean_display!(HierNode);
 impl HierNode {
     pub fn name(&self) -> &Identifier {
         &self.0
+    }
+
+    pub fn set_name(&mut self, name: Identifier) {
+        self.0 = name;
     }
 }
 
@@ -45,9 +50,6 @@ pub struct Hierarchy {
     /// - Nodes: modules
     /// - Edges: instance name of the child node
     pub graph: DAG,
-
-    /// NodeIndex of the root node
-    pub root: Option<NodeIndex>
 }
 
 impl Hierarchy {
@@ -74,6 +76,18 @@ impl Hierarchy {
         }
     }
 
+    pub fn root(&self) -> Option<NodeIndex> {
+        let mut ret = None;
+        for id in self.graph.node_indices() {
+            let incoming = self.graph.neighbors_directed(id, Incoming);
+            if incoming.count() == 0 {
+                assert!(ret == None, "Should only have one node in the hierarchy with no parent");
+                ret = Some(id);
+            }
+        }
+        return ret;
+    }
+
     pub fn new(fir: &FirIR) -> Self {
         let mut ret = Self::default();
         ret.build_from_fir(fir);
@@ -85,6 +99,17 @@ impl Hierarchy {
     pub fn topo_order(&self) -> impl Iterator<Item = &HierNode> {
         let sorted = toposort(&self.graph, None).expect("Hier graph is a DAG");
         sorted.into_iter().rev().map(|id| self.graph.node_weight(id).unwrap())
+    }
+
+    /// Returns the id of the node with matching module name if it exists
+    pub fn id(&self, module: &Identifier) -> Option<NodeIndex> {
+        for id in self.graph.node_indices() {
+            let node = self.graph.node_weight(id).unwrap();
+            if node.name() == module {
+                return Some(id);
+            }
+        }
+        None
     }
 }
 

@@ -29,6 +29,13 @@ tar -xvzf <what you downloaded.tgz> -C pdfium
 
 ### [CIRCT](https://circt.llvm.org)
 
+#### Option 1: Download precompiled firtool
+
+- Download from this link: [firtool release](https://github.com/llvm/circt/releases/tag/firtool-1.75.0)
+- Add to path...
+
+#### Option 2: Building CIRCT from source
+
 - First download circt
 
 ```bash

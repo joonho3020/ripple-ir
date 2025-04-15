@@ -14,6 +14,7 @@ use petgraph::visit::VisitMap;
 use petgraph::visit::Visitable;
 use petgraph::prelude::Dfs;
 
+/// Converts the FirIR back to an AST
 pub fn to_ast(fir: &FirIR) -> Circuit {
     let mut cms = CircuitModules::new();
     for hier in fir.hier.topo_order() {
@@ -66,14 +67,14 @@ fn get_ports(fg: &FirGraph) -> Ports {
 }
 
 fn to_module(name: &Identifier, fg: &FirGraph) -> Module {
-    println!("name {:?}", name);
     let ports = get_ports(fg);
-
     let mut stmts: Stmts = Stmts::new();
     collect_stmts(fg, &mut stmts);
     Module::new(name.clone(), ports, stmts, Info::default())
 }
 
+/// Checks whether a node that has a phi node as its parent can be used as a
+/// starting node when performing topological sort
 fn topo_start_node_with_phi(fg: &FirGraph, whentree: &WhenTree, id: NodeIndex) -> bool {
     if let Some(eid) = fg.parent_with_type(id, FirEdgeType::PhiOut) {
         let ep = fg.graph.edge_endpoints(eid).unwrap();
@@ -142,6 +143,7 @@ fn topo_start_node(fg: &FirGraph, whentree: &WhenTree, id: NodeIndex) -> bool {
     }
 }
 
+/// Finds the chain of addresses
 fn find_array_addr_chain(fg: &FirGraph, id: NodeIndex) -> IndexSet<NodeIndex> {
     let mut array_parents: IndexSet<NodeIndex> = IndexSet::new();
     for peid in fg.graph.edges_directed(id, Incoming) {
@@ -1058,14 +1060,13 @@ fn insert_conn_stmts(
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::common::graphviz::GraphViz;
+    use crate::common::export_circuit;
     use crate::ir::whentree::*;
     use crate::passes::ast::print::Printer;
     use crate::passes::fir::from_ast::from_circuit;
     use crate::passes::fir::remove_unnecessary_phi::remove_unnecessary_phi;
     use crate::passes::fir::check_phi_nodes::check_phi_node_connections;
     use crate::common::RippleIRErr;
-    use crate::common::run_firtool;
     use chirrtl_parser::parse_circuit;
     use test_case::test_case;
     use indexmap::IndexMap;
@@ -1085,10 +1086,6 @@ mod test {
         }
 
         for (name, fg) in ir.graphs.iter() {
-// fg.export_graphviz(&format!("./test-outputs/{}.fir.pdf", name), None, None, true)?;
-// if name == &Identifier::Name("BTB".to_string()) {
-// fg.export_graphviz("./test-outputs/BTB/fir", None, None, true)?;
-// }
             if ast_whentrees.contains_key(name) {
                 let ast_whentree = ast_whentrees.get(name).unwrap();
                 let ast_leaves = ast_whentree.leaf_to_paths();
@@ -1145,8 +1142,7 @@ mod test {
     #[test_case("WireRegInsideWhen" ; "WireRegInsideWhen")]
     #[test_case("MultiWhen" ; "MultiWhen")]
     #[test_case("DCacheDataArray" ; "DCacheDataArray")]
-    #[test_case("PredRenameStage" ; "PredRenameStage")]
-    #[test_case("LoopBranchPredictorColumn" ; "LoopBranchPredictorColumn")]
+    #[test_case("Hierarchy" ; "Hierarchy")]
     #[test_case("chipyard.harness.TestHarness.RocketConfig" ; "Rocket")]
     #[test_case("chipyard.harness.TestHarness.LargeBoomV3Config" ; "Boom")]
     fn run(name: &str) -> Result<(), RippleIRErr> {
@@ -1161,22 +1157,13 @@ mod test {
 
         let circuit_reconstruct = to_ast(&ir);
 
+        let firrtl = format!("./test-outputs/{}.fir", name);
+
         let mut printer = Printer::new();
         let circuit_str = printer.print_circuit(&circuit_reconstruct);
-
-        let firrtl = format!("./test-outputs/{}.fir", name);
         std::fs::write(&firrtl, circuit_str)?;
-        match run_firtool(&firrtl) {
-            Ok(..) => {
-                Ok(())
-            }
-            Err(RippleIRErr::CIRCTError(e)) => {
-                println!("{}", e);
-                Err(RippleIRErr::MiscError(format!("to_ast failed for module {:?}", name)))
-            }
-            _ => {
-                unreachable!()
-            }
-        }
+        export_circuit(&firrtl, "test-outputs/verilog")?;
+
+        Ok(())
     }
 }

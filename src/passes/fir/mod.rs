@@ -4,3 +4,5 @@ pub mod infer_typetree;
 pub mod remove_unnecessary_phi;
 pub mod check_mport_assumptions;
 pub mod to_ast;
+pub mod modify_names;
+pub mod equivalence_check;
