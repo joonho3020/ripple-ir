@@ -281,7 +281,7 @@ checksum = "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd"
 [[package]]
 name = "chirrtl-parser"
 version = "0.1.8"
-source = "git+ssh://git@github.com/joonho3020/chirrtl-parser.git?branch=main#0d8a27f354668dcaf4bc55a2283de4f6b1086668"
+source = "git+https://github.com/joonho3020/chirrtl-parser.git?branch=main#0d8a27f354668dcaf4bc55a2283de4f6b1086668"
 dependencies = [
  "graphviz-rust",
  "indexmap",

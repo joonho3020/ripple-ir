@@ -8,8 +8,8 @@ rocket_modules_dir := test_inputs_dir + "/" + "rocket-modules"
 [group: 'test']
 uncompress:
   tar -xvzf {{test_inputs_tar}}
-  python scripts/firrtl-module-splitter.py {{test_inputs_dir}}/chipyard.harness.TestHarness.LargeBoomV3Config.fir  {{boom_modules_dir}}
-  python scripts/firrtl-module-splitter.py {{test_inputs_dir}}/chipyard.harness.TestHarness.RocketConfig.fir       {{rocket_modules_dir}}
+  python3 scripts/firrtl-module-splitter.py {{test_inputs_dir}}/chipyard.harness.TestHarness.LargeBoomV3Config.fir  {{boom_modules_dir}}
+  python3 scripts/firrtl-module-splitter.py {{test_inputs_dir}}/chipyard.harness.TestHarness.RocketConfig.fir       {{rocket_modules_dir}}
 
 [group: 'test']
 make_output_dir:
