@@ -6,7 +6,7 @@ use crate::passes::fir::modify_names::add_sfx_to_module_names;
 use crate::passes::fir::to_ast::to_ast;
 use crate::common::RippleIRErr;
 use crate::passes::ast::print::Printer;
-use chirrtl_parser::ast::Identifier;
+use chirrtl_parser::ast::{CircuitModule, DefName, Identifier};
 use chirrtl_parser::parse_circuit;
 use std::fs;
 use std::fs::create_dir_all;
@@ -35,7 +35,6 @@ pub fn equivalence_check(input_fir: &str) -> Result<(), RippleIRErr> {
     let circuit_str = printer.print_circuit(&circuit_reconstruct);
     export_firrtl_and_sv("impl", input_fir, &circuit_str)?;
 
-
     let top_name = old_hier.graph.node_weight(old_hier.root().unwrap()).unwrap().name();
     let mut top_sv_filename = verilog_outdir("golden", input_fir);
     if let Identifier::Name(x) = top_name {
@@ -43,12 +42,29 @@ pub fn equivalence_check(input_fir: &str) -> Result<(), RippleIRErr> {
     }
     export_miter(&input_fir, &top_sv_filename)?;
 
+    for cm in circuit.modules {
+        if let CircuitModule::ExtModule(em) = cm.as_ref() {
+            if let DefName(Identifier::Name(x)) = &em.defname {
+                println!("exte module {:?}", x);
+                let input = format!("./test-inputs/{}.v", x);
+                copy_file(&input,
+                     &format!("{}/{}.sv", verilog_outdir("golden", input_fir), x))?;
+                copy_file(&input,
+                     &format!("{}/{}.sv", verilog_outdir("impl", input_fir), x))?;
+            }
+        }
+    }
+
     export_tcl(&input_fir)?;
 
     let result = run_jaspergold(&input_fir, ".")?;
     match result {
         EquivStatus::Proven => {
-            return Ok(())
+            Ok(())
+        }
+        EquivStatus::NothingToProve => {
+            println!("Nothing to prove...");
+            Ok(())
         }
         EquivStatus::CounterExample => {
             panic!("Found counter example");
@@ -99,6 +115,11 @@ fn export_firrtl_and_sv(pfx: &str, firname: &str, circuit: &str) -> Result<(), R
 
     // Export verilog
     export_circuit(&firfile, &outdir)?;
+    Ok(())
+}
+
+fn copy_file(src_path: &str, dst_path: &str) -> Result<(), RippleIRErr> {
+    fs::copy(src_path, dst_path)?;
     Ok(())
 }
 
@@ -232,9 +253,14 @@ fn generate_miter(module: &Module) -> String {
     ret.push_str(&format!("  {} ref_inst (\n", module.name));
     ret.push_str("    .clock(clock),\n");
     ret.push_str("    .reset(reset),\n");
-    for input in &module.inputs {
+    let has_oport = !module.outputs.is_empty();
+    let iport_cnt = module.inputs.iter().count();
+    for (i, input) in module.inputs.iter().enumerate() {
         if input.name != "clock" && input.name != "reset" {
-            ret.push_str(&format!("    .{}({}),\n", input.name, input.name));
+            ret.push_str(&format!("    .{}({})", input.name, input.name));
+            if has_oport || (iport_cnt - 1 != i) {
+                ret.push_str(",\n");
+            }
         }
     }
     for (i, oport) in module.outputs.iter().enumerate() {
@@ -248,9 +274,12 @@ fn generate_miter(module: &Module) -> String {
     ret.push_str(&format!("  {}_impl impl_inst (\n", module.name));
     ret.push_str("    .clock(clock),\n");
     ret.push_str("    .reset(reset),\n");
-    for iport in &module.inputs {
-        if iport.name != "clock" && iport.name != "reset" {
-            ret.push_str(&format!("    .{}({}),\n", iport.name, iport.name));
+    for (i, input) in module.inputs.iter().enumerate() {
+        if input.name != "clock" && input.name != "reset" {
+            ret.push_str(&format!("    .{}({})", input.name, input.name));
+            if has_oport || (iport_cnt - 1 != i) {
+                ret.push_str(",\n");
+            }
         }
     }
     for (i, oport) in module.outputs.iter().enumerate() {
@@ -328,6 +357,7 @@ fn export_tcl(firname: &str) -> Result<(), RippleIRErr> {
     tcl_content.push_str("# Set clock and reset signals\n");
     tcl_content.push_str("clock clock\n");
     tcl_content.push_str("reset reset\n\n");
+    tcl_content.push_str("assert -disable {^top_miter\\..*} -regexp\n");
     tcl_content.push_str("prove -all\n\n");
     tcl_content.push_str("report\n");
     tcl_content.push_str("exit\n");
@@ -365,6 +395,7 @@ fn run_jaspergold<P: AsRef<Path>>(firname: &str, dir: P) -> Result<EquivStatus, 
 pub enum EquivStatus {
     Proven,
     CounterExample,
+    NothingToProve,
     Unknown,
 }
 
@@ -409,6 +440,8 @@ pub fn parse_jasper_summary(stdout: &str) -> EquivStatus {
         EquivStatus::CounterExample
     } else if proven > 0 {
         EquivStatus::Proven
+    } else if cex == 0 && proven == 0 {
+        EquivStatus::NothingToProve
     } else {
         EquivStatus::Unknown
     }
@@ -422,6 +455,32 @@ mod test {
 
     #[test_case("GCD" ; "GCD")]
     #[test_case("Hierarchy" ; "Hierarchy")]
+    #[test_case("NestedWhen" ; "NestedWhen")]
+    #[test_case("LCS1" ; "LCS1")]
+    #[test_case("LCS2" ; "LCS2")]
+    #[test_case("LCS3" ; "LCS3")]
+    #[test_case("LCS4" ; "LCS4")]
+    #[test_case("LCS5" ; "LCS5")]
+    #[test_case("LCS6" ; "LCS6")]
+    #[test_case("LCS7" ; "LCS7")]
+    #[test_case("LCS8" ; "LCS8")]
+    #[test_case("BitSel1" ; "BitSel1")]
+    #[test_case("BitSel2" ; "BitSel2")]
+    #[test_case("RegInit" ; "RegInit")]
+    #[test_case("RegInitWire" ; "RegInitWire")]
+    #[test_case("SinglePortSRAM" ; "SinglePortSRAM")]
+    #[test_case("OneReadOneWritePortSRAM" ; "OneReadOneWritePortSRAM")]
+    #[test_case("OneReadOneReadWritePortSRAM" ; "OneReadOneReadWritePortSRAM")]
+    #[test_case("MSHR" ; "MSHR")]
+    #[test_case("TLBundleQueue" ; "TLBundleQueue")]
+    #[test_case("ListBuffer" ; "ListBuffer")]
+    #[test_case("Atomics" ; "Atomics")]
+    #[test_case("PhitArbiter" ; "PhitArbiter")]
+    #[test_case("TLMonitor" ; "TLMonitor")]
+    #[test_case("TLBusBypassBar" ; "TLBusBypassBar")]
+    #[test_case("WireRegInsideWhen" ; "WireRegInsideWhen")]
+    #[test_case("MultiWhen" ; "MultiWhen")]
+    #[test_case("DCacheDataArray" ; "DCacheDataArray")]
     fn run(name: &str) -> Result<(), RippleIRErr> {
         equivalence_check(name)?;
         Ok(())
