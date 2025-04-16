@@ -3,7 +3,7 @@ use petgraph::graph::{Graph, NodeIndex};
 use petgraph::algo::toposort;
 use indexmap::IndexMap;
 use petgraph::Direction::Incoming;
-
+use petgraph::visit::Bfs;
 use super::fir::{FirIR, FirNodeType};
 use crate::common::graphviz::*;
 use crate::impl_clean_display;
@@ -110,6 +110,20 @@ impl Hierarchy {
             }
         }
         None
+    }
+
+    /// Returns all ids of the node under (and including) module
+    pub fn all_childs(&self, module: &Identifier) -> Vec<NodeIndex> {
+        let mut ret = vec![];
+        if let Some(id) = self.id(module) {
+            ret.push(id);
+
+            let mut bfs = Bfs::new(&self.graph, id);
+            while let Some(nx) = bfs.next(&self.graph) {
+                ret.push(nx);
+            }
+        }
+        ret
     }
 }
 
