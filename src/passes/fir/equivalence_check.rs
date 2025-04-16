@@ -36,11 +36,12 @@ pub fn equivalence_check(input_fir: &str) -> Result<(), RippleIRErr> {
     let circuit_str = printer.print_circuit(&circuit_reconstruct);
     export_firrtl_and_sv("impl", input_fir, &circuit_str)?;
 
-    let top_name = old_hier.graph.node_weight(old_hier.root().unwrap()).unwrap().name();
+    let top_name = match old_hier.graph.node_weight(old_hier.root().unwrap()).unwrap().name() {
+        Identifier::Name(x) => x,
+        _ => unreachable!()
+    };
     let mut top_sv_filename = verilog_outdir("golden", input_fir);
-    if let Identifier::Name(x) = top_name {
-        top_sv_filename.push_str(&format!("/{}.sv", x));
-    }
+    top_sv_filename.push_str(&format!("/{}.sv", top_name));
     export_miter(&input_fir, &top_sv_filename)?;
 
     for cm in circuit.modules {
@@ -56,7 +57,9 @@ pub fn equivalence_check(input_fir: &str) -> Result<(), RippleIRErr> {
         }
     }
 
-    export_tcl(&input_fir)?;
+    println!("top name {:?}", top_name);
+
+    export_tcl(&input_fir, top_name)?;
 
     let result = run_jaspergold(&input_fir, ".")?;
     match result {
@@ -120,7 +123,7 @@ pub fn equivalence_check_digitaltop(input_fir: &str) -> Result<(), RippleIRErr> 
         }
     }
 
-    export_tcl(&input_fir)?;
+    export_tcl(&input_fir, "DigitalTop")?;
 
     let result = run_jaspergold(&input_fir, ".")?;
     match result {
@@ -470,7 +473,7 @@ fn generate_miter_digitaltop(module: &Module) -> String {
 }
 
 
-fn export_tcl(firname: &str) -> Result<(), RippleIRErr> {
+fn export_tcl(firname: &str, top: &str) -> Result<(), RippleIRErr> {
     let golden_dir = verilog_outdir("golden", firname);
     let impl_dir = verilog_outdir("impl", firname);
     let output_file = tcl_filename(firname);
@@ -507,24 +510,25 @@ fn export_tcl(firname: &str) -> Result<(), RippleIRErr> {
 
     // Add golden files
     for file in &golden_files {
-        tcl_content.push_str(&format!("analyze -sv {}\n", file));
+        tcl_content.push_str(&format!("check_sec -analyze -spec -sv {}\n", file));
     }
 
     // Add impl files
     for file in &impl_files {
-        tcl_content.push_str(&format!("analyze -sv {}\n", file));
+        tcl_content.push_str(&format!("check_sec -analyze -imp -sv {}\n", file));
     }
 
-    // Add top_miter.v and remaining commands
-    tcl_content.push_str(&format!("analyze -sv {}\n\n", miter_filename(firname)));
+
     tcl_content.push_str("# Elaborate designs\n");
-    tcl_content.push_str("elaborate -top top_miter\n\n");
+    tcl_content.push_str(&format!("check_sec -elaborate -spec -top {}\n", top));
+    tcl_content.push_str(&format!("check_sec -elaborate -imp -top {}_impl\n", top));
+    tcl_content.push_str(&format!("check_sec -setup -spec_dut {} -imp_dut {}_impl\n", top, top));
     tcl_content.push_str("# Set clock and reset signals\n");
     tcl_content.push_str("clock clock\n");
     tcl_content.push_str("reset reset\n\n");
-    tcl_content.push_str("assert -disable {^top_miter\\.(ref_inst|impl_inst)\\..*} -regexp\n");
-    tcl_content.push_str("prove -all\n\n");
-    tcl_content.push_str("report\n");
+    tcl_content.push_str(&format!("assert -disable {{^{}\\..*}} -regexp\n", top));
+    tcl_content.push_str("autoprove\n\n");
+    tcl_content.push_str(&format!("report -file ./test-outputs/{}/report.txt -force\n", firname));
     tcl_content.push_str("exit\n");
 
     // Write to check_equiv.txt
