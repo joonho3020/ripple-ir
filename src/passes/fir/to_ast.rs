@@ -75,6 +75,9 @@ fn to_module(name: &Identifier, fg: &FirGraph) -> Module {
 
 /// Checks whether a node that has a phi node as its parent can be used as a
 /// starting node when performing topological sort
+/// - If all the cases are covered, or the condition is always true, or if there is a invalidate:
+/// starting node
+/// - Otherwise, this isn't a starting node
 fn topo_start_node_with_phi(fg: &FirGraph, whentree: &WhenTree, id: NodeIndex) -> bool {
     if let Some(eid) = fg.parent_with_type(id, FirEdgeType::PhiOut) {
         let ep = fg.graph.edge_endpoints(eid).unwrap();
@@ -125,16 +128,12 @@ fn topo_start_node(fg: &FirGraph, whentree: &WhenTree, id: NodeIndex) -> bool {
         FirNodeType::Output   |
         FirNodeType::UIntLiteral(..)  |
         FirNodeType::SIntLiteral(..)  |
-        FirNodeType::RegReset         |
-        FirNodeType::Reg  => {
+        FirNodeType::RegReset => {
             true
         }
+        FirNodeType::Reg  |
         FirNodeType::Wire |
         FirNodeType::Inst(..) => {
-            let node = fg.graph.node_weight(id).unwrap();
-            if node.name.as_ref().unwrap() == &Identifier::Name("f3_fetch_bundle".to_string()) {
-                println!("f3_fetch_bundle {}", topo_start_node_with_phi(fg, whentree, id));
-            }
             topo_start_node_with_phi(fg, whentree, id)
         }
         _ => {
@@ -288,27 +287,7 @@ fn collect_stmts(fg: &FirGraph, stmts: &mut Stmts) {
                     continue;
                 }
                 visited_refs.insert((dst, ref_expr));
-
-                let node = fg.graph.node_weight(dst).unwrap();
-                if node.name.as_ref().is_some() {
-                    if node.name.as_ref().unwrap() == &Identifier::Name("ctr_match".to_string()) {
-                        println!("dst: {:?} ref_expr {:?}",
-                            fg.graph.node_weight(dst).unwrap(), ref_expr);
-                        match ref_expr {
-                            Reference::RefIdxExpr(a, b) => {
-                                println!("RefIdxExpr({:?}, {:?}", a, b);
-                            }
-                            Reference::RefDot(a, b) => {
-                                println!("RefDot({:?}, {:?}", a, b);
-                            }
-                            _ => {
-                            }
-                        }
-                    }
-                }
-
                 find_array_addr_chain_in_ref(fg, src, dst, ref_expr, &whentree, &mut array_addr_edges, &mut indeg);
-
             }
         }
     }
@@ -493,11 +472,14 @@ fn collect_stmts(fg: &FirGraph, stmts: &mut Stmts) {
                     let pconds = insert_invalidate_stmts(fg, nidx, &emission_info, &mut whentree);
                     emission_info.topdown.insert(nidx, pconds.clone());
                 }
-                FirNodeType::Reg  |
                 FirNodeType::RegReset |
                 FirNodeType::SMem(..) |
                 FirNodeType::CMem => {
                     let pconds = insert_def_stmts(fg, nidx, &emission_info, &mut whentree);
+                    emission_info.topdown.insert(nidx, pconds.clone());
+                }
+                FirNodeType::Reg  => {
+                    let pconds = insert_def_reg_stmts(fg, nidx, &emission_info, &mut whentree);
                     emission_info.topdown.insert(nidx, pconds.clone());
                 }
                 FirNodeType::Wire => {
@@ -536,10 +518,13 @@ fn collect_stmts(fg: &FirGraph, stmts: &mut Stmts) {
     whentree.to_stmts(stmts);
 }
 
-/// Looks at all the incoming edges into the phi node and finds the stmt
+/// For nodes that has been declared within a When Stmt.
+/// (FIRRTL emission is tricky in that the semantics of a when a connection happens
+/// changes based on where the structural element has been declared)
+/// - Looks at all the incoming edges into the phi node and finds the stmt
 /// located highest in the stmt list.
-/// The child of the phi node must be located higher than any of its parents
-/// during emission
+/// - The child of the phi node must be located higher than any of its parents
+/// during emission.
 fn find_phi_lowest_path(fg: &FirGraph, id: NodeIndex) -> CondPath {
     let mut ret = CondPath::bottom();
     let pedges = fg.graph.edges_directed(id, Incoming);
@@ -576,6 +561,12 @@ fn find_highest_path(
     highest_path
 }
 
+/// Node is not a topo start node
+/// - If it has a phi node as its parent
+///     - If it has a dont care comming in, insert it as high as possible
+///     - If it doesn't, it means that this wire, inst, reg has been declared inside a when stmt
+///         - Need to find the lowest path
+/// - Otherwise, just insert in the highest possible place
 fn insert_non_topo_start_node_stmt(
     fg: &FirGraph,
     id: NodeIndex,
@@ -656,6 +647,25 @@ fn insert_stmt_based_on_phi(
         insert_non_topo_start_node_stmt(fg, id, emission_info, pstmt, whentree)
     }
 }
+
+fn insert_def_reg_stmts(
+    fg: &FirGraph,
+    id: NodeIndex,
+    emission_info: &EmissionInfo,
+    whentree: &mut WhenTree
+) -> CondPath {
+    let node = fg.node_weight(id).unwrap();
+    let tpe = node.ttree.as_ref().unwrap().to_type();
+
+    let clk_eid = fg.parent_with_type(id, FirEdgeType::Clock).unwrap();
+    let clk = fg.graph.edge_weight(clk_eid).unwrap().src.clone();
+
+    let name = node.name.as_ref().unwrap().clone();
+    let reg = Stmt::Reg(name, tpe, clk, Info::default());
+    let pstmt = StmtWithPrior::new(reg, None);
+    insert_stmt_based_on_phi(fg, id, emission_info, pstmt, whentree)
+}
+
 
 fn insert_def_wire_stmts(
     fg: &FirGraph,
