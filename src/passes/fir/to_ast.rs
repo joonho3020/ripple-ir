@@ -1,9 +1,7 @@
 use crate::common::graphviz::DefaultGraphVizCore;
 use crate::ir::fir::{FirEdgeType, FirGraph, FirIR, FirNodeType};
-use crate::ir::whentree::{CondPath, StmtWithPrior, WhenTree};
+use crate::ir::whentree::{CondPath, CondPathWithPrior, StmtWithPrior, WhenTree};
 use chirrtl_parser::ast::*;
-use std::cmp::min as lower;
-use std::cmp::max as higher;
 use std::collections::VecDeque;
 use indexmap::IndexMap;
 use indexmap::IndexSet;
@@ -13,6 +11,7 @@ use petgraph::Undirected;
 use petgraph::visit::VisitMap;
 use petgraph::visit::Visitable;
 use petgraph::prelude::Dfs;
+use std::cmp::min as lower;
 
 /// Converts the FirIR back to an AST
 pub fn to_ast(fir: &FirIR) -> Circuit {
@@ -71,49 +70,6 @@ fn to_module(name: &Identifier, fg: &FirGraph) -> Module {
     let mut stmts: Stmts = Stmts::new();
     collect_stmts(fg, &mut stmts);
     Module::new(name.clone(), ports, stmts, Info::default())
-}
-
-/// Checks whether a node that has a phi node as its parent can be used as a
-/// starting node when performing topological sort
-/// - If all the cases are covered, or the condition is always true, or if there is a invalidate:
-/// starting node
-/// - Otherwise, this isn't a starting node
-fn topo_start_node_with_phi(fg: &FirGraph, whentree: &WhenTree, id: NodeIndex) -> bool {
-    if let Some(eid) = fg.parent_with_type(id, FirEdgeType::PhiOut) {
-        let ep = fg.graph.edge_endpoints(eid).unwrap();
-        let phi_id = ep.0;
-
-        // There can be partial connections so this isn't a perfect check
-        // However, if assuming that the format is correct, this check should
-        // provide the expected answer
-        let phi_iedges = fg.graph.edges_directed(phi_id, Incoming);
-        let mut path_vec: Vec<CondPath> = vec![];
-        for phi_eid in phi_iedges {
-            let phi_in_edge = fg.graph.edge_weight(phi_eid.id()).unwrap();
-            match &phi_in_edge.et {
-                FirEdgeType::PhiInput(path_with_prior) => {
-                    if path_with_prior.path.always_true() {
-                        return true;
-                    }
-                    path_vec.push(path_with_prior.path.clone());
-                }
-                FirEdgeType::DontCare => {
-                    let dst = phi_in_edge.dst.as_ref().unwrap();
-                    if let Expr::Reference(src) = &phi_in_edge.src {
-                        if src == dst {
-                            return true;
-                        }
-                    }
-                }
-                _ => {
-                    continue;
-                }
-            }
-        }
-        whentree.all_cases_covered(&path_vec)
-    } else {
-        true
-    }
 }
 
 /// Statements that defines a structural element
@@ -431,9 +387,9 @@ fn collect_stmts(fg: &FirGraph, stmts: &mut Stmts) {
             for id in fg.graph.node_indices() {
                 if cc_vismap.is_visited(&id) && !topo_vis_map.is_visited(&id) {
                     let node = fg.graph.node_weight(id).unwrap();
+                    let visited_edges = node_inedge_map.get(&id).unwrap();
                     println!("Visited during DFS Node {:?}, indeg {}", node, indeg.get(&id).unwrap());
 
-                    let visited_edges = node_inedge_map.get(&id).unwrap();
                     for eid in fg.graph.edges_directed(id, Incoming) {
                         let edge = fg.graph.edge_weight(eid.id()).unwrap();
                         if !visited_edges.contains(&eid.id()) {
@@ -469,7 +425,7 @@ fn collect_stmts(fg: &FirGraph, stmts: &mut Stmts) {
                     emission_info.topdown.insert(nidx, pconds.clone());
                 }
                 FirNodeType::DontCare => {
-                    let pconds = insert_invalidate_stmts(fg, nidx, &emission_info, &mut whentree);
+                    let pconds = insert_invalidate_stmts(fg, nidx, &mut whentree);
                     emission_info.topdown.insert(nidx, pconds.clone());
                 }
                 FirNodeType::SMem(..) |
@@ -510,30 +466,6 @@ fn collect_stmts(fg: &FirGraph, stmts: &mut Stmts) {
 
     // Export the WhenTree to stmts
     whentree.to_stmts(stmts);
-}
-
-/// For nodes that has been declared within a When Stmt.
-/// (FIRRTL emission is tricky in that the semantics of a when a connection happens
-/// changes based on where the structural element has been declared)
-/// - Looks at all the incoming edges into the phi node and finds the stmt
-/// located highest in the stmt list.
-/// - The child of the phi node must be located higher than any of its parents
-/// during emission.
-fn find_phi_lowest_path(fg: &FirGraph, id: NodeIndex) -> CondPath {
-    let mut ret = CondPath::bottom();
-    let pedges = fg.graph.edges_directed(id, Incoming);
-    for peid in pedges {
-        let pedge = fg.graph.edge_weight(peid.id()).unwrap();
-        match &pedge.et {
-            FirEdgeType::PhiInput(ppath)=> {
-                ret = higher(ret, ppath.path.clone());
-            }
-            _ => {
-                continue;
-            }
-        }
-    }
-    ret
 }
 
 /// Looks at the parent nodes (drivers) and their places in the stmt hierarchy.
@@ -605,7 +537,9 @@ fn insert_def_topo_start_stmts(
         let phi_id = fg.graph.edge_endpoints(peid).unwrap().0;
         let phi = fg.graph.node_weight(phi_id).unwrap();
         if let FirNodeType::Phi(pcond) = &phi.nt {
-            highest_path = lower(highest_path, pcond.path.clone());
+            if pcond != &CondPathWithPrior::default() {
+                highest_path = lower(highest_path, pcond.path.clone());
+            }
         } else {
             unreachable!();
         }
@@ -675,32 +609,16 @@ fn insert_def_topo_start_stmts(
 fn insert_invalidate_stmts(
     fg: &FirGraph,
     id: NodeIndex,
-    emission_info: &EmissionInfo,
     whentree: &mut WhenTree
 ) -> CondPath {
     let mut highest_path = whentree.get_top_path();
     let childs = fg.graph.neighbors_directed(id, Outgoing);
-
     for cid in childs {
-        if emission_info.topdown.contains_key(&cid) {
-            let pconds = emission_info.topdown.get(&cid).unwrap();
-            highest_path = lower(highest_path, pconds.clone());
-        }
-
         let child = fg.graph.node_weight(cid).unwrap();
-
-        match child.nt {
-            FirNodeType::Phi(..) => {
-                let grand_child_edges = fg.childs_with_type(cid, FirEdgeType::PhiOut);
-
-                for gc_eid in grand_child_edges {
-                    let gc_id = fg.graph.edge_endpoints(gc_eid).unwrap().1;
-                    let gc = fg.graph.node_weight(gc_id).unwrap();
-
-                    if gc.nt == FirNodeType::Wire && !topo_start_node_with_phi(fg, whentree, gc_id) {
-                        let phi_pconds = find_phi_lowest_path(fg, cid);
-                        highest_path = lower(highest_path, phi_pconds);
-                    }
+        match &child.nt {
+            FirNodeType::Phi(pcond) => {
+                if pcond != &CondPathWithPrior::default() {
+                    highest_path = lower(highest_path, pcond.path.clone());
                 }
             }
             _ => { }
