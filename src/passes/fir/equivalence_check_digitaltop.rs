@@ -76,7 +76,6 @@ pub fn equivalence_check_digitaltop(input_fir: &str) -> Result<(), RippleIRErr> 
     }
 }
 
-
 fn export_miter_digitaltop(firname: &str, top_sv_filename: &str) -> Result<(), RippleIRErr> {
     let top_module = std::fs::read_to_string(top_sv_filename)?;
     let module = parse_module(top_module.lines()).expect("Failed to parse module");
@@ -184,7 +183,7 @@ mod test {
     use super::*;
 
     #[test_case("chipyard.harness.TestHarness.RocketConfig" ; "Rocket")]
-    fn run_digitaltop(name: &str) -> Result<(), RippleIRErr> {
+    fn run(name: &str) -> Result<(), RippleIRErr> {
         equivalence_check_digitaltop(name)?;
         Ok(())
     }

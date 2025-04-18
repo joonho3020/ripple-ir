@@ -1021,7 +1021,7 @@ mod test {
         let mut printer = Printer::new();
         let circuit_str = printer.print_circuit(&circuit_reconstruct);
         std::fs::write(&firrtl, circuit_str)?;
-        export_circuit(&firrtl, "test-outputs/verilog")?;
+        export_circuit(&firrtl, &format!("test-outputs/{}/verilog", name))?;
 
         Ok(())
     }
