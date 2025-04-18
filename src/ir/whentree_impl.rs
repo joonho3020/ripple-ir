@@ -415,6 +415,7 @@ impl WhenTree {
                     }
                     if id.is_none() {
                         cur_prior = child.prior;
+                        id = Some(cid);
                     } else if cur_prior == higher(cur_prior, child.prior) {
                         cur_prior = child.prior;
                         id = Some(cid);

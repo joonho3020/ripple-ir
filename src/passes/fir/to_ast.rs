@@ -737,17 +737,8 @@ fn insert_op_stmts(
         }
 
         if let Some(x) = whentree.find_middle_ground(&highest_path, bu_pconds) {
-// println!("--------------------------------------------------------");
-// println!("node {:?}", node);
-// whentree.print_tree();
-// println!("highest: {:?}", highest_path);
-// println!("lowest: {:?}", bu_pconds);
-// println!("middlet: {:?}", whentree.find_middle_ground(&highest_path, bu_pconds));
             highest_path = x;
         }
-// if highest_path.len() > bu_pconds.len() {
-// highest_path = bu_pconds.clone();
-// }
     }
 
     let when_leaf = whentree.get_node_mut(
@@ -870,10 +861,6 @@ fn fill_bottom_up_emission_info(
         if pcond_constraint.is_some() {
             emission_info.bottomup.insert(id, pcond_constraint.unwrap());
         } else {
-// println!("=================================");
-// println!("Node {:?} has no pcond_constraint", fg.graph.node_weight(id).unwrap());
-// println!("conds {:?}", conds);
-// whentree.print_tree();
         }
     }
 }
