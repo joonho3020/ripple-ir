@@ -26,3 +26,6 @@ bimap = "0.6.3"
 test-case = "3.3.1"
 priority-queue = "2.3.1"
 lsh-rs = "0.4.0"
+clap = { version = "4.5.30", features = ["derive"] }
+# chirrtl-parser = "0.1.8"
+# chirrtl-parser = { git = "ssh://git@github.com/joonho3020/chirrtl-parser.git", branch = "main"}
