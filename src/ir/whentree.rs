@@ -221,6 +221,25 @@ impl CondPath {
         }
         true
     }
+
+    pub fn cond_path(&self, cond_expr: &Expr) -> Self {
+        let mut ret = Self::default();
+        for pcond in self.iter().map(|x| x) {
+            match &pcond.cond {
+                Condition::When(e) |
+                Condition::Else(e) => {
+                    if e != cond_expr {
+                        ret.0.push(pcond.clone());
+                    } else if e == cond_expr {
+                        ret.0.push(pcond.clone());
+                        break;
+                    }
+                }
+                _ => { }
+            }
+        }
+        return ret;
+    }
 }
 
 impl PartialOrd for CondPath {

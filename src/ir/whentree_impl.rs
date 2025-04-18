@@ -318,11 +318,14 @@ impl WhenTree {
                     pcond.prior == child.prior
                 {
                     return Some(cid);
-                } else if child.cond == pcond.cond &&
-                    child.prior == pcond.prior {
-                    // Found a matching condition, go down one level in the tree
-                    q.push_back(cid);
-                    i += 1;
+                } else if child.cond == pcond.cond && child.prior == pcond.prior {
+                    if i == path.len() - 1 {
+                        return Some(cid);
+                    } else {
+                        // Found a matching condition, go down one level in the tree
+                        q.push_back(cid);
+                        i += 1;
+                    }
                 }
             }
         }

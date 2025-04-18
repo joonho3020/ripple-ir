@@ -720,6 +720,7 @@ fn insert_op_stmts(
     emission_info: &EmissionInfo,
     whentree: &mut WhenTree
 ) -> CondPath {
+    let node = fg.graph.node_weight(id).unwrap();
     let mut highest_path = find_highest_path(fg, id, &emission_info.topdown, &whentree);
 
     let bu_pconds = emission_info.bottomup.get(&id);
@@ -742,7 +743,6 @@ fn insert_op_stmts(
         Some(&highest_path.last().unwrap().prior))
             .unwrap();
 
-    let node = fg.graph.node_weight(id).unwrap();
     match &node.nt {
         FirNodeType::Mux => {
             let true_eid  = fg.parent_with_type(id, FirEdgeType::MuxTrue).unwrap();
@@ -836,6 +836,22 @@ fn fill_bottom_up_emission_info(
                 }
             } else if emission_info.bottomup.contains_key(&cid) {
                 conds.push(emission_info.bottomup.get(&cid).unwrap().clone());
+            } else {
+                match edge.et {
+                    FirEdgeType::PhiSel => {
+                        let parents = fg.graph.edges_directed(cid, Incoming);
+                        for peid in parents {
+                            let pedge = fg.graph.edge_weight(peid.id()).unwrap();
+                            if let FirEdgeType::PhiInput(pconds) = &pedge.et {
+                                if pconds.path.collect_sels().contains(&edge.src) {
+                                    let x = pconds.path.cond_path(&edge.src);
+                                    conds.push(x);
+                                }
+                            }
+                        }
+                    }
+                    _ => { }
+                }
             }
         }
         let pcond_constraint = whentree.bottom_up_priority_constraint(&conds);
@@ -981,6 +997,7 @@ mod test {
     #[test_case("MultiWhen" ; "MultiWhen")]
     #[test_case("DCacheDataArray" ; "DCacheDataArray")]
     #[test_case("Hierarchy" ; "Hierarchy")]
+    #[test_case("Cache" ; "Cache")]
     #[test_case("chipyard.harness.TestHarness.RocketConfig" ; "Rocket")]
     #[test_case("chipyard.harness.TestHarness.LargeBoomV3Config" ; "Boom")]
     fn run(name: &str) -> Result<(), RippleIRErr> {
