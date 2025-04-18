@@ -432,6 +432,34 @@ impl WhenTree {
         }
     }
 
+    /// Find the highest root node that covers both highest and lowest
+    pub fn find_middle_ground(&self, highest: &CondPath, lowest: &CondPath) -> Option<CondPath> {
+        let lca_opt = self.lowest_common_ancester(&vec![highest.clone(), lowest.clone()]);
+        if let Some(lca) = lca_opt {
+            let childs = self.graph.neighbors_directed(lca, Outgoing);
+            let mut cur_path: Option<CondPath> = None;
+            for cid in childs {
+                let child = self.graph.node_weight(cid).unwrap();
+                if child.cond != Condition::Root {
+                    continue;
+                }
+                let cpath = self.node_path(cid);
+                if highest == &cpath {
+                    cur_path = Some(cpath);
+                } else if highest > &cpath && &cpath > lowest || &cpath == lowest {
+                    if cur_path.is_none() {
+                        cur_path = Some(cpath);
+                    } else {
+                        cur_path = Some(higher(cur_path.unwrap(), cpath));
+                    }
+                }
+            }
+            cur_path
+        } else {
+            None
+        }
+    }
+
     /// Checks if all conditions in the tree are covered given a vector of `PrioritizedCondPath`
     pub fn all_cases_covered(&self, conds: &Vec<CondPath>) -> bool {
         let lca_opt = self.lowest_common_ancester(conds);
