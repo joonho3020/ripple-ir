@@ -21,7 +21,7 @@ pub fn check_phi_node_connections(fir: &FirIR) -> Result<(), RippleIRErr> {
 fn check_phi_node_connections_graph(fg: &FirGraph, name: &Identifier) -> Result<(), RippleIRErr> {
     for id in fg.graph.node_indices() {
         let node = fg.graph.node_weight(id).unwrap();
-        if node.nt == FirNodeType::Phi {
+        if let FirNodeType::Phi(..) = node.nt {
             let mut child_cnt = 0;
             let childs = fg.graph.neighbors_directed(id, Outgoing);
 

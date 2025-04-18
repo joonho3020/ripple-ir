@@ -219,7 +219,7 @@ fn track_en_drivers(fg: &FirGraph, cur_expr: &Expr, id: NodeIndex, drivers: &mut
                 drivers.insert(cur_expr.clone());
             }
         }
-        FirNodeType::Phi => {
+        FirNodeType::Phi(..) => {
             // This is a bit more pessimistic than the FIRRTL version as
             // FIRRTL performs mux expansion and in theory can traverse
             // through more signals
