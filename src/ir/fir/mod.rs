@@ -61,7 +61,7 @@ pub enum FirNodeType {
     // Port
     Input,
     Output,
-    Phi,
+    Phi(CondPathWithPrior),
 }
 
 impl_clean_display!(FirNode);

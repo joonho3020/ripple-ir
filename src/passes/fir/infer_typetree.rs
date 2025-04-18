@@ -43,7 +43,7 @@ fn topo_start_node(nt: &FirNodeType) -> bool {
             FirNodeType::Inst(..)         |
             FirNodeType::Input            |
             FirNodeType::Output           |
-            FirNodeType::Phi => {
+            FirNodeType::Phi(..) => {
                 return true;
             }
         _ => {
@@ -96,7 +96,7 @@ fn infer_typetree_graph(fir: &mut FirIR, name: &Identifier) {
                     }
                 }
             }
-            FirNodeType::Phi => {
+            FirNodeType::Phi(..) => {
                 let childs: Vec<NodeIndex> = fg.graph.neighbors_directed(id, Outgoing).collect();
                 assert!(childs.len() == 1, "Phi node should have a single child {:?}", name);
 
