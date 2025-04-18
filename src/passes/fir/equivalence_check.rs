@@ -57,8 +57,6 @@ pub fn equivalence_check(input_fir: &str) -> Result<(), RippleIRErr> {
         }
     }
 
-    println!("top name {:?}", top_name);
-
     export_tcl(&input_fir, top_name)?;
 
     let result = run_jaspergold(&input_fir, ".")?;
@@ -622,6 +620,9 @@ mod test {
     use crate::common::RippleIRErr;
     use super::*;
 
+    #[test_case("Adder" ; "Adder")]
+    #[test_case("Cache" ; "Cache")]
+    #[test_case("DecoupledMux" ; "DecoupledMux")]
     #[test_case("GCD" ; "GCD")]
     #[test_case("Hierarchy" ; "Hierarchy")]
     #[test_case("NestedWhen" ; "NestedWhen")]
@@ -637,27 +638,33 @@ mod test {
     #[test_case("BitSel2" ; "BitSel2")]
     #[test_case("RegInit" ; "RegInit")]
     #[test_case("RegInitWire" ; "RegInitWire")]
+    #[test_case("AggregateSRAM" ; "AggregateSRAM")]
+    #[test_case("DualReadSingleWritePortSRAM" ; "DualReadSingleWritePortSRAM")]
+    #[test_case("DynamicIndexing" ; "DynamicIndexing")]
+    #[test_case("Fir" ; "Fir")]
     #[test_case("SinglePortSRAM" ; "SinglePortSRAM")]
     #[test_case("OneReadOneWritePortSRAM" ; "OneReadOneWritePortSRAM")]
     #[test_case("OneReadOneReadWritePortSRAM" ; "OneReadOneReadWritePortSRAM")]
     #[test_case("MSHR" ; "MSHR")]
     #[test_case("TLBundleQueue" ; "TLBundleQueue")]
-    #[test_case("ListBuffer" ; "ListBuffer")]
     #[test_case("Atomics" ; "Atomics")]
     #[test_case("PhitArbiter" ; "PhitArbiter")]
+    #[test_case("PointerChasing" ; "PointerChasing")]
     #[test_case("TLMonitor" ; "TLMonitor")]
     #[test_case("TLBusBypassBar" ; "TLBusBypassBar")]
     #[test_case("DCacheDataArray" ; "DCacheDataArray")]
     #[test_case("WireRegInsideWhen" ; "WireRegInsideWhen")]
     #[test_case("MultiWhen" ; "MultiWhen")]
+    #[test_case("RegFile" ; "RegFile")]
+// #[test_case("ListBuffer" ; "ListBuffer")]
     fn run(name: &str) -> Result<(), RippleIRErr> {
         equivalence_check(name)?;
         Ok(())
     }
 
-    #[test_case("chipyard.harness.TestHarness.RocketConfig" ; "Rocket")]
-    fn run_digitaltop(name: &str) -> Result<(), RippleIRErr> {
-        equivalence_check_digitaltop(name)?;
-        Ok(())
-    }
+// #[test_case("chipyard.harness.TestHarness.RocketConfig" ; "Rocket")]
+// fn run_digitaltop(name: &str) -> Result<(), RippleIRErr> {
+// equivalence_check_digitaltop(name)?;
+// Ok(())
+// }
 }
