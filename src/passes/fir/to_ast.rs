@@ -251,6 +251,11 @@ fn reconstruct_whentree(fg: &FirGraph) -> WhenTree {
     WhenTree::build_from_conditions(cond_priority_pair)
 }
 
+fn is_reginit(fg: &FirGraph, id: NodeIndex) -> bool {
+    let node = fg.graph.node_weight(id).unwrap();
+    node.nt == FirNodeType::RegReset
+}
+
 fn collect_stmts(fg: &FirGraph, stmts: &mut Stmts) {
     let mut whentree = reconstruct_whentree(fg);
     let mut array_addr_edges: IndexMap<NodeIndex, IndexSet<NodeIndex>> = IndexMap::new();
@@ -318,6 +323,18 @@ fn collect_stmts(fg: &FirGraph, stmts: &mut Stmts) {
         };
     }
 
+    // Check for cases where RegInit
+    for eid in fg.graph.edge_indices() {
+        let edge = fg.graph.edge_weight(eid).unwrap();
+        if edge.et == FirEdgeType::InitValue {
+            let ep = fg.graph.edge_endpoints(eid).unwrap();
+            let node = fg.graph.node_weight(ep.1).unwrap();
+
+            assert!(node.nt == FirNodeType::RegReset);
+            *indeg.get_mut(&ep.1).unwrap() = 3;
+        }
+    }
+
     let mut node_inedge_map: IndexMap<NodeIndex, IndexSet<EdgeIndex>> = IndexMap::new();
 
     // Topo sort nodes in each CC.
@@ -340,7 +357,9 @@ fn collect_stmts(fg: &FirGraph, stmts: &mut Stmts) {
             cc_vismap.visit(nx);
 
             if topo_start_node(&fg, nx) {
-                q.push_back(nx);
+                if !is_reginit(fg, nx) || *indeg.get(&nx).unwrap() == 0 {
+                    q.push_back(nx);
+                }
             }
         }
 
@@ -359,6 +378,9 @@ fn collect_stmts(fg: &FirGraph, stmts: &mut Stmts) {
             if array_addr_edges.contains_key(&nidx) {
                 let addr_childs = array_addr_edges.get(&nidx).unwrap();
                 for &cidx in addr_childs {
+                    if is_reginit(fg, cidx) {
+                        continue;
+                    }
                     *indeg.get_mut(&cidx).unwrap() -= 1;
                     if *indeg.get(&cidx).unwrap() == 0 {
                         q.push_back(cidx);
@@ -369,6 +391,9 @@ fn collect_stmts(fg: &FirGraph, stmts: &mut Stmts) {
             if invalidate_edges.contains_key(&nidx) {
                 let inv_childs = invalidate_edges.get(&nidx).unwrap();
                 for &cidx in inv_childs {
+                    if is_reginit(fg, cidx) {
+                        continue;
+                    }
                     *indeg.get_mut(&cidx).unwrap() -= 1;
                     if *indeg.get(&cidx).unwrap() == 0 {
                         q.push_back(cidx);
@@ -379,7 +404,17 @@ fn collect_stmts(fg: &FirGraph, stmts: &mut Stmts) {
             let cedges = fg.graph.edges_directed(nidx, Outgoing);
             for cedge in cedges {
                 let ep = fg.graph.edge_endpoints(cedge.id()).unwrap();
-                if !topo_vis_map.is_visited(&ep.1) && !topo_start_node(&fg, ep.1) {
+                let edge = fg.graph.edge_weight(cedge.id()).unwrap();
+                 if !topo_vis_map.is_visited(&ep.1) && is_reginit(fg, ep.1) &&
+                    (edge.et == FirEdgeType::Clock ||
+                     edge.et == FirEdgeType::Reset ||
+                     edge.et == FirEdgeType::InitValue)
+                {
+                    *indeg.get_mut(&ep.1).unwrap() -= 1;
+                    if *indeg.get(&ep.1).unwrap() == 0 {
+                        q.push_back(ep.1);
+                    }
+                } else if !topo_vis_map.is_visited(&ep.1) && !topo_start_node(&fg, ep.1) {
                     if !node_inedge_map.contains_key(&ep.1) {
                         node_inedge_map.insert(ep.1, IndexSet::new());
                     }
