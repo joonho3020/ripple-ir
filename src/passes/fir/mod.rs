@@ -8,3 +8,4 @@ pub mod modify_names;
 pub mod equivalence_check;
 mod common_subgraph;
 mod hashing_function;
+pub mod equivalence_check_digitaltop;
