@@ -1,5 +1,7 @@
 pub mod check_ast_assumption;
 pub mod print;
+pub mod gumtree;
+pub mod firrtlgraph;
 
 #[cfg(test)]
 mod test {
