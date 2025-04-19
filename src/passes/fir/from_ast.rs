@@ -60,6 +60,7 @@ fn from_module(module: &Module) -> FirGraph {
     connect_phi_in_edges_from_stmts(&mut ret, &module.stmts, &mut nm);
     connect_phi_node_sels(&mut ret, &mut nm);
     connect_mport_enables(&mut ret, &mut nm);
+    set_phi_node_priority(&mut ret, &module.stmts, &nm);
     return ret;
 }
 
@@ -232,7 +233,8 @@ fn add_graph_node_from_stmt(ir: &mut FirGraph, stmt: &Stmt, nm: &mut NodeMap) {
                     let root_name = r.root();
                     let root_ref = Reference::Ref(root_name.clone());
                     if !nm.phi_map.contains_key(&root_ref) {
-                        let id = add_node(ir, None, Some(root_name.clone()), TypeDirection::Outgoing, FirNodeType::Phi);
+                        let nt = FirNodeType::Phi(CondPathWithPrior::default());
+                        let id = add_node(ir, None, Some(root_name.clone()), TypeDirection::Outgoing, nt);
                         nm.phi_map.insert(root_ref, id);
                     }
                 }
@@ -626,7 +628,7 @@ fn connect_phi_node_sels(ir: &mut FirGraph, nm: &mut NodeMap) {
     for id in ir.graph.node_indices() {
         let node = ir.graph.node_weight(id).unwrap();
         match node.nt {
-            FirNodeType::Phi => {
+            FirNodeType::Phi(..) => {
                 connect_phi_node_sel_id(ir, id, nm);
             }
             _ => {
@@ -651,6 +653,42 @@ fn connect_mport_enables(ir: &mut FirGraph, nm: &mut NodeMap) {
             }
             _ => {
                 continue;
+            }
+        }
+    }
+}
+
+fn set_phi_node_priority(ir: &mut FirGraph, stmts: &Stmts, nm: &NodeMap) {
+    let whentree = WhenTree::build_from_stmts(stmts);
+    let leaf_to_paths = whentree.leaf_to_paths();
+
+    let mut visited_prior: IndexSet<PhiPrior> = IndexSet::new();
+    for (leaf, path) in leaf_to_paths {
+        if visited_prior.contains(&leaf.prior) {
+            panic!("When prior {:?} overlaps {:?}", leaf.prior, visited_prior);
+        }
+        visited_prior.insert(leaf.prior);
+        for pstmt in leaf.stmts.iter() {
+            let path_w_stmt_prior = CondPathWithPrior::new(
+                path.clone(),
+                pstmt.prior.expect("WhenTree built from stmts, but has no prior"));
+
+            match &pstmt.stmt {
+                Stmt::Reg(name, ..)      |
+                Stmt::RegReset(name, ..) |
+                Stmt::Wire(name, ..)     |
+                Stmt::Inst(name, ..) => {
+                    let r = Reference::Ref(name.clone());
+                    let id = nm.node_map.get(&r).unwrap();
+                    let peid_opt = ir.parent_with_type(*id, FirEdgeType::PhiOut);
+                    if let Some(peid) = peid_opt {
+                        let ep = ir.graph.edge_endpoints(peid).unwrap();
+                        let phi_id = ep.0;
+                        let phi = ir.graph.node_weight_mut(phi_id).unwrap();
+                        phi.nt = FirNodeType::Phi(path_w_stmt_prior);
+                    }
+                }
+                _ => {}
             }
         }
     }

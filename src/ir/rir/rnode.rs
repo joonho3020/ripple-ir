@@ -37,7 +37,7 @@ pub enum RippleNodeType {
     // Port
     Input,
     Output,
-    Phi,
+    Phi(CondPathWithPrior),
 }
 
 impl_clean_display!(RippleNodeType);
@@ -65,7 +65,7 @@ impl From<&FirNodeType> for RippleNodeType {
             FirNodeType::Inst(x) => Self::Inst(x.clone()),
             FirNodeType::Input => Self::Input,
             FirNodeType::Output => Self::Output,
-            FirNodeType::Phi => Self::Phi,
+            FirNodeType::Phi(cond) => Self::Phi(cond.clone()),
         }
     }
 }

@@ -318,11 +318,14 @@ impl WhenTree {
                     pcond.prior == child.prior
                 {
                     return Some(cid);
-                } else if child.cond == pcond.cond &&
-                    child.prior == pcond.prior {
-                    // Found a matching condition, go down one level in the tree
-                    q.push_back(cid);
-                    i += 1;
+                } else if child.cond == pcond.cond && child.prior == pcond.prior {
+                    if i == path.len() - 1 {
+                        return Some(cid);
+                    } else {
+                        // Found a matching condition, go down one level in the tree
+                        q.push_back(cid);
+                        i += 1;
+                    }
                 }
             }
         }
@@ -412,6 +415,7 @@ impl WhenTree {
                     }
                     if id.is_none() {
                         cur_prior = child.prior;
+                        id = Some(cid);
                     } else if cur_prior == higher(cur_prior, child.prior) {
                         cur_prior = child.prior;
                         id = Some(cid);
@@ -424,6 +428,34 @@ impl WhenTree {
                     None
                 }
             }
+        } else {
+            None
+        }
+    }
+
+    /// Find the highest root node that covers both highest and lowest
+    pub fn find_middle_ground(&self, highest: &CondPath, lowest: &CondPath) -> Option<CondPath> {
+        let lca_opt = self.lowest_common_ancester(&vec![highest.clone(), lowest.clone()]);
+        if let Some(lca) = lca_opt {
+            let childs = self.graph.neighbors_directed(lca, Outgoing);
+            let mut cur_path: Option<CondPath> = None;
+            for cid in childs {
+                let child = self.graph.node_weight(cid).unwrap();
+                if child.cond != Condition::Root {
+                    continue;
+                }
+                let cpath = self.node_path(cid);
+                if highest == &cpath {
+                    cur_path = Some(cpath);
+                } else if highest > &cpath && &cpath > lowest || &cpath == lowest {
+                    if cur_path.is_none() {
+                        cur_path = Some(cpath);
+                    } else {
+                        cur_path = Some(higher(cur_path.unwrap(), cpath));
+                    }
+                }
+            }
+            cur_path
         } else {
             None
         }

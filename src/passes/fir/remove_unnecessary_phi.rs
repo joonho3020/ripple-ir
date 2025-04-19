@@ -17,7 +17,7 @@ fn remove_unnecessary_phi_in_ripple_graph(rg: &mut FirGraph) {
     for id in rg.graph.node_indices() {
         let node = rg.graph.node_weight(id).unwrap();
         match node.nt {
-            FirNodeType::Phi => {
+            FirNodeType::Phi(..) => {
                 if is_removable(rg, id) {
                     connect_phi_parent_to_child(rg, id);
                     remove_nodes.push(id);
