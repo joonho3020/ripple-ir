@@ -240,18 +240,20 @@ impl GumTree {
     }
 
     fn are_nodes_isomorphic(&self, a: &FirrtlNode, b: &FirrtlNode) -> bool {
-        match (a, b) {
-            (FirrtlNode::Circuit(a), FirrtlNode::Circuit(b)) => a.name == b.name,
-            (FirrtlNode::Module(a), FirrtlNode::Module(b)) => a.name == b.name,
-            (FirrtlNode::ExtModule(a), FirrtlNode::ExtModule(b)) => a.name == b.name,
-            (FirrtlNode::Port(a), FirrtlNode::Port(b)) => a == b,
-            (FirrtlNode::Stmt(a), FirrtlNode::Stmt(b)) => a == b,
-            (FirrtlNode::Type(a), FirrtlNode::Type(b)) => a == b,
-            (FirrtlNode::Expr(a), FirrtlNode::Expr(b)) => a == b,
-            (FirrtlNode::Reference(a), FirrtlNode::Reference(b)) => a == b,
-            (FirrtlNode::Info(a), FirrtlNode::Info(b)) => a == b,
-            _ => false,
-        }
+        // FIXME:...
+        false
+        // match (a, b) {
+        //     (FirrtlNode::Circuit(a), FirrtlNode::Circuit(b)) => a.name == b.name,
+        //     (FirrtlNode::Module(a), FirrtlNode::Module(b)) => a.name == b.name,
+        //     (FirrtlNode::ExtModule(a), FirrtlNode::ExtModule(b)) => a.name == b.name,
+        //     (FirrtlNode::Port(a), FirrtlNode::Port(b)) => a == b,
+        //     (FirrtlNode::Stmt(a), FirrtlNode::Stmt(b)) => a == b,
+        //     (FirrtlNode::Type(a), FirrtlNode::Type(b)) => a == b,
+        //     (FirrtlNode::Expr(a), FirrtlNode::Expr(b)) => a == b,
+        //     (FirrtlNode::Reference(a), FirrtlNode::Reference(b)) => a == b,
+        //     (FirrtlNode::Info(a), FirrtlNode::Info(b)) => a == b,
+        //     _ => false,
+        // }
     }
 
     fn are_nodes_similar(&self, a: &FirrtlNode, b: &FirrtlNode) -> bool {

@@ -1,21 +1,17 @@
 use chirrtl_parser::ast::*;
-use petgraph::{
-    graph::{NodeIndex, Graph},
-    visit::{VisitMap, Visitable},
-};
-
+use petgraph::graph::{NodeIndex, Graph};
+use crate::passes::ast::print::Printer;
 
 /// A node in the FIRRTL AST for GumTree comparison
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum FirrtlNode {
-    Circuit(Circuit),
-    Module(Module),
-    ExtModule(ExtModule),
+    Circuit(Version, Identifier, Annotations),
+    Module(Identifier, Info),
+    ExtModule(Identifier, DefName, Parameters, Info),
     Port(Port),
     Stmt(Stmt),
     Type(Type),
     Expr(Expr),
-    Reference(Reference),
     Info(Info),
 }
 
@@ -37,33 +33,34 @@ pub enum FirrtlGraphError {
 impl FirrtlGraph {
     pub fn from_circuit(circuit: &Circuit) -> Self {
         let mut graph = Graph::new();
-        let root = graph.add_node(FirrtlNode::Circuit(circuit.clone()));
+        let root = graph.add_node(FirrtlNode::Circuit(
+                circuit.version.clone(),
+                circuit.name.clone(),
+                circuit.annos.clone()));
 
         // Build graph recursively
         for module in circuit.modules.iter() {
-            let module_idx = match module.as_ref() {
+            match module.as_ref() {
                 CircuitModule::Module(m) => {
-                    let idx = graph.add_node(FirrtlNode::Module(m.clone()));
+                    let idx = graph.add_node(
+                        FirrtlNode::Module(
+                            m.name.clone(),
+                            m.info.clone()));
                     graph.add_edge(root, idx, ());
-
-                    // Add ports
                     Self::add_ports(&mut graph, idx, &m.ports);
-
-                    // Add statements
                     Self::add_statements(&mut graph, idx, &m.stmts);
-
-                    idx
                 }
                 CircuitModule::ExtModule(e) => {
-                    let idx = graph.add_node(FirrtlNode::ExtModule(e.clone()));
+                    let idx = graph.add_node(
+                        FirrtlNode::ExtModule(
+                            e.name.clone(),
+                            e.defname.clone(),
+                            e.params.clone(),
+                            e.info.clone()));
                     graph.add_edge(root, idx, ());
-
-                    // Add ports for external module
                     Self::add_ports(&mut graph, idx, &e.ports);
-
-                    idx
                 }
-            };
+            }
         }
         Self { graph, root }
     }
@@ -72,14 +69,6 @@ impl FirrtlGraph {
         for port in ports.iter() {
             let port_idx = graph.add_node(FirrtlNode::Port(port.as_ref().clone()));
             graph.add_edge(parent, port_idx, ());
-
-            // Add port type
-            match port.as_ref() {
-                Port::Input(_, tpe, _) | Port::Output(_, tpe, _) => {
-                    let type_idx = graph.add_node(FirrtlNode::Type(tpe.clone()));
-                    graph.add_edge(port_idx, type_idx, ());
-                }
-            }
         }
     }
 
@@ -89,38 +78,78 @@ impl FirrtlGraph {
             graph.add_edge(parent, stmt_idx, ());
 
             match stmt.as_ref() {
-                Stmt::Node(id, expr, _) => {
-                    Self::add_expression(graph, stmt_idx, expr);
+                Stmt::Skip(_) => {}, // No additional nodes needed for Skip
+                Stmt::Wire(_, tpe, _) => {
+                    Self::add_tpe(graph, stmt_idx, tpe);
                 }
-                Stmt::Connect(ref_, expr, _) => {
-                    let ref_idx = graph.add_node(FirrtlNode::Reference(ref_.clone()));
-                    graph.add_edge(stmt_idx, ref_idx, ());
-                    Self::add_expression(graph, stmt_idx, expr);
+                Stmt::Reg(_, tpe, clk, _) => {
+                    Self::add_tpe(graph, stmt_idx, tpe);
+                    Self::add_expression(graph, stmt_idx, clk);
                 }
-                Stmt::Conditionally(pred, conseq, alt, _) => {
-                    Self::add_expression(graph, stmt_idx, pred);
-                    Self::add_statements(graph, stmt_idx, conseq);
-                    Self::add_statements(graph, stmt_idx, alt);
+                Stmt::RegReset(_, tpe, clk, rst, init, _) => {
+                    Self::add_tpe(graph, stmt_idx, tpe);
+                    Self::add_expression(graph, stmt_idx, clk);
+                    Self::add_expression(graph, stmt_idx, rst);
+                    Self::add_expression(graph, stmt_idx, init);
                 }
-                Stmt::ChirrtlMemory(id, tpe, size, ruw, _) => {
-                    let type_idx = graph.add_node(FirrtlNode::Type(tpe.clone()));
-                    graph.add_edge(stmt_idx, type_idx, ());
-                }
-                Stmt::ChirrtlMemoryPort(port, _) => {
-                    match port {
-                        ChirrtlMemoryPort::Write(_, _, addr, data, _) |
-                        ChirrtlMemoryPort::Read(_, _, addr, _, _) |
-                        ChirrtlMemoryPort::ReadWrite(_, _, addr, _, _, _) => {
-                            Self::add_expression(graph, stmt_idx, addr);
-                            if let ChirrtlMemoryPort::Write(_, _, _, data, _) = port {
-                                let ref_idx = graph.add_node(FirrtlNode::Reference(data.clone()));
-                                graph.add_edge(stmt_idx, ref_idx, ());
-                            }
+                Stmt::ChirrtlMemory(mem) => {
+                    match mem {
+                        ChirrtlMemory::SMem(_name, tpe, _, _) |
+                        ChirrtlMemory::CMem(_name, tpe, _) => {
+                            Self::add_tpe(graph, stmt_idx, tpe);
                         }
                     }
                 }
-                // Add other statement types as needed
-                _ => {}
+                Stmt::ChirrtlMemoryPort(port) => {
+                    match port {
+                        ChirrtlMemoryPort::Write(name, mem, addr, clk, _) |
+                        ChirrtlMemoryPort::Read(name, mem, addr, clk, _)  |
+                        ChirrtlMemoryPort::Infer(name, mem, addr, clk, _) => {
+                            Self::add_expression(graph, stmt_idx, &Expr::Reference(Reference::Ref(name.clone())));
+                            Self::add_expression(graph, stmt_idx, &Expr::Reference(Reference::Ref(mem.clone())));
+                            Self::add_expression(graph, stmt_idx, addr);
+                            Self::add_expression(graph, stmt_idx, &Expr::Reference(clk.clone()));
+                        }
+                    }
+                }
+                Stmt::Inst(..) => {}
+                Stmt::Node(_id, expr, _) => {
+                    Self::add_expression(graph, stmt_idx, expr);
+                }
+                Stmt::Connect(lhs, rhs, _) => {
+                    Self::add_expression(graph, stmt_idx, lhs);
+                    Self::add_expression(graph, stmt_idx, rhs);
+                }
+                Stmt::When(pred, _, when, else_opt) => {
+                    Self::add_expression(graph, stmt_idx, pred);
+
+                    Self::add_statements(graph, stmt_idx, when);
+
+                    if let Some(else_stmts) = else_opt {
+                        Self::add_statements(graph, stmt_idx, else_stmts);
+                    }
+                }
+                Stmt::Invalidate(lhs, _) => {
+                    Self::add_expression(graph, stmt_idx, lhs);
+                }
+                Stmt::Printf(clock, en, _msg, args_opt, _) => {
+                    // Add clock and enable expressions
+                    Self::add_expression(graph, stmt_idx, clock);
+                    Self::add_expression(graph, stmt_idx, en);
+
+                    // Add all argument expressions
+                    if let Some(args) = args_opt {
+                        for arg in args {
+                            Self::add_expression(graph, stmt_idx, arg);
+                        }
+                    }
+                }
+                Stmt::Assert(clock, pred, en, _msg, _) => {
+                    // Add clock, predicate and enable expressions
+                    Self::add_expression(graph, stmt_idx, clock);
+                    Self::add_expression(graph, stmt_idx, pred);
+                    Self::add_expression(graph, stmt_idx, en);
+                }
             }
         }
     }
@@ -130,56 +159,46 @@ impl FirrtlGraph {
         graph.add_edge(parent, expr_idx, ());
 
         match expr {
-            Expr::Reference(ref_) => {
-                let ref_idx = graph.add_node(FirrtlNode::Reference(ref_.clone()));
-                graph.add_edge(expr_idx, ref_idx, ());
-            }
-            Expr::SubField(ref_, field) => {
-                let ref_idx = graph.add_node(FirrtlNode::Reference(ref_.clone()));
-                graph.add_edge(expr_idx, ref_idx, ());
-            }
-            Expr::SubIndex(ref_, idx) => {
-                let ref_idx = graph.add_node(FirrtlNode::Reference(ref_.clone()));
-                graph.add_edge(expr_idx, ref_idx, ());
-            }
-            Expr::SubAccess(ref_, idx) => {
-                let ref_idx = graph.add_node(FirrtlNode::Reference(ref_.clone()));
-                graph.add_edge(expr_idx, ref_idx, ());
-                Self::add_expression(graph, expr_idx, idx);
-            }
-            Expr::Mux(cond, tval, fval, _) => {
+            Expr::Mux(cond, tval, fval) => {
                 Self::add_expression(graph, expr_idx, cond);
                 Self::add_expression(graph, expr_idx, tval);
                 Self::add_expression(graph, expr_idx, fval);
             }
-            Expr::ValidIf(cond, value, _) => {
+            Expr::ValidIf(cond, value) => {
                 Self::add_expression(graph, expr_idx, cond);
                 Self::add_expression(graph, expr_idx, value);
             }
-            Expr::PrimOp2(op, lhs, rhs, _) => {
+            Expr::PrimOp2Expr(_op, lhs, rhs) => {
                 Self::add_expression(graph, expr_idx, lhs);
                 Self::add_expression(graph, expr_idx, rhs);
             }
-            Expr::PrimOp1(op, arg, _) => {
+            Expr::PrimOp1Expr(_, arg) |
+            Expr::PrimOp1Expr1Int(_, arg, ..) |
+            Expr::PrimOp1Expr2Int(_, arg, ..) => {
                 Self::add_expression(graph, expr_idx, arg);
             }
-            // Add other expression types as needed
-            _ => {}
+            _ => {
+            }
         }
+    }
+
+    fn add_tpe(graph: &mut Graph<FirrtlNode, ()>, parent: NodeIndex, tpe: &Type) {
+        let type_idx = graph.add_node(FirrtlNode::Type(tpe.clone()));
+        graph.add_edge(parent, type_idx, ());
     }
 
     /// Reconstruct a Circuit from the graph representation
     pub fn to_circuit(&self) -> Result<Circuit, FirrtlGraphError> {
         match &self.graph[self.root] {
-            FirrtlNode::Circuit(circuit) => {
+            FirrtlNode::Circuit(version, name, annos) => {
                 let mut modules = Vec::new();
                 for module_idx in self.graph.neighbors(self.root) {
                     match &self.graph[module_idx] {
-                        FirrtlNode::Module(_) => {
+                        FirrtlNode::Module(..) => {
                             let module = self.reconstruct_module(module_idx)?;
                             modules.push(Box::new(CircuitModule::Module(module)));
                         }
-                        FirrtlNode::ExtModule(_) => {
+                        FirrtlNode::ExtModule(..) => {
                             let ext_module = self.reconstruct_ext_module(module_idx)?;
                             modules.push(Box::new(CircuitModule::ExtModule(ext_module)));
                         }
@@ -187,9 +206,9 @@ impl FirrtlGraph {
                     }
                 }
                 Ok(Circuit {
-                    version: circuit.version.clone(),
-                    name: circuit.name.clone(),
-                    annos: circuit.annos.clone(),
+                    version: version.clone(),
+                    name: name.clone(),
+                    annos: annos.clone(),
                     modules,
                 })
             }
@@ -199,27 +218,27 @@ impl FirrtlGraph {
 
     fn reconstruct_module(&self, module_idx: NodeIndex) -> Result<Module, FirrtlGraphError> {
         match &self.graph[module_idx] {
-            FirrtlNode::Module(module) => {
+            FirrtlNode::Module(name, info) => {
                 let mut ports = Vec::new();
                 let mut stmts = Vec::new();
 
                 for child_idx in self.graph.neighbors(module_idx) {
                     match &self.graph[child_idx] {
                         FirrtlNode::Port(_) => {
-                            ports.push(self.reconstruct_port(child_idx)?);                            
+                            ports.push(self.reconstruct_port(child_idx)?);
                         }
                         FirrtlNode::Stmt(_) => {
-                            stmts.push(self.reconstruct_stmt(child_idx)?);                            
+                            stmts.push(self.reconstruct_stmt(child_idx)?);
                         }
                         _ => {}
                     }
                 }
 
                 Ok(Module {
-                    name: module.name.clone(),
+                    name: name.clone(),
                     ports,
                     stmts,
-                    info: module.info.clone(),
+                    info: info.clone(),
                 })
             }
             _ => Err(FirrtlGraphError::InvalidNodeType("Expected Module".to_string())),
@@ -228,7 +247,7 @@ impl FirrtlGraph {
 
     fn reconstruct_ext_module(&self, module_idx: NodeIndex) -> Result<ExtModule, FirrtlGraphError> {
         match &self.graph[module_idx] {
-            FirrtlNode::ExtModule(module) => {
+            FirrtlNode::ExtModule(name, defname, params, info) => {
                 let mut ports = Vec::new();
 
                 for child_idx in self.graph.neighbors(module_idx) {
@@ -241,11 +260,11 @@ impl FirrtlGraph {
                 }
 
                 Ok(ExtModule {
-                    name: module.name.clone(),
+                    name: name.clone(),
                     ports,
-                    defname: module.defname.clone(),
-                    params: module.params.clone(),
-                    info: module.info.clone(),
+                    defname: defname.clone(),
+                    params: params.clone(),
+                    info: info.clone(),
                 })
             }
             _ => Err(FirrtlGraphError::InvalidNodeType("Expected ExtModule".to_string())),
@@ -276,6 +295,13 @@ impl FirrtlGraph {
         if reconstructed == *original {
             Ok(())
         } else {
+            let mut printer = Printer::new();
+            let circuit_str = printer.print_circuit(&reconstructed);
+            std::fs::write(
+                &format!("./test-outputs/{}.reconstruct.fir", original.name.to_string()),
+                circuit_str
+            ).expect("to work");
+
             Err(FirrtlGraphError::GraphMismatch(
                 "Reconstructed AST does not match original".to_string()
             ))
@@ -286,83 +312,19 @@ impl FirrtlGraph {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use test_case::test_case;
+    use chirrtl_parser::parse_circuit;
 
-    #[test]
-    fn test_graph_reconstruction() -> Result<(), FirrtlGraphError> {
+    #[test_case("GCD" ; "GCD")]
+    fn test_graph_reconstruction(name: &str) -> Result<(), FirrtlGraphError> {
+        let source = std::fs::read_to_string(format!("./test-inputs/{}.fir", name)).expect("to_exist");
+        let circuit = parse_circuit(&source).expect("firrtl parser");
+
         // Create a simple test circuit
-        let circuit = Circuit {
-            version: Version::default(),
-            name: Identifier::Name("test".to_string()),
-            annos: Annotations::default(),
-            modules: vec![Box::new(CircuitModule::Module(Module {
-                name: Identifier::Name("TestModule".to_string()),
-                ports: vec![Box::new(Port::Input(
-                    Identifier::Name("in".to_string()),
-                    Type::TypeGround(TypeGround::UInt(Width(1))),
-                    Info::default(),
-                ))],
-                stmts: vec![Box::new(Stmt::Node(
-                    Identifier::Name("node".to_string()),
-                    Box::new(Expr::Reference(Reference::Ref(
-                        Identifier::Name("in".to_string())
-                    ))),
-                    Info::default(),
-                ))],
-                info: Info::default(),
-            }))],
-        };
         // Convert to graph
         let graph = FirrtlGraph::from_circuit(&circuit);
+
         // Verify reconstruction
-        graph.verify(&circuit)
-    }
-
-    #[test]
-    fn test_module_reconstruction() -> Result<(), FirrtlGraphError> {
-        // Create a test module with various statement types
-        let module = Module {
-            name: Identifier::Name("TestModule".to_string()),
-            ports: vec![
-                Box::new(Port::Input(
-                    Identifier::Name("in1".to_string()),
-                    Type::TypeGround(TypeGround::UInt(Width(1))),
-                    Info::default(),
-                )),
-                Box::new(Port::Output(
-                    Identifier::Name("out1".to_string()),
-                    Type::TypeGround(TypeGround::UInt(Width(1))),
-                    Info::default(),
-                )),
-            ],
-            stmts: vec![
-                Box::new(Stmt::Node(
-                    Identifier::Name("n1".to_string()),
-                    Box::new(Expr::Reference(Reference::Ref(
-                        Identifier::Name("in1".to_string())
-                    ))),
-                    Info::default(),
-                )),
-                Box::new(Stmt::Connect(
-                    Reference::Ref(Identifier::Name("out1".to_string())),
-                    Box::new(Expr::Reference(Reference::Ref(
-                        Identifier::Name("n1".to_string())
-                    ))),
-                    Info::default(),
-                )),
-            ],
-            info: Info::default(),
-        };
-
-        // Create a circuit containing this module
-        let circuit = Circuit {
-            version: Version::default(),
-            name: Identifier::Name("test".to_string()),
-            annos: Annotations::default(),
-            modules: vec![Box::new(CircuitModule::Module(module))],
-        };
-
-        // Convert to graph and verify
-        let graph = FirrtlGraph::from_circuit(&circuit);
         graph.verify(&circuit)
     }
 }
