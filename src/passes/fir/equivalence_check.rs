@@ -56,21 +56,23 @@ pub fn equivalence_check(input_fir: &str) -> Result<(), RippleIRErr> {
         }
     }
 
-    export_tcl(&input_fir, top_name)?;
+    export_tcl(&input_fir, top_name, "clock", "reset")?;
 
     let result = run_jaspergold(&input_fir, ".")?;
     match result {
-        EquivStatus::Proven => {
+        EquivStatus::Proven(x) => {
+            println!("Proved {} properties", x);
             Ok(())
         }
         EquivStatus::NothingToProve => {
             println!("Nothing to prove...");
             Ok(())
         }
-        EquivStatus::CounterExample => {
-            panic!("Found counter example");
+        EquivStatus::CounterExample(x) => {
+            panic!("Found {} counter examples", x);
         }
-        EquivStatus::Unknown => {
+        EquivStatus::Unknown(stdout) => {
+            println!("{}", stdout);
             panic!("Found unknown");
         }
     }
@@ -306,7 +308,7 @@ fn generate_miter(module: &Module) -> String {
 }
 
 
-pub fn export_tcl(firname: &str, top: &str) -> Result<(), RippleIRErr> {
+pub fn export_tcl(firname: &str, top: &str, clock: &str, reset: &str) -> Result<(), RippleIRErr> {
     let golden_dir = verilog_outdir("golden", firname);
     let impl_dir = verilog_outdir("impl", firname);
     let output_file = tcl_filename(firname);
@@ -355,10 +357,15 @@ pub fn export_tcl(firname: &str, top: &str) -> Result<(), RippleIRErr> {
     tcl_content.push_str("# Elaborate designs\n");
     tcl_content.push_str(&format!("check_sec -elaborate -spec -top {}\n", top));
     tcl_content.push_str(&format!("check_sec -elaborate -imp -top {}_impl\n", top));
+
+    tcl_content.push_str("# Setup equivalence check\n");
     tcl_content.push_str(&format!("check_sec -setup -spec_dut {} -imp_dut {}_impl\n", top, top));
+
     tcl_content.push_str("# Set clock and reset signals\n");
-    tcl_content.push_str("clock clock\n");
-    tcl_content.push_str("reset reset\n\n");
+    tcl_content.push_str(&format!("clock {}\n", clock));
+    tcl_content.push_str(&format!("reset {}\n\n", reset));
+
+    tcl_content.push_str("# Assert filter\n");
     tcl_content.push_str(&format!("assert -disable {{^{}\\..*}} -regexp\n", top));
     tcl_content.push_str("autoprove\n\n");
     tcl_content.push_str(&format!("report -file ./test-outputs/{}/report.txt -force\n", firname));
@@ -395,20 +402,22 @@ pub fn run_jaspergold<P: AsRef<Path>>(firname: &str, dir: P) -> Result<EquivStat
 }
 
 pub enum EquivStatus {
-    Proven,
-    CounterExample,
+    Proven(u32),
+    CounterExample(u32),
     NothingToProve,
-    Unknown,
+    Unknown(String),
 }
 
 pub fn parse_jasper_summary(stdout: &str) -> EquivStatus {
     let mut in_summary = false;
+    let mut has_summary = false;
     let mut proven = 0;
     let mut cex = 0;
 
     for line in stdout.lines() {
         if line.contains("SUMMARY") {
             in_summary = true;
+            has_summary = true;
             continue;
         }
 
@@ -437,13 +446,13 @@ pub fn parse_jasper_summary(stdout: &str) -> EquivStatus {
     }
 
     if cex > 0 {
-        EquivStatus::CounterExample
+        EquivStatus::CounterExample(cex)
     } else if proven > 0 {
-        EquivStatus::Proven
-    } else if cex == 0 && proven == 0 {
+        EquivStatus::Proven(proven)
+    } else if cex == 0 && proven == 0 && has_summary {
         EquivStatus::NothingToProve
     } else {
-        EquivStatus::Unknown
+        EquivStatus::Unknown(stdout.to_string())
     }
 }
 

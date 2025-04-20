@@ -6,6 +6,10 @@ boom_modules_dir   := test_inputs_dir + "/" + "boom-modules"
 rocket_modules_dir := test_inputs_dir + "/" + "rocket-modules"
 
 [group: 'test']
+split fir_file out_dir:
+  python scripts/firrtl-module-splitter.py {{fir_file}} {{out_dir}}
+
+[group: 'test']
 uncompress:
   tar -xvzf {{test_inputs_tar}}
   python3 scripts/firrtl-module-splitter.py {{test_inputs_dir}}/chipyard.harness.TestHarness.LargeBoomV3Config.fir  {{boom_modules_dir}}

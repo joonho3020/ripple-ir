@@ -10,7 +10,7 @@ use crate::passes::fir::to_ast::to_ast;
 use crate::passes::ast::print::Printer;
 use crate::common::RippleIRErr;
 
-pub fn equivalence_check_customtop(input_fir: &str, top: &str) -> Result<(), RippleIRErr> {
+pub fn equivalence_check_customtop(input_fir: &str, top: &str, clock: &str, reset: &str) -> Result<(), RippleIRErr> {
     let filename = format!("./test-inputs/{}.fir", input_fir);
     let source = std::fs::read_to_string(filename).expect("input file to exist");
     export_firrtl_and_sv("golden", input_fir, &source).expect("golden verilog export failed");
@@ -55,21 +55,23 @@ pub fn equivalence_check_customtop(input_fir: &str, top: &str) -> Result<(), Rip
         }
     }
 
-    export_tcl(&input_fir, top).expect("tcl export failed");
+    export_tcl(&input_fir, top, clock, reset).expect("tcl export failed");
 
     let result = run_jaspergold(&input_fir, ".").expect("jaspergold run failed");
     match result {
-        EquivStatus::Proven => {
+        EquivStatus::Proven(x) => {
+            println!("Proved {} properties", x);
             Ok(())
         }
         EquivStatus::NothingToProve => {
             println!("Nothing to prove...");
             Ok(())
         }
-        EquivStatus::CounterExample => {
-            panic!("Found counter example");
+        EquivStatus::CounterExample(x) => {
+            panic!("Found {} counter examples", x);
         }
-        EquivStatus::Unknown => {
+        EquivStatus::Unknown(stdout) => {
+            println!("{}", stdout);
             panic!("Found unknown");
         }
     }
@@ -81,10 +83,14 @@ mod test {
     use crate::common::RippleIRErr;
     use super::*;
 
-    #[test_case("chipyard.harness.TestHarness.RocketConfig", "Rocket" ; "Rocket")]
-    #[test_case("chipyard.harness.TestHarness.RocketConfig", "SerialTL0ClockSinkDomain" ; "SerialTL0ClockSinkDomain")]
-    fn run(name: &str, top: &str) -> Result<(), RippleIRErr> {
-        equivalence_check_customtop(name, top)?;
+    #[test_case("chipyard.harness.TestHarness.RocketConfig", "Rocket", "clock", "reset" ; "Rocket")]
+    #[test_case("chipyard.harness.TestHarness.RocketConfig", "SerialTL0ClockSinkDomain", "auto_clock_in_clock", "auto_clock_in_reset" ; "SerialTL0ClockSinkDomain")]
+    #[test_case("chipyard.harness.TestHarness.RocketConfig", "GenericDeserializer_TLBeatw88_f32", "clock", "reset" ; "GenericDeser0")]
+    #[test_case("chipyard.harness.TestHarness.RocketConfig", "GenericDeserializer_TLBeatw67_f32", "clock", "reset" ; "GenericDeser2")]
+    #[test_case("chipyard.harness.TestHarness.RocketConfig", "GenericDeserializer_TLBeatw87_f32", "clock", "reset" ; "GenericDeser3")]
+    #[test_case("chipyard.harness.TestHarness.RocketConfig", "TLSerdesser_serial_tl_0", "clock", "reset" ; "serial_tl_0")]
+    fn run(name: &str, top: &str, clock: &str, reset: &str) -> Result<(), RippleIRErr> {
+        equivalence_check_customtop(name, top, clock, reset)?;
         Ok(())
     }
 }
