@@ -463,5 +463,16 @@ impl<'a> SubTreeView<'a> {
             }
         }
     }
-}
 
+    /// Checks whether all the leaves have the same direction
+    pub fn is_bidirectional(&self) -> bool {
+        let leaves = self.leaves();
+        leaves.first()
+            .and_then(|first| self.get_node(*first))
+            .map_or(false, |first_node| {
+                leaves.iter()
+                    .map(|id| self.get_node(*id))
+                    .all(|node| node.map_or(false, |n| n.dir == first_node.dir))
+            })
+    }
+}
