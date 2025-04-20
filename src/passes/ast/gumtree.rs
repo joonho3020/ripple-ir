@@ -181,9 +181,9 @@ type MatchedDescSet = IndexMap<NodeIndex, Vec<NodeIndex>>;
 impl Default for GumTree {
     fn default() -> Self {
         Self {
-            min_height: 2,
+            min_height: 1,
             min_dice: Dice::new(0.5),
-            _max_subtree_size: 100,
+            _max_subtree_size: 10,
         }
     }
 }
@@ -217,8 +217,8 @@ impl GumTree {
         let mut src_vismap = src.graph.visit_map();
         let mut dst_vismap = dst.graph.visit_map();
 
-        while src_pq.peek().unwrap().height >= self.min_height &&
-              dst_pq.peek().unwrap().height >= self.min_height
+        while src_pq.peek().is_some() && src_pq.peek().unwrap().height >= self.min_height &&
+              dst_pq.peek().is_some() && dst_pq.peek().unwrap().height >= self.min_height
         {
             let src_peek_height = src_pq.peek().unwrap().height;
             let dst_peek_height = dst_pq.peek().unwrap().height;

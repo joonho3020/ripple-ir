@@ -8,7 +8,7 @@ use indexmap::IndexMap;
 use crate::passes::ast::print::Printer;
 
 /// A node in the FIRRTL AST for GumTree comparison
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ASTElement {
     Circuit(Version, Identifier, Annotations),
     Module(Identifier, Info),
@@ -17,6 +17,67 @@ pub enum ASTElement {
     Stmt(Stmt),
     Type(Type),
     Expr(Expr),
+}
+
+impl std::hash::Hash for ASTElement {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        // Hash discriminant first to differentiate between variants
+        std::mem::discriminant(self).hash(state);
+
+        match self {
+            // For Circuit, only hash Version and Identifier, ignore Annotations
+            ASTElement::Circuit(version, id, _) => {
+                version.hash(state);
+                id.hash(state);
+            }
+            // For Module, only hash Identifier, ignore Info
+            ASTElement::Module(id, _) => {
+                id.hash(state);
+            }
+            // For ExtModule, hash Identifier and DefName, ignore Parameters and Info
+            ASTElement::ExtModule(id, defname, _, _) => {
+                id.hash(state);
+                defname.hash(state);
+            }
+            // For Port, Type, Stmt, and Expr, use their default Hash implementation
+            ASTElement::Port(port) => {
+                std::mem::discriminant(port).hash(state);
+                match port {
+                    Port::Input(name, tpe, _) |
+                        Port::Output(name, tpe, _) => {
+                        name.hash(state);
+                        tpe.hash(state);
+                    }
+                }
+            }
+            ASTElement::Stmt(stmt) => {
+                std::mem::discriminant(stmt).hash(state);
+                match stmt {
+                    Stmt::Wire(name, _, _)       |
+                        Stmt::Reg(name, ..)      |
+                        Stmt::RegReset(name, ..) |
+                        Stmt::Inst(name, ..)     |
+                        Stmt::Node(name, ..)     => {
+                        name.hash(state);
+                    }
+                    Stmt::Skip(_info) => {}
+                    Stmt::Connect(_lhs, _rhs, _info) => {}
+                    Stmt::Invalidate(_lhs, _info) => {}
+                    Stmt::When(_cond, _info, _when, _else_opt) => {}
+                    Stmt::Printf(_clk, _en, msg, _args, _info) => {
+                        msg.hash(state);
+                    }
+                    Stmt::Assert(_clk, _en, _cond, msg, _info) => {
+                        msg.hash(state);
+                    }
+                    Stmt::ChirrtlMemory(..) => {}
+                    Stmt::ChirrtlMemoryPort(..) => {}
+                }
+            }
+            ASTElement::Type(typ) => typ.hash(state),
+            ASTElement::Expr(expr) => expr.hash(state),
+        }
+    }
 }
 
 pub type HashVal = u64;
@@ -175,6 +236,7 @@ impl FirrtlGraph {
                 }
 
                 let node = self.graph.node_weight_mut(id).unwrap();
+                node.elem.hash(&mut hasher);
                 node.hash = hasher.finish();
             }
         }

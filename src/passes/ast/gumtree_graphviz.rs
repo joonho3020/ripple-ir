@@ -224,9 +224,10 @@ impl GumTree {
 
         println!("========= Top down matches ==============");
         for Match(src_id, dst_id) in td_matches.iter() {
-            println!("{:?} // {:?}",
-                src.graph.node_weight(*src_id).unwrap().elem,
-                dst.graph.node_weight(*dst_id).unwrap().elem);
+            println!("---------------------------------------");
+            println!("{:?}\n{:?}",
+                src.graph.node_weight(*src_id).unwrap(),
+                dst.graph.node_weight(*dst_id).unwrap());
         }
 
 
@@ -239,11 +240,11 @@ impl GumTree {
 
         println!("========= Bottom up matches ==============");
         for Match(src_id, dst_id) in bu_matches.iter() {
-            println!("{:?} // {:?}",
-                src.graph.node_weight(*src_id).unwrap().elem,
-                dst.graph.node_weight(*dst_id).unwrap().elem);
+            println!("---------------------------------------");
+            println!("{:?}\n{:?}",
+                src.graph.node_weight(*src_id).unwrap(),
+                dst.graph.node_weight(*dst_id).unwrap());
         }
-
 
         let src_print_nodes: Vec<NodeIndex> = src_map.iter().map(|(_, v)| *v).collect();
         let dst_print_nodes: Vec<NodeIndex> = dst_map.iter().map(|(_, v)| *v).collect();
@@ -259,26 +260,26 @@ impl GumTree {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use chirrtl_parser::parse_circuit;
+    use test_case::test_case;
+
+    use super::*;
     use crate::passes::ast::firrtlgraph::FirrtlGraph;
     use crate::common::RippleIRErr;
 
-    #[test]
-    fn test_gcd_diff() -> Result<(), RippleIRErr> {
-        // Read and parse the original GCD circuit
-        let source = std::fs::read_to_string("./test-inputs/GCD.fir")?;
+    #[test_case("GCD", "GCDDelta" ; "GCD")]
+    #[test_case("Adder", "Subtracter" ; "Adder")]
+    fn run(src: &str, dst: &str) -> Result<(), RippleIRErr> {
+        let source = std::fs::read_to_string(format!("./test-inputs/{}.fir", src))?;
         let circuit = parse_circuit(&source).expect("firrtl parser");
         let src_graph = FirrtlGraph::from_circuit(&circuit);
 
-        // Read and parse the modified GCD circuit
-        let source_delta = std::fs::read_to_string("./test-inputs/GCDDelta.fir")?;
+        let source_delta = std::fs::read_to_string(format!("./test-inputs/{}.fir", dst))?;
         let circuit_delta = parse_circuit(&source_delta).expect("firrtl parser");
         let dst_graph = FirrtlGraph::from_circuit(&circuit_delta);
 
-        // Create GumTree and export the diff
         let gumtree = GumTree::default();
-        gumtree.export_gumtree_diff(&src_graph, &dst_graph, "./test-outputs/gcd_diff.pdf")?;
+        gumtree.export_gumtree_diff(&src_graph, &dst_graph, &format!("./test-outputs/{}.diff.pdf", src))?;
 
         Ok(())
     }
