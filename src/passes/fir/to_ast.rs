@@ -922,6 +922,7 @@ mod test {
     use crate::ir::whentree::*;
     use crate::passes::ast::print::Printer;
     use crate::passes::fir::from_ast::from_circuit;
+    use crate::passes::fir::infer_typetree::{check_typetree_inference, infer_typetree};
     use crate::passes::fir::remove_unnecessary_phi::remove_unnecessary_phi;
     use crate::passes::fir::check_phi_nodes::check_phi_node_connections;
     use crate::common::RippleIRErr;
@@ -1009,6 +1010,9 @@ mod test {
         let circuit = parse_circuit(&source).expect("firrtl parser");
 
         let mut ir = from_circuit(&circuit);
+        infer_typetree(&mut ir);
+        check_typetree_inference(&ir)?;
+
         remove_unnecessary_phi(&mut ir);
         check_phi_node_connections(&ir)?;
 

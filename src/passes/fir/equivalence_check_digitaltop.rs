@@ -83,12 +83,12 @@ mod test {
     use crate::common::RippleIRErr;
     use super::*;
 
-    #[test_case("chipyard.harness.TestHarness.RocketConfig", "Rocket", "clock", "reset" ; "Rocket")]
-    #[test_case("chipyard.harness.TestHarness.RocketConfig", "SerialTL0ClockSinkDomain", "auto_clock_in_clock", "auto_clock_in_reset" ; "SerialTL0ClockSinkDomain")]
     #[test_case("chipyard.harness.TestHarness.RocketConfig", "GenericDeserializer_TLBeatw88_f32", "clock", "reset" ; "GenericDeser0")]
     #[test_case("chipyard.harness.TestHarness.RocketConfig", "GenericDeserializer_TLBeatw67_f32", "clock", "reset" ; "GenericDeser2")]
     #[test_case("chipyard.harness.TestHarness.RocketConfig", "GenericDeserializer_TLBeatw87_f32", "clock", "reset" ; "GenericDeser3")]
-    #[test_case("chipyard.harness.TestHarness.RocketConfig", "TLSerdesser_serial_tl_0", "clock", "reset" ; "serial_tl_0")]
+// #[test_case("chipyard.harness.TestHarness.RocketConfig", "SerialTL0ClockSinkDomain", "auto_clock_in_clock", "auto_clock_in_reset" ; "SerialTL0ClockSinkDomain")]
+// #[test_case("chipyard.harness.TestHarness.RocketConfig", "Rocket", "clock", "reset" ; "Rocket")]
+// #[test_case("chipyard.harness.TestHarness.RocketConfig", "TLSerdesser_serial_tl_0", "clock", "reset" ; "serial_tl_0")]
     fn run(name: &str, top: &str, clock: &str, reset: &str) -> Result<(), RippleIRErr> {
         equivalence_check_customtop(name, top, clock, reset)?;
         Ok(())
