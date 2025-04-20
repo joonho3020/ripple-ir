@@ -9,3 +9,4 @@ pub mod equivalence_check;
 mod common_subgraph;
 mod hashing_function;
 pub mod equivalence_check_digitaltop;
+pub mod add_bidirectional_edges;

@@ -1,0 +1,7 @@
+[test-groups]
+serial-integration = { max-threads = 1 }
+
+[[profile.default.overrides]]
+filter = 'test(equivalence_check::) or test(equivalence_check_digitaltop::)'
+platform = 'cfg(unix)'
+test-group = 'serial-integration'
