@@ -3,6 +3,7 @@ use petgraph::{graph::{Graph, NodeIndex}, visit::EdgeRef, Direction::Outgoing};
 use std::hash::{Hash, Hasher};
 use std::collections::hash_map::DefaultHasher;
 use std::cmp::max;
+use std::fmt::Display;
 use indexmap::IndexMap;
 use crate::passes::ast::print::Printer;
 
@@ -60,6 +61,12 @@ impl FirrtlNode {
                 ASTNodeLabel(expr.to_string())
             }
         }
+    }
+}
+
+impl Display for FirrtlNode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} {}", self.height, self.label().0.replace('"', ""))
     }
 }
 

@@ -199,7 +199,7 @@ impl GumTree {
 }
 
 impl GumTree {
-    fn top_down_phase(&self, src: &FirrtlGraph, dst: &FirrtlGraph) -> Matches {
+    pub fn top_down_phase(&self, src: &FirrtlGraph, dst: &FirrtlGraph) -> Matches {
         let mut src_pq = PriorityQueue::new();
         let mut dst_pq = PriorityQueue::new();
 
@@ -384,7 +384,7 @@ impl GumTree {
 }
 
 impl GumTree {
-    fn bottom_up_phase(
+    pub fn bottom_up_phase(
         self: &Self,
         src: &FirrtlGraph,
         dst: &FirrtlGraph,
