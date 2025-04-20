@@ -1,10 +1,14 @@
 use chirrtl_parser::ast::*;
-use petgraph::{graph::{Graph, NodeIndex}, visit::EdgeRef};
+use petgraph::{graph::{Graph, NodeIndex}, visit::EdgeRef, Direction::Outgoing};
+use std::hash::{Hash, Hasher};
+use std::collections::hash_map::DefaultHasher;
+use std::cmp::max;
+use indexmap::IndexMap;
 use crate::passes::ast::print::Printer;
 
 /// A node in the FIRRTL AST for GumTree comparison
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum FirrtlNode {
+pub enum ASTElement {
     Circuit(Version, Identifier, Annotations),
     Module(Identifier, Info),
     ExtModule(Identifier, DefName, Parameters, Info),
@@ -12,7 +16,51 @@ pub enum FirrtlNode {
     Stmt(Stmt),
     Type(Type),
     Expr(Expr),
-    Info(Info),
+}
+
+pub type HashVal = u64;
+pub type Height = u32;
+pub type Descs = u32;
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct FirrtlNode {
+    pub elem: ASTElement,
+    pub height: Height,
+    pub hash: HashVal,
+    pub descs: Descs,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ASTNodeLabel(String);
+
+impl From<ASTElement> for FirrtlNode {
+    fn from(value: ASTElement) -> Self {
+        FirrtlNode { elem: value, height: 0, hash: 0, descs: 0 }
+    }
+}
+
+impl FirrtlNode {
+    pub fn label(&self) -> ASTNodeLabel {
+        match &self.elem {
+            ASTElement::Circuit(_, name, _)  |
+                ASTElement::Module(name, ..) |
+                ASTElement::ExtModule(name, ..) => {
+                    ASTNodeLabel(name.to_string())
+            }
+            ASTElement::Port(port) => {
+                ASTNodeLabel(port.to_string())
+            }
+            ASTElement::Stmt(stmt) => {
+                ASTNodeLabel(stmt.to_string())
+            }
+            ASTElement::Type(tpe) => {
+                ASTNodeLabel(tpe.to_string())
+            }
+            ASTElement::Expr(expr) => {
+                ASTNodeLabel(expr.to_string())
+            }
+        }
+    }
 }
 
 /// Graph representation of FIRRTL AST for GumTree algorithm
@@ -22,10 +70,12 @@ pub struct FirrtlGraph {
     pub root: NodeIndex,
 }
 
+/// To maintain the order of statements when reconstructing the AST
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OrderedEdge {
     /// Index representing the order of this edge among its siblings
     order: usize,
+
     /// Type of the edge to help with reconstruction
     edge_type: EdgeType,
 }
@@ -46,50 +96,159 @@ pub enum FirrtlGraphError {
 }
 
 impl FirrtlGraph {
+    /// Returns the height of the node
+    pub fn height(&self, id: NodeIndex) -> Height {
+        self.graph.node_weight(id).unwrap().height
+    }
+
+    /// Compute the height and hash of each node
+    pub fn compute_metadata(&mut self) {
+        // We can merge these three functions into one for performance...
+        self.compute_height();
+        self.compute_hash();
+        self.compute_num_desc();
+    }
+
+    fn compute_num_desc(&mut self) {
+         let mut dfs = petgraph::visit::DfsPostOrder::new(&self.graph, self.root);
+
+        while let Some(nidx) = dfs.next(&self.graph) {
+            let childs = self.graph.neighbors_directed(nidx, Outgoing);
+            let mut num_desc = 0;
+
+            for cidx in childs {
+                let cnode =  self.graph.node_weight(cidx).unwrap();
+                num_desc += cnode.descs + 1;
+            }
+            let node = self.graph.node_weight_mut(nidx).unwrap();
+            node.descs = num_desc;
+        }
+    }
+
+    /// Compute height of each tree node
+    fn compute_height(&mut self) {
+        let mut dfs = petgraph::visit::DfsPostOrder::new(&self.graph, self.root);
+        while let Some(id) = dfs.next(&self.graph) {
+            let is_leaf = self.graph.neighbors_directed(id, Outgoing).count() == 0;
+            if is_leaf {
+                let node = self.graph.node_weight_mut(id).unwrap();
+                node.height = 1;
+            } else {
+                let mut max_child_height = 0;
+                for cid in self.graph.neighbors_directed(id, Outgoing) {
+                    let child = self.graph.node_weight(cid).unwrap();
+                    max_child_height = max(max_child_height, child.height);
+                }
+                let node = self.graph.node_weight_mut(id).unwrap();
+                node.height = max_child_height + 1;
+            }
+        }
+    }
+
+    /// Compute hash of each tree node
+    fn compute_hash(&mut self) {
+        let mut dfs = petgraph::visit::DfsPostOrder::new(&self.graph, self.root);
+        while let Some(id) = dfs.next(&self.graph) {
+            let mut hasher = DefaultHasher::new();
+            let is_leaf = self.graph.neighbors_directed(id, Outgoing).count() == 0;
+            if is_leaf {
+                let node = self.graph.node_weight_mut(id).unwrap();
+
+                // Super naive hasing
+                node.elem.hash(&mut hasher);
+                node.hash = hasher.finish();
+            } else {
+                // Process all children in order
+                let mut ordered_edges: Vec<_> = self.graph.edges(id).collect();
+                ordered_edges.sort_by_key(|e| e.weight().order);
+                for edge in ordered_edges {
+                    let cid = self.graph.edge_endpoints(edge.id()).unwrap().1;
+                    let child = self.graph.node_weight(cid).unwrap();
+                    child.hash.hash(&mut hasher);
+                }
+
+                let node = self.graph.node_weight_mut(id).unwrap();
+                node.hash = hasher.finish();
+            }
+        }
+    }
+
+     /// Returns a set containing all node hash values
+    pub fn hash_count(self: &Self) -> IndexMap<HashVal, u32> {
+        let mut ret: IndexMap<HashVal, u32> = IndexMap::new();
+        for nw in self.graph.node_weights() {
+            if !ret.contains_key(&nw.hash) {
+                ret.insert(nw.hash, 0);
+            }
+            let cnt = ret.get_mut(&nw.hash).unwrap();
+            *cnt += 1;
+        }
+        return ret;
+    }
+
+    /// Returns a map from node labels to a list of node indices with the corresponding label
+    pub fn labels(self: &Self) -> IndexMap<ASTNodeLabel, Vec<NodeIndex>> {
+        let mut ret = IndexMap::new();
+        for nidx in self.graph.node_indices() {
+            let node = self.graph.node_weight(nidx).unwrap();
+            let label = node.label();
+            if !ret.contains_key(&label) {
+                ret.insert(label.clone(), vec![]);
+            }
+            ret.get_mut(&label).unwrap().push(nidx);
+        }
+        return ret;
+    }
+}
+
+impl FirrtlGraph {
     pub fn from_circuit(circuit: &Circuit) -> Self {
         let mut graph: Graph<FirrtlNode, OrderedEdge> = Graph::new();
-        let root = graph.add_node(FirrtlNode::Circuit(
+        let root = graph.add_node(FirrtlNode::from(ASTElement::Circuit(
                 circuit.version.clone(),
                 circuit.name.clone(),
-                circuit.annos.clone()));
+                circuit.annos.clone())));
 
         // Build graph recursively
         for (module_idx, module) in circuit.modules.iter().enumerate() {
             match module.as_ref() {
                 CircuitModule::Module(m) => {
-                    let idx = graph.add_node(
-                        FirrtlNode::Module(
+                    let idx = graph.add_node(FirrtlNode::from(
+                        ASTElement::Module(
                             m.name.clone(),
-                            m.info.clone()));
+                            m.info.clone())));
                     graph.add_edge(root, idx, OrderedEdge { order: module_idx, edge_type: EdgeType::Other });
                     Self::add_ports(&mut graph, idx, &m.ports);
                     Self::add_statements(&mut graph, idx, &m.stmts);
                 }
                 CircuitModule::ExtModule(m) => {
-                    let idx = graph.add_node(
-                        FirrtlNode::ExtModule(
+                    let idx = graph.add_node(FirrtlNode::from(
+                        ASTElement::ExtModule(
                             m.name.clone(),
                             m.defname.clone(),
                             m.params.clone(),
-                            m.info.clone()));
+                            m.info.clone())));
                     graph.add_edge(root, idx, OrderedEdge { order: module_idx, edge_type: EdgeType::Other });
                     Self::add_ports(&mut graph, idx, &m.ports);
                 }
             }
         }
-        Self { graph, root }
+
+        let mut ret = Self { graph, root };
+        ret.compute_metadata();
+        ret
     }
 
     fn add_ports(graph: &mut Graph<FirrtlNode, OrderedEdge>, parent: NodeIndex, ports: &Ports) {
         for (port_idx, port) in ports.iter().enumerate() {
-            let idx = graph.add_node(FirrtlNode::Port(port.as_ref().clone()));
+            let idx = graph.add_node(FirrtlNode::from(ASTElement::Port(port.as_ref().clone())));
             graph.add_edge(parent, idx, OrderedEdge { order: port_idx, edge_type: EdgeType::Port });
         }
     }
 
     fn add_statements(graph: &mut Graph<FirrtlNode, OrderedEdge>, parent: NodeIndex, stmts: &Stmts) {
         for (stmt_idx, stmt) in stmts.iter().enumerate() {
-            let idx = graph.add_node(FirrtlNode::Stmt(stmt.as_ref().clone()));
+            let idx = graph.add_node(FirrtlNode::from(ASTElement::Stmt(stmt.as_ref().clone())));
             graph.add_edge(parent, idx, OrderedEdge { order: stmt_idx, edge_type: EdgeType::Statement });
 
             match stmt.as_ref() {
@@ -170,7 +329,7 @@ impl FirrtlGraph {
     }
 
     fn add_expression(graph: &mut Graph<FirrtlNode, OrderedEdge>, parent: NodeIndex, expr: &Expr) {
-        let idx = graph.add_node(FirrtlNode::Expr(expr.clone()));
+        let idx = graph.add_node(FirrtlNode::from(ASTElement::Expr(expr.clone())));
         graph.add_edge(parent, idx, OrderedEdge { order: 0, edge_type: EdgeType::Other });
 
         match expr {
@@ -198,14 +357,16 @@ impl FirrtlGraph {
     }
 
     fn add_tpe(graph: &mut Graph<FirrtlNode, OrderedEdge>, parent: NodeIndex, tpe: &Type) {
-        let idx = graph.add_node(FirrtlNode::Type(tpe.clone()));
+        let idx = graph.add_node(FirrtlNode::from(ASTElement::Type(tpe.clone())));
         graph.add_edge(parent, idx, OrderedEdge { order: 0, edge_type: EdgeType::Other });
     }
+}
 
+impl FirrtlGraph {
     /// Reconstruct a Circuit from the graph representation
     pub fn to_circuit(&self) -> Result<Circuit, FirrtlGraphError> {
-        match &self.graph[self.root] {
-            FirrtlNode::Circuit(version, name, annos) => {
+        match &self.graph[self.root].elem {
+            ASTElement::Circuit(version, name, annos) => {
                 let mut modules = Vec::new();
 
                 let mut module_edges: Vec<_> = self.graph.edges(self.root).collect();
@@ -213,12 +374,12 @@ impl FirrtlGraph {
 
                 for edge in module_edges {
                     let dst = self.graph.edge_endpoints(edge.id()).unwrap().1;
-                    match &self.graph[dst] {
-                        FirrtlNode::Module(..) => {
+                    match &self.graph[dst].elem {
+                        ASTElement::Module(..) => {
                             let module = self.reconstruct_module(dst)?;
                             modules.push(Box::new(CircuitModule::Module(module)));
                         }
-                        FirrtlNode::ExtModule(..) => {
+                        ASTElement::ExtModule(..) => {
                             let ext_module = self.reconstruct_ext_module(dst)?;
                             modules.push(Box::new(CircuitModule::ExtModule(ext_module)));
                         }
@@ -238,8 +399,8 @@ impl FirrtlGraph {
     }
 
     fn reconstruct_module(&self, module_idx: NodeIndex) -> Result<Module, FirrtlGraphError> {
-        match &self.graph[module_idx] {
-            FirrtlNode::Module(name, info) => {
+        match &self.graph[module_idx].elem {
+            ASTElement::Module(name, info) => {
                 let mut ports = Vec::new();
                 let mut stmts = Vec::new();
 
@@ -278,8 +439,8 @@ impl FirrtlGraph {
     }
 
     fn reconstruct_ext_module(&self, module_idx: NodeIndex) -> Result<ExtModule, FirrtlGraphError> {
-        match &self.graph[module_idx] {
-            FirrtlNode::ExtModule(name, defname, params, info) => {
+        match &self.graph[module_idx].elem {
+            ASTElement::ExtModule(name, defname, params, info) => {
                 let mut ports = Vec::new();
 
                 // Get all port edges and sort by order
@@ -307,8 +468,8 @@ impl FirrtlGraph {
     }
 
     fn reconstruct_port(&self, port_idx: NodeIndex) -> Result<Box<Port>, FirrtlGraphError> {
-        match &self.graph[port_idx] {
-            FirrtlNode::Port(port) => {
+        match &self.graph[port_idx].elem {
+            ASTElement::Port(port) => {
                 Ok(Box::new(port.clone()))
             }
             _ => Err(FirrtlGraphError::InvalidNodeType("Expected Port".to_string())),
@@ -316,8 +477,8 @@ impl FirrtlGraph {
     }
 
     fn reconstruct_stmt(&self, stmt_idx: NodeIndex) -> Result<Box<Stmt>, FirrtlGraphError> {
-        match &self.graph[stmt_idx] {
-            FirrtlNode::Stmt(stmt) => {
+        match &self.graph[stmt_idx].elem {
+            ASTElement::Stmt(stmt) => {
                 Ok(Box::new(stmt.clone()))
             }
             _ => Err(FirrtlGraphError::InvalidNodeType("Expected Stmt".to_string())),
