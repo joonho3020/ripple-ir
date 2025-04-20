@@ -162,9 +162,7 @@ impl GraphViz for Hierarchy {
 #[cfg(test)]
 mod test {
     use crate::common::RippleIRErr;
-    use crate::passes::fir::from_ast::from_circuit;
-    use crate::passes::fir::remove_unnecessary_phi::*;
-    use crate::passes::fir::check_phi_nodes::*;
+    use crate::passes::runner::run_fir_passes;
 
     use super::*;
     use chirrtl_parser::parse_circuit;
@@ -174,10 +172,7 @@ mod test {
         let source = std::fs::read_to_string("./test-inputs/Hierarchy.fir".to_string())?;
         let circuit = parse_circuit(&source).expect("firrtl parser");
 
-        let mut fir = from_circuit(&circuit);
-        remove_unnecessary_phi(&mut fir);
-        check_phi_node_connections(&fir)?;
-
+        let fir = run_fir_passes(&circuit)?;
         let h = Hierarchy::new(&fir);
         let hns: Vec<&HierNode> = h.topo_order().collect();
 

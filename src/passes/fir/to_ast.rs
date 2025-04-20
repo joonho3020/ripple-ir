@@ -921,11 +921,8 @@ mod test {
     use crate::common::export_circuit;
     use crate::ir::whentree::*;
     use crate::passes::ast::print::Printer;
-    use crate::passes::fir::from_ast::from_circuit;
-    use crate::passes::fir::infer_typetree::{check_typetree_inference, infer_typetree};
-    use crate::passes::fir::remove_unnecessary_phi::remove_unnecessary_phi;
-    use crate::passes::fir::check_phi_nodes::check_phi_node_connections;
     use crate::common::RippleIRErr;
+    use crate::passes::runner::run_fir_passes;
     use chirrtl_parser::parse_circuit;
     use test_case::test_case;
     use indexmap::IndexMap;
@@ -1009,13 +1006,7 @@ mod test {
         let source = std::fs::read_to_string(format!("./test-inputs/{}.fir", name))?;
         let circuit = parse_circuit(&source).expect("firrtl parser");
 
-        let mut ir = from_circuit(&circuit);
-        infer_typetree(&mut ir);
-        check_typetree_inference(&ir)?;
-
-        remove_unnecessary_phi(&mut ir);
-        check_phi_node_connections(&ir)?;
-
+        let ir = run_fir_passes(&circuit)?;
         check_whentree_equivalence(&ir, &circuit)?;
 
         let circuit_reconstruct = to_ast(&ir);

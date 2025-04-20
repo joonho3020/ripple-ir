@@ -25,14 +25,14 @@ pub fn run_passes_from_filepath(name: &str) -> Result<FirIR, RippleIRErr> {
 pub fn run_fir_passes(circuit: &Circuit) -> Result<FirIR, RippleIRErr> {
     let mut fir = from_circuit(&circuit);
 
-    timeit!("remove_unnecessary_phi", {
-        remove_unnecessary_phi(&mut fir);
-        check_phi_node_connections(&fir)?;
-    });
-
     timeit!("infer_typetree", {
         infer_typetree(&mut fir);
         check_typetree_inference(&fir)?;
+    });
+
+    timeit!("remove_unnecessary_phi", {
+        remove_unnecessary_phi(&mut fir);
+        check_phi_node_connections(&fir)?;
     });
 
     Ok(fir)

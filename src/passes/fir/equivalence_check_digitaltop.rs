@@ -2,13 +2,11 @@ use indexmap::IndexSet;
 use chirrtl_parser::ast::{CircuitModule, DefName, Identifier};
 use chirrtl_parser::parse_circuit;
 use crate::passes::fir::equivalence_check::*;
-use crate::passes::fir::from_ast::from_circuit;
-use crate::passes::fir::remove_unnecessary_phi::remove_unnecessary_phi;
-use crate::passes::fir::check_phi_nodes::check_phi_node_connections;
 use crate::passes::fir::modify_names::add_sfx_to_module_names;
 use crate::passes::fir::to_ast::to_ast;
 use crate::passes::ast::print::Printer;
 use crate::common::RippleIRErr;
+use crate::passes::runner::run_fir_passes;
 
 pub fn equivalence_check_customtop(input_fir: &str, top: &str, clock: &str, reset: &str) -> Result<(), RippleIRErr> {
     let filename = format!("./test-inputs/{}.fir", input_fir);
@@ -16,9 +14,7 @@ pub fn equivalence_check_customtop(input_fir: &str, top: &str, clock: &str, rese
     export_firrtl_and_sv("golden", input_fir, &source).expect("golden verilog export failed");
 
     let circuit = parse_circuit(&source).expect("firrtl parser");
-    let mut ir = from_circuit(&circuit);
-    remove_unnecessary_phi(&mut ir);
-    check_phi_node_connections(&ir)?;
+    let mut ir = run_fir_passes(&circuit)?;
 
     let old_hier = ir.hier.clone();
     add_sfx_to_module_names(&mut ir, "_impl");
