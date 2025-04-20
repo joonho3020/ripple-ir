@@ -1,5 +1,6 @@
 use crate::ir::fir::FirIR;
 use crate::ir::rir::rir::RippleIR;
+use crate::passes::fir::add_bidirectional_edges::add_bidirectional_edges;
 use crate::passes::fir::from_ast::from_circuit;
 use crate::passes::fir::infer_typetree::*;
 use crate::passes::fir::remove_unnecessary_phi::remove_unnecessary_phi;
@@ -29,6 +30,11 @@ pub fn run_fir_passes(circuit: &Circuit) -> Result<FirIR, RippleIRErr> {
         infer_typetree(&mut fir);
         check_typetree_inference(&fir)?;
     });
+
+// timeit!("add_bidirectional_edges", {
+// add_bidirectional_edges(&mut fir);
+// check_typetree_inference(&fir)?;
+// });
 
     timeit!("remove_unnecessary_phi", {
         remove_unnecessary_phi(&mut fir);

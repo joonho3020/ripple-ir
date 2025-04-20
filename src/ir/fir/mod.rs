@@ -29,6 +29,17 @@ impl FirNode {
     pub fn new(name: Option<Identifier>, nt: FirNodeType, ttree: Option<TypeTree>) -> Self {
         Self { name, nt, ttree }
     }
+
+    pub fn is_phi(&self) -> bool {
+        match self.nt {
+            FirNodeType::Phi(..) => {
+                true
+            }
+            _ => {
+                false
+            }
+        }
+    }
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Hash)]

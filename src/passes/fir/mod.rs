@@ -7,3 +7,4 @@ pub mod to_ast;
 pub mod modify_names;
 pub mod equivalence_check;
 pub mod equivalence_check_digitaltop;
+pub mod add_bidirectional_edges;
