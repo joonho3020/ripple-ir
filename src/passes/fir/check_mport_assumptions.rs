@@ -263,11 +263,33 @@ fn track_en_drivers(fg: &FirGraph, cur_expr: &Expr, id: NodeIndex, drivers: &mut
             drivers.insert(cur_expr.clone());
             for pedge in fg.graph.edges_directed(id, Incoming) {
                 let edge = fg.graph.edge_weight(pedge.id()).unwrap();
+
                 if let Some(dst_ref) = &edge.dst {
+                    // Connection, follow it
                     let dst_expr = Expr::Reference(dst_ref.clone());
                     if *cur_expr == dst_expr {
                         let ep = fg.graph.edge_endpoints(pedge.id()).unwrap();
                         track_en_drivers(fg, &edge.src, ep.0, drivers);
+                    }
+                } else if edge.et == FirEdgeType::PhiOut {
+                    let phi_id = fg.graph.edge_endpoints(pedge.id()).unwrap().0;
+
+                    // Phi with no selection signal. Added to set priority
+                    // between partial connections between aggregate types.
+                    // These are just normal connections so we should track
+                    // connections that has the current expression as the destination.
+                    if fg.parent_with_type(phi_id, FirEdgeType::PhiSel).is_none() {
+                        let phi_parents = fg.graph.edges_directed(phi_id, Incoming);
+                        for phi_parent in phi_parents {
+                            let phi_iedge = fg.graph.edge_weight(phi_parent.id()).unwrap();
+                            if let Some(dst_ref) = &phi_iedge.dst {
+                                let dst_expr = Expr::Reference(dst_ref.clone());
+                                if *cur_expr == dst_expr {
+                                    let phi_ep = fg.graph.edge_endpoints(phi_parent.id()).unwrap();
+                                    track_en_drivers(fg, &phi_iedge.src, phi_ep.0, drivers);
+                                }
+                            }
+                        }
                     }
                 }
             }
