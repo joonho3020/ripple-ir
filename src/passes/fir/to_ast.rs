@@ -189,7 +189,7 @@ fn reconstruct_whentree(fg: &FirGraph) -> WhenTree {
                 let eids = fg.graph.edges_directed(id, Incoming);
                 for eid in eids {
                     let edge = fg.graph.edge_weight(eid.id()).unwrap();
-                    if let FirEdgeType::PhiInput(ppath) = &edge.et {
+                    if let FirEdgeType::PhiInput(ppath, _flipped) = &edge.et {
                         cond_priority_pair.push(&ppath.path);
                     }
                 }
@@ -830,7 +830,7 @@ fn fill_bottom_up_emission_info(
                     FirEdgeType::DontCare => {
                         continue;
                     }
-                    FirEdgeType::PhiInput(pconds) => {
+                    FirEdgeType::PhiInput(pconds, _flipped) => {
                         conds.push(pconds.path.clone());
                     }
                     _ => {
@@ -845,7 +845,7 @@ fn fill_bottom_up_emission_info(
                         let parents = fg.graph.edges_directed(cid, Incoming);
                         for peid in parents {
                             let pedge = fg.graph.edge_weight(peid.id()).unwrap();
-                            if let FirEdgeType::PhiInput(pconds) = &pedge.et {
+                            if let FirEdgeType::PhiInput(pconds, _flipped) = &pedge.et {
                                 if pconds.path.collect_sels().contains(&edge.src) {
                                     let x = pconds.path.cond_path(&edge.src);
                                     conds.push(x);
@@ -885,7 +885,7 @@ fn insert_conn_stmts(
             FirEdgeType::DontCare => {
                 continue;
             }
-            FirEdgeType::PhiInput(ppath) => {
+            FirEdgeType::PhiInput(ppath, _flipped) => {
                 if !ordered_stmts.contains_key(&ppath.path) {
                     ordered_stmts.insert(&ppath.path, vec![]);
                 }

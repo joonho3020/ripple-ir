@@ -50,7 +50,7 @@ fn is_removable(rg: &FirGraph, id: NodeIndex) -> bool {
             FirEdgeType::PhiSel => {
                 has_sel = true;
             }
-            FirEdgeType::PhiInput(ppath) => {
+            FirEdgeType::PhiInput(ppath, _flipped) => {
                 if !has_non_trivial_sel {
                     has_non_trivial_sel = !ppath.path.always_true()
                 }
@@ -95,7 +95,7 @@ fn connect_phi_parent_to_child(rg: &mut FirGraph, id: NodeIndex) {
         let ep = rg.graph.edge_endpoints(*peid).unwrap();
         let src = ep.0;
         match &ew.et {
-            FirEdgeType::PhiInput(ppath) => {
+            FirEdgeType::PhiInput(ppath, _flipped) => {
                 let dst_ref = ew.dst.as_ref().unwrap();
                 if !dst_by_priority.contains_key(dst_ref) {
                     dst_by_priority.insert(dst_ref.clone(), (*peid, ppath.clone()));

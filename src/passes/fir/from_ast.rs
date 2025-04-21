@@ -536,7 +536,7 @@ fn connect_phi_in_edges_from_stmts(ir: &mut FirGraph, stmts: &Stmts, nm: &mut No
                             let edge = FirEdge::new(
                                 rhs.clone(),
                                 Some(r.clone()),
-                                FirEdgeType::PhiInput(path_w_stmt_prior));
+                                FirEdgeType::PhiInput(path_w_stmt_prior, false));
                             add_graph_edge_from_expr(ir, *phi_id, &rhs, edge, nm);
                         }
                         _ => {
@@ -602,7 +602,7 @@ fn connect_phi_node_sel_id(ir: &mut FirGraph, id: NodeIndex, nm: &mut NodeMap) {
     for pedge_ref in pedges {
         let edge_w = ir.graph.edge_weight(pedge_ref.id()).unwrap();
         match &edge_w.et {
-            FirEdgeType::PhiInput(ppath) => {
+            FirEdgeType::PhiInput(ppath, flipped) => {
                 let sels = ppath.path.collect_sels();
                 for sel in sels {
                     sel_exprs.insert(sel);

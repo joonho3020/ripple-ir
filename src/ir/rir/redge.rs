@@ -21,7 +21,7 @@ pub enum RippleEdgeType {
     Reset,
     DontCare,
 
-    PhiInput(CondPathWithPrior),
+    PhiInput(CondPathWithPrior, bool),
     PhiSel,
     PhiOut,
 
@@ -45,7 +45,9 @@ impl From<&FirEdgeType> for RippleEdgeType {
             FirEdgeType::Clock => RippleEdgeType::Clock,
             FirEdgeType::Reset => RippleEdgeType::Reset,
             FirEdgeType::DontCare => RippleEdgeType::DontCare,
-            FirEdgeType::PhiInput(prior_cond) => RippleEdgeType::PhiInput(prior_cond.clone()),
+            FirEdgeType::PhiInput(prior_cond, flipped) => {
+                RippleEdgeType::PhiInput(prior_cond.clone(), flipped.clone())
+            }
             FirEdgeType::PhiSel => RippleEdgeType::PhiSel,
             FirEdgeType::PhiOut => RippleEdgeType::PhiOut,
             FirEdgeType::MemPortEdge => RippleEdgeType::MemPortEdge,

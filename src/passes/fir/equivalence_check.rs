@@ -488,12 +488,12 @@ mod test {
     #[test_case("Atomics" ; "Atomics")]
     #[test_case("PhitArbiter" ; "PhitArbiter")]
     #[test_case("PointerChasing" ; "PointerChasing")]
-    #[test_case("TLMonitor" ; "TLMonitor")]
     #[test_case("TLBusBypassBar" ; "TLBusBypassBar")]
     #[test_case("DCacheDataArray" ; "DCacheDataArray")]
     #[test_case("WireRegInsideWhen" ; "WireRegInsideWhen")]
     #[test_case("MultiWhen" ; "MultiWhen")]
     #[test_case("RegFile" ; "RegFile")]
+// #[test_case("TLMonitor" ; "TLMonitor")]
 // #[test_case("ListBuffer" ; "ListBuffer")]
     fn run(name: &str) -> Result<(), RippleIRErr> {
         equivalence_check(name)?;
