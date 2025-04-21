@@ -125,6 +125,11 @@ fn has_inferred_readwrite_port(fg: &FirGraph, id: NodeIndex) -> bool {
     let wport_drivers = &wport_en_drivers[0];
     let rport_drivers = &rport_en_drivers[0];
 
+// println!("---------------------------------------------------");
+// println!("Memory {:?}", mem);
+// println!("wport_drivers {:?}", wport_drivers);
+// println!("rport_drivers {:?}", rport_drivers);
+
     let mut found_complement = false;
     'wport_loop: for w in wport_drivers {
         for r in rport_drivers {
@@ -134,6 +139,7 @@ fn has_inferred_readwrite_port(fg: &FirGraph, id: NodeIndex) -> bool {
             }
         }
     }
+// println!("found_complement {:?}", found_complement);
     return found_complement;
 }
 

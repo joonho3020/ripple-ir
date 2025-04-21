@@ -1,57 +1,63 @@
 use chirrtl_parser::ast::Expr;
-
-use crate::{common::{graphviz::DefaultGraphVizCore, RippleIRErr}, ir::fir::{FirGraph, FirIR}};
+use indexmap::IndexMap;
+use petgraph::graph::NodeIndex;
+use petgraph::graph::EdgeIndex;
+use crate::{common::graphviz::DefaultGraphVizCore, ir::fir::{FirGraph, FirIR}};
 use crate::ir::fir::*;
 
-pub fn add_bidirectional_edges(fir: &mut FirIR) {
+pub fn flip_bidirectional_edges(fir: &mut FirIR) {
     for (_name, fg) in fir.graphs.iter_mut() {
-        add_bidirectional_edges_graph(fg);
+        flip_bidirectional_edges_graph(fg);
     }
 }
 
-fn add_bidirectional_edges_graph(fg: &mut FirGraph) {
+#[derive(Debug)]
+struct FlippedEdges {
+    src: NodeIndex,
+    dst: NodeIndex,
+    edge: FirEdge,
+}
+
+fn flip_bidirectional_edges_graph(fg: &mut FirGraph) {
+    let mut flipped_edges: IndexMap<EdgeIndex, FlippedEdges> = IndexMap::new();
+
     for eid in fg.edge_indices() {
-        let edge = fg.graph.edge_weight(eid).unwrap();
-        let (src, dst) = fg.graph.edge_endpoints(eid).unwrap();
-
-        let ttree = fg.graph.node_weight(src).unwrap()
-            .ttree.as_ref().unwrap()
-            .view().unwrap();
-
-        let subtree = ttree.subtree_from_expr(&edge.src).unwrap();
-        if !subtree.is_bidirectional() {
+        if !fg.bidirectional(eid) {
             continue;
         }
-
-        let src_node = fg.graph.node_weight(src).unwrap();
+        let (src, dst) = fg.graph.edge_endpoints(eid).unwrap();
+        let src_phi_parent_opt = fg.parent_with_type(src, FirEdgeType::PhiOut);
         let dst_node = fg.graph.node_weight(dst).unwrap();
 
-        let src_in_id = if src_node.is_phi() {
-            let src_phi_id = fg.parent_with_type(src, FirEdgeType::PhiOut).unwrap();
-            let ep = fg.graph.edge_endpoints(src_phi_id).unwrap();
-            ep.0
-        } else {
-            src
-        };
+        // This edge is a bidirectional edge
+        // Src has a phi node
+        if let Some(src_phi_eid) = src_phi_parent_opt {
+            let (src_phi_id, _) = fg.graph.edge_endpoints(src_phi_eid).unwrap();
 
-        let dst_out_id = if dst_node.is_phi() {
-            let childs = fg.childs_with_type(dst, FirEdgeType::PhiOut);
-            assert!(childs.len() == 1);
-            fg.graph.edge_endpoints(childs[0]).unwrap().1
-        } else {
-            dst
-        };
+            // Dst doesn't have a phi node
+            if !dst_node.is_phi() {
+                let edge = fg.graph.edge_weight(eid).unwrap();
 
-        if edge.dst.is_some() && edge.et != FirEdgeType::DontCare {
-            let src_expr = Expr::Reference(edge.dst.as_ref().unwrap().clone());
-            if let Expr::Reference(dst_ref) = &edge.src {
-                let reverse_edge = FirEdge::new(src_expr, Some(dst_ref.clone()), edge.et.clone());
-                fg.graph.add_edge(dst_out_id, src_in_id, reverse_edge);
+                match (&edge.src, &edge.dst) {
+                    (Expr::Reference(src_ref), Some(dst_ref)) => {
+                        let flipped_src = Expr::Reference(dst_ref.clone());
+                        let flipped_dst = Some(src_ref.clone());
+                        let flipped = FirEdge::new(flipped_src, flipped_dst, edge.et.clone());
+                        flipped_edges.insert(eid, FlippedEdges { src: dst, dst: src_phi_id, edge: flipped });
+                    }
+                    _ => {}
+                }
             }
         }
     }
-}
+    println!("flipped edges {:?}", flipped_edges);
 
-pub fn check_bidirectional_edges(fir: &FirIR) -> Result<(), RippleIRErr> {
-    Ok(())
+    for eid in fg.edge_indices().rev() {
+        if flipped_edges.contains_key(&eid) {
+            fg.graph.remove_edge(eid);
+
+            let flipped = flipped_edges.get(&eid).unwrap();
+            fg.graph.add_edge(flipped.src, flipped.dst, flipped.edge.clone());
+        }
+    }
 }
