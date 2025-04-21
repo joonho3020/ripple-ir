@@ -29,6 +29,17 @@ impl FirNode {
     pub fn new(name: Option<Identifier>, nt: FirNodeType, ttree: Option<TypeTree>) -> Self {
         Self { name, nt, ttree }
     }
+
+    pub fn is_phi(&self) -> bool {
+        match self.nt {
+            FirNodeType::Phi(..) => {
+                true
+            }
+            _ => {
+                false
+            }
+        }
+    }
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Hash)]
@@ -91,7 +102,7 @@ pub enum FirEdgeType {
     Reset,
     DontCare,
 
-    PhiInput(CondPathWithPrior),
+    PhiInput(CondPathWithPrior, bool),
     PhiSel,
     PhiOut,
 
@@ -174,6 +185,21 @@ impl FirGraph {
         }
         return ret;
     }
+
+    pub fn bidirectional(&self, id: EdgeIndex) -> bool {
+        let edge = self.graph.edge_weight(id).unwrap();
+        let (src, _dst) = self.graph.edge_endpoints(id).unwrap();
+        let ttree = self.graph.node_weight(src).unwrap()
+            .ttree.as_ref().unwrap()
+            .view().unwrap();
+
+// println!("src {:?}, dst{:?}", src, _dst);
+
+        let subtree = ttree.subtree_from_expr(&edge.src).unwrap();
+// subtree.print_tree();
+// println!("subtree is bidirectional {:?}", subtree.is_bidirectional());
+        subtree.is_bidirectional()
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -240,20 +266,15 @@ mod test {
     use crate::ir::typetree::typetree::*;
     use crate::ir::typetree::tnode::*;
     use crate::ir::typetree::tedge::*;
+    use crate::passes::runner::run_fir_passes;
     use chirrtl_parser::ast::*;
     use chirrtl_parser::parse_circuit;
-    use crate::passes::fir::from_ast::from_circuit;
-    use crate::passes::fir::remove_unnecessary_phi::remove_unnecessary_phi;
-    use crate::passes::fir::check_phi_nodes::check_phi_node_connections;
 
     #[test]
     fn io_typetree() -> Result<(), RippleIRErr> {
         let source = std::fs::read_to_string("./test-inputs/GCD.fir")?;
         let circuit = parse_circuit(&source).expect("firrtl parser");
-
-        let mut fir = from_circuit(&circuit);
-        remove_unnecessary_phi(&mut fir);
-        check_phi_node_connections(&fir)?;
+        let fir = run_fir_passes(&circuit)?;
 
         for (_name, fg) in fir.graphs {
             let mut io_typetree = fg.io_typetree();

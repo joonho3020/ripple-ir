@@ -189,7 +189,7 @@ fn reconstruct_whentree(fg: &FirGraph) -> WhenTree {
                 let eids = fg.graph.edges_directed(id, Incoming);
                 for eid in eids {
                     let edge = fg.graph.edge_weight(eid.id()).unwrap();
-                    if let FirEdgeType::PhiInput(ppath) = &edge.et {
+                    if let FirEdgeType::PhiInput(ppath, _flipped) = &edge.et {
                         cond_priority_pair.push(&ppath.path);
                     }
                 }
@@ -830,7 +830,7 @@ fn fill_bottom_up_emission_info(
                     FirEdgeType::DontCare => {
                         continue;
                     }
-                    FirEdgeType::PhiInput(pconds) => {
+                    FirEdgeType::PhiInput(pconds, _flipped) => {
                         conds.push(pconds.path.clone());
                     }
                     _ => {
@@ -845,7 +845,7 @@ fn fill_bottom_up_emission_info(
                         let parents = fg.graph.edges_directed(cid, Incoming);
                         for peid in parents {
                             let pedge = fg.graph.edge_weight(peid.id()).unwrap();
-                            if let FirEdgeType::PhiInput(pconds) = &pedge.et {
+                            if let FirEdgeType::PhiInput(pconds, _flipped) = &pedge.et {
                                 if pconds.path.collect_sels().contains(&edge.src) {
                                     let x = pconds.path.cond_path(&edge.src);
                                     conds.push(x);
@@ -880,20 +880,25 @@ fn insert_conn_stmts(
 
         let lhs = Expr::Reference(edge.dst.as_ref().unwrap().clone());
         let rhs = edge.src.clone();
-        let stmt = Stmt::Connect(lhs, rhs, Info::default());
         match &edge.et {
             FirEdgeType::DontCare => {
                 continue;
             }
-            FirEdgeType::PhiInput(ppath) => {
+            FirEdgeType::PhiInput(ppath, flipped) => {
                 if !ordered_stmts.contains_key(&ppath.path) {
                     ordered_stmts.insert(&ppath.path, vec![]);
                 }
+                let stmt = if *flipped {
+                    Stmt::Connect(rhs, lhs, Info::default())
+                } else {
+                    Stmt::Connect(lhs, rhs, Info::default())
+                };
                 let pstmt = StmtWithPrior::new(stmt, Some(ppath.prior));
                 ordered_stmts.get_mut(&ppath.path).unwrap().push(pstmt);
             }
             _ => {
                 let leaf = whentree.get_node_mut(&CondPath::bottom(), None).unwrap();
+                let stmt = Stmt::Connect(lhs, rhs, Info::default());
                 let pstmt = StmtWithPrior::new(stmt, None);
                 leaf.stmts.push(pstmt);
             }
@@ -921,10 +926,8 @@ mod test {
     use crate::common::export_circuit;
     use crate::ir::whentree::*;
     use crate::passes::ast::print::Printer;
-    use crate::passes::fir::from_ast::from_circuit;
-    use crate::passes::fir::remove_unnecessary_phi::remove_unnecessary_phi;
-    use crate::passes::fir::check_phi_nodes::check_phi_node_connections;
     use crate::common::RippleIRErr;
+    use crate::passes::runner::run_fir_passes;
     use chirrtl_parser::parse_circuit;
     use test_case::test_case;
     use indexmap::IndexMap;
@@ -1008,10 +1011,7 @@ mod test {
         let source = std::fs::read_to_string(format!("./test-inputs/{}.fir", name))?;
         let circuit = parse_circuit(&source).expect("firrtl parser");
 
-        let mut ir = from_circuit(&circuit);
-        remove_unnecessary_phi(&mut ir);
-        check_phi_node_connections(&ir)?;
-
+        let ir = run_fir_passes(&circuit)?;
         check_whentree_equivalence(&ir, &circuit)?;
 
         let circuit_reconstruct = to_ast(&ir);
