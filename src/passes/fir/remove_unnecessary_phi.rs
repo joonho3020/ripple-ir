@@ -75,7 +75,8 @@ fn is_removable(fg: &FirGraph, id: NodeIndex) -> bool {
         panic!("Phi node has incoming sel, but only has trivial selectors");
     }
 
-    if !has_sel || !has_non_trivial_sel {
+    let pedges = fg.graph.edges_directed(id, Incoming);
+    if (!has_sel || !has_non_trivial_sel) && pedges.count() == 1 {
         return true;
     } else {
         return false;

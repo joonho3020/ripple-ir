@@ -602,7 +602,7 @@ fn connect_phi_node_sel_id(ir: &mut FirGraph, id: NodeIndex, nm: &mut NodeMap) {
     for pedge_ref in pedges {
         let edge_w = ir.graph.edge_weight(pedge_ref.id()).unwrap();
         match &edge_w.et {
-            FirEdgeType::PhiInput(ppath, flipped) => {
+            FirEdgeType::PhiInput(ppath, _flipped) => {
                 let sels = ppath.path.collect_sels();
                 for sel in sels {
                     sel_exprs.insert(sel);
