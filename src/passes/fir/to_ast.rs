@@ -66,6 +66,7 @@ fn get_ports(fg: &FirGraph) -> Ports {
 }
 
 fn to_module(name: &Identifier, fg: &FirGraph) -> Module {
+    println!("========================= Module {:?} =================", name);
     let ports = get_ports(fg);
     let mut stmts: Stmts = Stmts::new();
     collect_stmts(fg, &mut stmts);
@@ -212,9 +213,26 @@ fn is_reginit(fg: &FirGraph, id: NodeIndex) -> bool {
     node.nt == FirNodeType::RegReset
 }
 
+fn reverse_adjacency_list(
+    graph: &IndexMap<NodeIndex, IndexSet<NodeIndex>>,
+) -> IndexMap<NodeIndex, IndexSet<NodeIndex>> {
+    let mut reversed = IndexMap::<NodeIndex, IndexSet<NodeIndex>>::new();
+
+    for (src, dsts) in graph {
+        for dst in dsts {
+            reversed
+                .entry(*dst)
+                .or_insert_with(IndexSet::new)
+                .insert(*src);
+        }
+    }
+
+    reversed
+}
+
 fn collect_stmts(fg: &FirGraph, stmts: &mut Stmts) {
     let mut whentree = reconstruct_whentree(fg);
-    let mut array_addr_edges: IndexMap<NodeIndex, IndexSet<NodeIndex>> = IndexMap::new();
+    let mut array_addr_childs: IndexMap<NodeIndex, IndexSet<NodeIndex>> = IndexMap::new();
     let mut invalidate_edges: IndexMap<NodeIndex, IndexSet<NodeIndex>> = IndexMap::new();
 
     // Compute indeg for the entire graph
@@ -242,10 +260,21 @@ fn collect_stmts(fg: &FirGraph, stmts: &mut Stmts) {
                     continue;
                 }
                 visited_refs.insert((dst, ref_expr));
-                find_array_addr_chain_in_ref(fg, src, dst, ref_expr, &whentree, &mut array_addr_edges, &mut indeg);
+                find_array_addr_chain_in_ref(fg, src, dst, ref_expr, &whentree, &mut array_addr_childs, &mut indeg);
             }
         }
     }
+
+    for (x, childs) in array_addr_childs.iter() {
+        println!("- {:?}", fg.graph.node_weight(*x).unwrap());
+        for child in childs {
+            println!("  - {:?}", fg.graph.node_weight(*child).unwrap());
+        }
+    }
+
+    let array_addr_parents = reverse_adjacency_list(&array_addr_childs);
+// println!("array_addr_childs {:?}", array_addr_childs);
+// println!("array_addr_parents {:?}", array_addr_parents);
 
     // Add implicit dependency edges for invalidate stmts
     for eid in fg.graph.edge_indices() {
@@ -331,8 +360,8 @@ fn collect_stmts(fg: &FirGraph, stmts: &mut Stmts) {
             topo_vis_map.visit(nidx);
             topo_sort_order.push(nidx);
 
-            if array_addr_edges.contains_key(&nidx) {
-                let addr_childs = array_addr_edges.get(&nidx).unwrap();
+            if array_addr_childs.contains_key(&nidx) {
+                let addr_childs = array_addr_childs.get(&nidx).unwrap();
                 for &cidx in addr_childs {
                     if is_reginit(fg, cidx) {
                         continue;
@@ -423,11 +452,11 @@ fn collect_stmts(fg: &FirGraph, stmts: &mut Stmts) {
                 FirNodeType::PrimOp1Expr(..) |
                 FirNodeType::PrimOp1Expr1Int(..) |
                 FirNodeType::PrimOp1Expr2Int(..) => {
-                    let pconds = insert_op_stmts(fg, nidx, &emission_info, &mut whentree);
+                    let pconds = insert_op_stmts(fg, nidx, &emission_info, &array_addr_parents, &mut whentree);
                     emission_info.topdown.insert(nidx, pconds.clone());
                 }
                 FirNodeType::DontCare => {
-                    let pconds = insert_invalidate_stmts(fg, nidx, &mut whentree);
+                    let pconds = insert_invalidate_stmts(fg, nidx, &emission_info, &mut whentree);
                     emission_info.topdown.insert(nidx, pconds.clone());
                 }
                 FirNodeType::SMem(..) |
@@ -439,7 +468,7 @@ fn collect_stmts(fg: &FirGraph, stmts: &mut Stmts) {
                 FirNodeType::Reg      |
                 FirNodeType::Wire     |
                 FirNodeType::Inst(..) => {
-                    let pconds = insert_def_topo_start_stmts(fg, nidx, &mut whentree);
+                    let pconds = insert_def_topo_start_stmts(fg, nidx, &emission_info, &mut whentree);
                     emission_info.topdown.insert(nidx, pconds.clone());
                 }
                 _ => {
@@ -531,9 +560,37 @@ fn insert_def_mem_stmts(
 fn insert_def_topo_start_stmts(
     fg: &FirGraph,
     id: NodeIndex,
+    emission_info: &EmissionInfo,
     whentree: &mut WhenTree
 ) -> CondPath {
+    let node = fg.node_weight(id).unwrap();
     let mut highest_path = whentree.get_top_path();
+
+    match &node.nt {
+        FirNodeType::RegReset => {
+            let clk_eid = fg.parent_with_type(id, FirEdgeType::Clock).unwrap();
+            let rst_eid = fg.parent_with_type(id, FirEdgeType::Reset).unwrap();
+            let init_eid = fg.parent_with_type(id, FirEdgeType::InitValue).unwrap();
+
+            let clk_src = fg.graph.edge_endpoints(clk_eid).unwrap().0;
+            let rst_src = fg.graph.edge_endpoints(rst_eid).unwrap().0;
+            let init_src = fg.graph.edge_endpoints(init_eid).unwrap().0;
+
+            if emission_info.topdown.contains_key(&clk_src) {
+                let pconds = emission_info.topdown.get(&clk_src).unwrap();
+                highest_path = lower(highest_path, pconds.clone());
+            }
+            if emission_info.topdown.contains_key(&rst_src) {
+                let pconds = emission_info.topdown.get(&rst_src).unwrap();
+                highest_path = lower(highest_path, pconds.clone());
+            }
+            if emission_info.topdown.contains_key(&init_src) {
+                let pconds = emission_info.topdown.get(&init_src).unwrap();
+                highest_path = lower(highest_path, pconds.clone());
+            }
+        }
+        _ => {}
+    }
 
     if let Some(peid) = fg.parent_with_type(id, FirEdgeType::PhiOut) {
         let phi_id = fg.graph.edge_endpoints(peid).unwrap().0;
@@ -552,7 +609,6 @@ fn insert_def_topo_start_stmts(
         Some(&highest_path.last().unwrap().prior))
             .unwrap();
 
-    let node = fg.node_weight(id).unwrap();
     match &node.nt {
         FirNodeType::RegReset => {
             let tpe = node.ttree.as_ref().unwrap().to_type();
@@ -611,9 +667,10 @@ fn insert_def_topo_start_stmts(
 fn insert_invalidate_stmts(
     fg: &FirGraph,
     id: NodeIndex,
+    emission_info: &EmissionInfo,
     whentree: &mut WhenTree
 ) -> CondPath {
-    let mut highest_path = whentree.get_top_path();
+    let mut highest_path = find_highest_path(fg, id, &emission_info.topdown, whentree);
     let childs = fg.graph.neighbors_directed(id, Outgoing);
     for cid in childs {
         let child = fg.graph.node_weight(cid).unwrap();
@@ -720,10 +777,24 @@ fn insert_op_stmts(
     fg: &FirGraph,
     id: NodeIndex,
     emission_info: &EmissionInfo,
+    array_addr_parents: &IndexMap<NodeIndex, IndexSet<NodeIndex>>,
     whentree: &mut WhenTree
 ) -> CondPath {
     let node = fg.graph.node_weight(id).unwrap();
     let mut highest_path = find_highest_path(fg, id, &emission_info.topdown, &whentree);
+
+    if array_addr_parents.contains_key(&id) {
+        println!("{:?}", fg.graph.node_weight(id).unwrap());
+        let parents = array_addr_parents.get(&id).unwrap();
+        for pid in parents {
+            if emission_info.topdown.contains_key(pid) {
+                println!("Parent {:?}, parent position {:?}",
+                    fg.graph.node_weight(*pid).unwrap(), 
+                    emission_info.topdown.get(pid).unwrap());
+                highest_path = lower(highest_path, emission_info.topdown.get(pid).unwrap().clone());
+            }
+        }
+    }
 
     let bu_pconds = emission_info.bottomup.get(&id);
     if bu_pconds.is_some() {
@@ -1005,6 +1076,8 @@ mod test {
     #[test_case("DCacheDataArray" ; "DCacheDataArray")]
     #[test_case("Hierarchy" ; "Hierarchy")]
     #[test_case("Cache" ; "Cache")]
+    #[test_case("TLXbar_pbus" ; "TLXbar_pbus")]
+    #[test_case("BTBBranchPredictorBank" ; "BTBBranchPredictorBank")]
     #[test_case("chipyard.harness.TestHarness.RocketConfig" ; "Rocket")]
     #[test_case("chipyard.harness.TestHarness.LargeBoomV3Config" ; "Boom")]
     fn run(name: &str) -> Result<(), RippleIRErr> {
