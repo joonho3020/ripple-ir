@@ -4,7 +4,7 @@ use crate::passes::fir::to_ast::to_ast;
 use crate::common::RippleIRErr;
 use crate::passes::ast::print::Printer;
 use crate::passes::runner::run_fir_passes;
-use chirrtl_parser::ast::{CircuitModule, DefName, Identifier};
+use chirrtl_parser::ast::{Circuit, CircuitModule, DefName, Identifier};
 use chirrtl_parser::parse_circuit;
 use std::fs;
 use std::fs::create_dir_all;
@@ -39,19 +39,8 @@ pub fn equivalence_check(input_fir: &str) -> Result<(), RippleIRErr> {
     top_sv_filename.push_str(&format!("/{}.sv", top_name));
     export_miter(&input_fir, &top_sv_filename)?;
 
-    for cm in circuit.modules {
-        if let CircuitModule::ExtModule(em) = cm.as_ref() {
-            if let DefName(Identifier::Name(x)) = &em.defname {
-                println!("exte module {:?}", x);
-                let input = format!("./test-inputs/{}.v", x);
-                copy_file(&input,
-                     &format!("{}/{}.sv", verilog_outdir("golden", input_fir), x))?;
-                copy_file(&input,
-                     &format!("{}/{}.sv", verilog_outdir("impl", input_fir), x))?;
-            }
-        }
-    }
 
+    copy_extmodules(&circuit, input_fir)?;
     export_tcl(&input_fir, top_name, "clock", "reset")?;
 
     let result = run_jaspergold(&input_fir, ".")?;
@@ -72,6 +61,22 @@ pub fn equivalence_check(input_fir: &str) -> Result<(), RippleIRErr> {
             panic!("Found unknown");
         }
     }
+}
+
+fn copy_extmodules(circuit: &Circuit, input_fir: &str) -> Result<(), RippleIRErr> {
+    for cm in circuit.modules.iter() {
+        if let CircuitModule::ExtModule(em) = cm.as_ref() {
+            if let DefName(Identifier::Name(x)) = &em.defname {
+                println!("exte modul {:?}", x);
+                let input = format!("./test-inputs/{}.v", x);
+                copy_file(&input,
+                    &format!("{}/{}.sv", verilog_outdir("golden", input_fir), x))?;
+                copy_file(&input,
+                    &format!("{}/{}.sv", verilog_outdir("impl", input_fir), x))?;
+            }
+        }
+    }
+    Ok(())
 }
 
 fn remove_dir_if_exists(path: &str) -> Result<(), RippleIRErr> {
@@ -493,6 +498,7 @@ mod test {
     #[test_case("WireRegInsideWhen" ; "WireRegInsideWhen")]
     #[test_case("MultiWhen" ; "MultiWhen")]
     #[test_case("RegFile" ; "RegFile")]
+    #[test_case("CLINT" ; "CLINT")]
 // #[test_case("TLMonitor" ; "TLMonitor")]
 // #[test_case("ListBuffer" ; "ListBuffer")]
     fn run(name: &str) -> Result<(), RippleIRErr> {
