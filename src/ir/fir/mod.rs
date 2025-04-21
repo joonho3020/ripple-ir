@@ -193,11 +193,11 @@ impl FirGraph {
             .ttree.as_ref().unwrap()
             .view().unwrap();
 
-        println!("src {:?}, dst{:?}", src, _dst);
+// println!("src {:?}, dst{:?}", src, _dst);
 
         let subtree = ttree.subtree_from_expr(&edge.src).unwrap();
-        subtree.print_tree();
-        println!("subtree is bidirectional {:?}", subtree.is_bidirectional());
+// subtree.print_tree();
+// println!("subtree is bidirectional {:?}", subtree.is_bidirectional());
         subtree.is_bidirectional()
     }
 }

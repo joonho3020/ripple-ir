@@ -880,20 +880,25 @@ fn insert_conn_stmts(
 
         let lhs = Expr::Reference(edge.dst.as_ref().unwrap().clone());
         let rhs = edge.src.clone();
-        let stmt = Stmt::Connect(lhs, rhs, Info::default());
         match &edge.et {
             FirEdgeType::DontCare => {
                 continue;
             }
-            FirEdgeType::PhiInput(ppath, _flipped) => {
+            FirEdgeType::PhiInput(ppath, flipped) => {
                 if !ordered_stmts.contains_key(&ppath.path) {
                     ordered_stmts.insert(&ppath.path, vec![]);
                 }
+                let stmt = if *flipped {
+                    Stmt::Connect(rhs, lhs, Info::default())
+                } else {
+                    Stmt::Connect(lhs, rhs, Info::default())
+                };
                 let pstmt = StmtWithPrior::new(stmt, Some(ppath.prior));
                 ordered_stmts.get_mut(&ppath.path).unwrap().push(pstmt);
             }
             _ => {
                 let leaf = whentree.get_node_mut(&CondPath::bottom(), None).unwrap();
+                let stmt = Stmt::Connect(lhs, rhs, Info::default());
                 let pstmt = StmtWithPrior::new(stmt, None);
                 leaf.stmts.push(pstmt);
             }
