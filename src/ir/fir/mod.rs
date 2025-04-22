@@ -68,6 +68,8 @@ pub enum FirNodeType {
     ReadMemPort(CondPathWithPrior),
     InferMemPort(CondPathWithPrior),
     Inst(Identifier),
+    Printf(Stmt, CondPathWithPrior),
+    Assert(Stmt, CondPathWithPrior),
 
     // Port
     Input,

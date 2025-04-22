@@ -38,6 +38,9 @@ pub enum RippleNodeType {
     Input,
     Output,
     Phi(CondPathWithPrior),
+
+    Printf(Stmt, CondPathWithPrior),
+    Assert(Stmt, CondPathWithPrior),
 }
 
 impl_clean_display!(RippleNodeType);
@@ -66,6 +69,8 @@ impl From<&FirNodeType> for RippleNodeType {
             FirNodeType::Input => Self::Input,
             FirNodeType::Output => Self::Output,
             FirNodeType::Phi(cond) => Self::Phi(cond.clone()),
+            FirNodeType::Printf(stmt, cond) => Self::Printf(stmt.clone(), cond.clone()),
+            FirNodeType::Assert(stmt, cond) => Self::Assert(stmt.clone(), cond.clone()),
         }
     }
 }

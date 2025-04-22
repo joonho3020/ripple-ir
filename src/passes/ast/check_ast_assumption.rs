@@ -140,10 +140,10 @@ pub fn check_stmt_assumption(stmts: &Stmts) {
             Stmt::Skip(_) => {
                 continue;
             }
-            Stmt::Printf(_clk, _posedge, _msg, _exprs_opt, _info) => {
+            Stmt::Printf(..) => {
                 continue;
             }
-            Stmt::Assert(_clk, _pred, _cond, _msg, _info) => {
+            Stmt::Assert(..) => {
                 continue;
             }
         }
