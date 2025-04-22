@@ -279,7 +279,6 @@ fn collect_stmts(fg: &FirGraph, stmts: &mut Stmts) {
     // Add implicit dependency edges for nested references
     let mut visited_refs: IndexSet<(NodeIndex, &Reference)> = IndexSet::new();
     for id in fg.graph.node_indices() {
-        println!("==== {:?} ====", fg.graph.node_weight(id).unwrap());
         let parents = fg.graph.edges_directed(id, Incoming);
         for peid in parents {
             let edge = fg.graph.edge_weight(peid.id()).unwrap();
