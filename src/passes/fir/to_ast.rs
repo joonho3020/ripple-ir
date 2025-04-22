@@ -66,7 +66,6 @@ fn get_ports(fg: &FirGraph) -> Ports {
 }
 
 fn to_module(name: &Identifier, fg: &FirGraph) -> Module {
-    println!("========================= Module {:?} =================", name);
     let ports = get_ports(fg);
     let mut stmts: Stmts = Stmts::new();
     collect_stmts(fg, &mut stmts);
@@ -96,20 +95,33 @@ fn topo_start_node(fg: &FirGraph, id: NodeIndex) -> bool {
     }
 }
 
-/// Finds the chain of addresses
-fn find_array_addr_chain(fg: &FirGraph, id: NodeIndex) -> IndexSet<NodeIndex> {
+/// Finds all array nodes that are used as address inputs for a given array access
+/// ref_expr: regfile_1[io.addr]
+fn find_array_addr_chain(fg: &FirGraph, id: NodeIndex, ref_expr: &Expr) -> IndexSet<NodeIndex> {
     let mut array_parents: IndexSet<NodeIndex> = IndexSet::new();
     for peid in fg.graph.edges_directed(id, Incoming) {
         let pedge = fg.graph.edge_weight(peid.id()).unwrap();
         let ep = fg.graph.edge_endpoints(peid.id()).unwrap();
-        if pedge.et == FirEdgeType::ArrayAddr {
-            array_parents.insert(ep.0);
 
+        // Only process ArrayAddr edges which represent array indexing operations
+        if pedge.et == FirEdgeType::ArrayAddr {
             if let Expr::Reference(r) = &pedge.src {
+                // If this edge's source matches our reference expression,
+                // add it to dependencies
+                if &pedge.src == ref_expr {
+                    array_parents.insert(ep.0);
+                }
+
                 match r {
-                    Reference::RefIdxExpr(_par, _leaf) => {
-                        let mut p_arr = find_array_addr_chain(fg, ep.0);
-                        array_parents.append(&mut p_arr);
+                    // For nested array accesses (e.g., regfile_1[io.addr] in our example)
+                    // recursively find their dependencies
+                    // - _par: regfile_1
+                    // - leaf: io.addr
+                    Reference::RefIdxExpr(_par, leaf) => {
+                        if &pedge.src == ref_expr {
+                            let mut p_arr = find_array_addr_chain(fg, ep.0, leaf.as_ref());
+                            array_parents.append(&mut p_arr);
+                        }
                     }
                     _ => {
                         continue;
@@ -121,6 +133,12 @@ fn find_array_addr_chain(fg: &FirGraph, id: NodeIndex) -> IndexSet<NodeIndex> {
     array_parents
 }
 
+/// Analyzes array dependencies in reference expressions and builds a dependency graph
+/// For example, in `regfile_2[regfile_1[io.addr]]`, it:
+/// 1. Processes the nested reference structure (RefIdxExpr)
+/// 2. Finds all array accesses that must be evaluated first
+/// 3. Updates array_addr_edges to track dependencies between arrays
+/// 4. Maintains indeg counts for topological sorting
 fn find_array_addr_chain_in_ref(
     fg: &FirGraph,
     src: NodeIndex,
@@ -131,11 +149,17 @@ fn find_array_addr_chain_in_ref(
     indeg: &mut IndexMap<NodeIndex, u32>
 ) {
     match ref_expr {
-        Reference::RefIdxExpr(x, _y) => {
-            let chain = find_array_addr_chain(fg, src);
+        Reference::RefIdxExpr(x, y) => {
+            // Handle array indexing expressions like regfile_2.a.bits[regfile_1[io.addr]]
+            // - x: regfile_2.a.bits
+            // - y: regfile_1[io.addr]
+
+            // Find all arrays used in the index expression
+            let chain = find_array_addr_chain(fg, src, y.as_ref());
+
             for addr_src in chain {
-                // In cases like below, the sink of the phi node can
-                // feed into the phi node itself.
+                // Handle special case for phi nodes in SSA form
+                // where a node might feed back into itself.
                 // In this case, if this node can be used as a starting node
                 // during topological sort, don't increment the indeg count
                 // as this phi node will not be traversed
@@ -149,6 +173,8 @@ fn find_array_addr_chain_in_ref(
                     }
                 }
 
+                // Build the dependency graph by recording that addr_src must be
+                // evaluated before dst, and increment dst's indegree count
                 if !array_addr_edges.contains_key(&addr_src) {
                     array_addr_edges.insert(addr_src, IndexSet::new());
                 }
@@ -158,11 +184,14 @@ fn find_array_addr_chain_in_ref(
                     *indeg.get_mut(&dst).unwrap() += 1;
                 }
             }
+            // Recursively process the parent reference
             find_array_addr_chain_in_ref(fg, src, dst, x, whentree, array_addr_edges, indeg);
         }
+        // Handle field access like 'io.addr'
         Reference::RefDot(a, _field) => {
             find_array_addr_chain_in_ref(fg, src, dst, a, whentree, array_addr_edges, indeg);
         }
+        // Handle constant integer indexing like array[5]
         Reference::RefIdxInt(a, _idx) => {
             find_array_addr_chain_in_ref(fg, src, dst, a, whentree, array_addr_edges, indeg);
         }
@@ -250,6 +279,7 @@ fn collect_stmts(fg: &FirGraph, stmts: &mut Stmts) {
     // Add implicit dependency edges for nested references
     let mut visited_refs: IndexSet<(NodeIndex, &Reference)> = IndexSet::new();
     for id in fg.graph.node_indices() {
+        println!("==== {:?} ====", fg.graph.node_weight(id).unwrap());
         let parents = fg.graph.edges_directed(id, Incoming);
         for peid in parents {
             let edge = fg.graph.edge_weight(peid.id()).unwrap();
@@ -265,16 +295,7 @@ fn collect_stmts(fg: &FirGraph, stmts: &mut Stmts) {
         }
     }
 
-    for (x, childs) in array_addr_childs.iter() {
-        println!("- {:?}", fg.graph.node_weight(*x).unwrap());
-        for child in childs {
-            println!("  - {:?}", fg.graph.node_weight(*child).unwrap());
-        }
-    }
-
     let array_addr_parents = reverse_adjacency_list(&array_addr_childs);
-// println!("array_addr_childs {:?}", array_addr_childs);
-// println!("array_addr_parents {:?}", array_addr_parents);
 
     // Add implicit dependency edges for invalidate stmts
     for eid in fg.graph.edge_indices() {
@@ -568,7 +589,7 @@ fn insert_def_topo_start_stmts(
 
     match &node.nt {
         FirNodeType::RegReset => {
-            let clk_eid = fg.parent_with_type(id, FirEdgeType::Clock).unwrap();
+            let clk_eid  = fg.parent_with_type(id, FirEdgeType::Clock).unwrap();
             let rst_eid = fg.parent_with_type(id, FirEdgeType::Reset).unwrap();
             let init_eid = fg.parent_with_type(id, FirEdgeType::InitValue).unwrap();
 
@@ -784,13 +805,9 @@ fn insert_op_stmts(
     let mut highest_path = find_highest_path(fg, id, &emission_info.topdown, &whentree);
 
     if array_addr_parents.contains_key(&id) {
-        println!("{:?}", fg.graph.node_weight(id).unwrap());
         let parents = array_addr_parents.get(&id).unwrap();
         for pid in parents {
             if emission_info.topdown.contains_key(pid) {
-                println!("Parent {:?}, parent position {:?}",
-                    fg.graph.node_weight(*pid).unwrap(), 
-                    emission_info.topdown.get(pid).unwrap());
                 highest_path = lower(highest_path, emission_info.topdown.get(pid).unwrap().clone());
             }
         }
@@ -1047,6 +1064,7 @@ mod test {
 
     #[test_case("GCD" ; "GCD")]
     #[test_case("NestedWhen" ; "NestedWhen")]
+    #[test_case("NestedIndex" ; "NestedIndex")]
     #[test_case("LCS1" ; "LCS1")]
     #[test_case("LCS2" ; "LCS2")]
     #[test_case("LCS3" ; "LCS3")]
