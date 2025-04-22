@@ -229,6 +229,10 @@ fn reconstruct_whentree(fg: &FirGraph) -> WhenTree {
             FirNodeType::InferMemPort(ppath) => {
                 cond_priority_pair.push(&ppath.path);
             }
+            FirNodeType::Printf(.., ppath) |
+            FirNodeType::Assert(.., ppath) => {
+                cond_priority_pair.push(&ppath.path);
+            }
             _ => {
                 continue;
             }
@@ -511,6 +515,9 @@ fn collect_stmts(fg: &FirGraph, stmts: &mut Stmts) {
             visited,
             fg.graph.node_count());
     }
+
+    // Insert assertions and printfs
+    insert_printf_assertion_stmts(fg, &mut whentree);
 
     // Insert connection stmts
     insert_conn_stmts(fg, &mut whentree);
@@ -948,6 +955,23 @@ fn fill_bottom_up_emission_info(
         if pcond_constraint.is_some() {
             emission_info.bottomup.insert(id, pcond_constraint.unwrap());
         } else {
+        }
+    }
+}
+
+fn insert_printf_assertion_stmts(fg: &FirGraph, whentree: &mut WhenTree) {
+    for id in fg.graph.node_indices() {
+        let node = fg.graph.node_weight(id).unwrap();
+        match &node.nt {
+            FirNodeType::Printf(stmt, pcond) |
+            FirNodeType::Assert(stmt, pcond) => {
+                let leaf = whentree.get_node_mut(&pcond.path, None).unwrap();
+                let pstmt = StmtWithPrior::new(stmt.clone(), None);
+                leaf.stmts.push(pstmt);
+            }
+            _ => {
+                continue;
+            }
         }
     }
 }

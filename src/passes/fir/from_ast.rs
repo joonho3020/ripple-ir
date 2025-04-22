@@ -26,6 +26,12 @@ struct NodeMap {
 
     /// The if key exists, phi node has been connected to its sink
     pub phi_connected: RefSet,
+
+    /// Map to store Printf nodes by their stmt
+    pub printf_map: IndexMap<Stmt, NodeIndex>,
+
+    /// Map to store Assert nodes by their stmt
+    pub assert_map: IndexMap<Stmt, NodeIndex>,
 }
 
 /// Create a graph based IR from the FIRRTL AST
@@ -245,9 +251,15 @@ fn add_graph_node_from_stmt(ir: &mut FirGraph, stmt: &Stmt, nm: &mut NodeMap) {
         }
         Stmt::Skip(..) => {
         }
-        Stmt::Printf(_clk, _posedge, _msg, _exprs_opt, _info) => {
+        Stmt::Printf(..) => {
+            let nt = FirNodeType::Printf(stmt.clone(), CondPathWithPrior::default());
+            let id = add_node(ir, None, None, TypeDirection::Outgoing, nt);
+            nm.printf_map.insert(stmt.clone(), id);
         }
-        Stmt::Assert(_clk, _pred, _cond, _msg, _info) => {
+        Stmt::Assert(..) => {
+            let nt = FirNodeType::Assert(stmt.clone(), CondPathWithPrior::default());
+            let id = add_node(ir, None, None, TypeDirection::Outgoing, nt);
+            nm.assert_map.insert(stmt.clone(), id);
         }
     }
 }
@@ -500,9 +512,15 @@ fn add_graph_edge_from_stmt(ir: &mut FirGraph, stmt: &Stmt, nm: &mut NodeMap) {
                 panic!("Invalidate expr {:?} is not a reference", expr);
             }
         }
-        Stmt::Printf(_clk, _posedge, _msg, _exprs_opt, _info) => {
+        Stmt::Printf(_, clk, _posedge, _msg, _exprs_opt, _info) => {
+            let print_id = nm.printf_map.get(stmt).unwrap();
+            let clk_edge = FirEdge::new(clk.clone(), None, FirEdgeType::Clock);
+            add_graph_edge_from_expr(ir, *print_id, clk, clk_edge, nm);
         }
-        Stmt::Assert(_clk, _pred, _cond, _msg, _info) => {
+        Stmt::Assert(_, clk, _pred, _cond, _msg, _info) => {
+            let assert_id = nm.assert_map.get(stmt).unwrap();
+            let clk_edge = FirEdge::new(clk.clone(), None, FirEdgeType::Clock);
+            add_graph_edge_from_expr(ir, *assert_id, clk, clk_edge, nm);
         }
     }
 }
@@ -586,6 +604,16 @@ fn connect_phi_in_edges_from_stmts(ir: &mut FirGraph, stmts: &Stmts, nm: &mut No
                             mp.nt = FirNodeType::InferMemPort(path_w_stmt_prior);
                         }
                     };
+                }
+                Stmt::Printf(..) => {
+                    let id = nm.printf_map.get(&pstmt.stmt).unwrap();
+                    let x = ir.graph.node_weight_mut(*id).unwrap();
+                    x.nt = FirNodeType::Printf(pstmt.stmt.clone(), path_w_stmt_prior);
+                }
+                Stmt::Assert(..) => {
+                    let id = nm.assert_map.get(&pstmt.stmt).unwrap();
+                    let x = ir.graph.node_weight_mut(*id).unwrap();
+                    x.nt = FirNodeType::Assert(pstmt.stmt.clone(), path_w_stmt_prior);
                 }
                 _ => {}
             }

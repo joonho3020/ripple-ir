@@ -406,6 +406,9 @@ fn infer_typetree_node(fg: &mut FirGraph, id: NodeIndex, name: &Identifier) {
             assert!(op0_type_tree.is_ground_type());
             set_ground_type(fg, id, GroundType::UInt(None));
         }
+        FirNodeType::Printf(..) |
+            FirNodeType::Assert(..) => {
+        }
         _ => {
             panic!("{:?}: Called infer_typetree_node on unexpected node type {:?}", name, node);
         }
@@ -422,10 +425,18 @@ pub fn check_typetree_inference(ir: &FirIR) -> Result<(), RippleIRErr> {
 fn check_typetree_inference_graph(fg: &FirGraph) -> Result<(), RippleIRErr> {
     for id in fg.graph.node_indices() {
         let node = fg.graph.node_weight(id).unwrap();
-        if !node.ttree.is_some() {
-            return Err(
-                RippleIRErr::TypeTreeInferenceError(
-                    format!("{:?} does not have a typetree", node.clone())));
+        match node.nt {
+            FirNodeType::Printf(..) |
+                FirNodeType::Assert(..) => {
+                    continue;
+            }
+            _ => {
+                if node.ttree.is_none() {
+                    return Err(
+                        RippleIRErr::TypeTreeInferenceError(
+                            format!("{:?} does not have a typetree", node.clone())));
+                }
+            }
         }
     }
     return Ok(());
