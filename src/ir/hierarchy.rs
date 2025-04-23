@@ -89,6 +89,12 @@ impl Hierarchy {
         return ret;
     }
 
+    /// Returns the name of the top module
+    pub fn top_name(&self) -> &Identifier {
+        self.graph.node_weight(self.top().unwrap()).unwrap().name()
+    }
+
+    /// Constructs a new hierarchy from the FIR representation
     pub fn new(fir: &FirIR) -> Self {
         let mut ret = Self::default();
         ret.build_from_fir(fir);

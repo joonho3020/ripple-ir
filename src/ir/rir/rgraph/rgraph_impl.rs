@@ -22,7 +22,7 @@ impl RippleGraph {
             agg_edge_idx_gen: IndexGen::new(),
             edge_idx_gen: IndexGen::new(),
 
-            graph: IRGraph::new(),
+            graph: FlatRippleGraph::new(),
 
             agg_node_map: BiMap::new(),
             agg_nodes: IndexMap::new(),
@@ -59,7 +59,23 @@ impl RippleGraph {
 
             // Insert new graph node
             let unique_id = self.node_idx_gen.generate();
-            let rinfo = RippleNodeData::new(Some(leaf_name), node.nt.clone(), tg.clone());
+
+            // If this is a IO node, flip the node type accordingly
+            let nt = if (leaf.dir == TypeDirection::Outgoing && node.nt == RippleNodeType::Input) ||
+                (leaf.dir == TypeDirection::Incoming && node.nt == RippleNodeType::Output)
+            {
+                node.nt.clone()
+            } else {
+                if node.nt == RippleNodeType::Input {
+                    RippleNodeType::Output
+                } else if node.nt == RippleNodeType::Output {
+                    RippleNodeType::Input
+                } else {
+                    node.nt.clone()
+                }
+            };
+
+            let rinfo = RippleNodeData::new(Some(leaf_name), nt, tg.clone());
             let rgnode = RippleNode::new(rinfo, unique_id);
             let graph_node_id = self.graph.add_node(rgnode);
 
@@ -530,5 +546,14 @@ impl RippleGraph {
 
         // - Update node_map_cache
         self.update_node_map_cache();
+    }
+
+    /// Returns the flattened graph
+    pub fn flat_graph(&self) -> &FlatRippleGraph {
+        &self.graph
+    }
+
+    pub fn find_corresp_agg_id(&self, id: RippleNodeIndex) -> AggNodeIndex {
+        self.agg_node_map.get_by_left(&id).unwrap().agg_id
     }
 }

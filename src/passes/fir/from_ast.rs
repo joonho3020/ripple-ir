@@ -67,6 +67,7 @@ fn from_module(module: &Module) -> FirGraph {
     connect_phi_node_sels(&mut ret, &mut nm);
     connect_mport_enables(&mut ret, &mut nm);
     set_phi_node_priority(&mut ret, &module.stmts, &nm);
+    ret.build_namespace();
     return ret;
 }
 

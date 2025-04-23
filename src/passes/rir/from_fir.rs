@@ -1,5 +1,5 @@
 use chirrtl_parser::ast::*;
-use indexmap::{IndexMap, IndexSet};
+use indexmap::IndexMap;
 use petgraph::graph::NodeIndex;
 use crate::ir::fir::*;
 use crate::ir::rir::{rgraph::*, rir::*, agg::*, rnode::*, redge::*};
@@ -17,40 +17,6 @@ pub fn from_fir(fir: &FirIR) -> RippleIR {
         ret.graphs.insert(hier.name().clone(), rgraph);
     }
     return ret;
-}
-
-// TODO: NameSpace should be part of the IR
-struct NameSpace {
-    used: IndexSet<Identifier>,
-    cntr: u32,
-    pfx: String
-}
-
-impl NameSpace {
-    pub fn new(fg: &FirGraph) -> Self {
-        let mut used: IndexSet<Identifier> = IndexSet::new();
-        for id in fg.graph.node_indices() {
-            let node = fg.graph.node_weight(id).unwrap();
-            if let Some(name) = &node.name {
-                used.insert(name.clone());
-            }
-        }
-        Self {
-            used,
-            cntr: 0,
-            pfx: "_TMP".to_string(),
-        }
-    }
-
-    pub fn next(&mut self) -> Identifier {
-        loop {
-            let candidate = Identifier::Name(format!("{}_{}", self.pfx, self.cntr));
-            self.cntr += 1;
-            if !self.used.contains(&candidate) {
-                return candidate;
-            }
-        }
-    }
 }
 
 fn from_fir_graph(fg: &FirGraph) -> RippleGraph {

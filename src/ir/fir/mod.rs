@@ -5,6 +5,7 @@ use petgraph::Direction::Outgoing;
 use chirrtl_parser::ast::*;
 use derivative::Derivative;
 use indexmap::IndexMap;
+use indexmap::IndexSet;
 use petgraph::graph::{Graph, NodeIndex};
 use crate::common::graphviz::*;
 use crate::common::RippleIRErr;
@@ -140,16 +141,58 @@ impl From<&ExtModule> for ExtModuleInfo {
     }
 }
 
+// TODO: NameSpace should be part of the IR
+#[derive(Debug, Default, Clone)]
+pub struct NameSpace {
+    used: IndexSet<Identifier>,
+    cntr: u32,
+    pfx: String
+}
+
+impl NameSpace {
+    pub fn new(fg: &FirGraph) -> Self {
+        let mut used: IndexSet<Identifier> = IndexSet::new();
+        for id in fg.graph.node_indices() {
+            let node = fg.graph.node_weight(id).unwrap();
+            if let Some(name) = &node.name {
+                used.insert(name.clone());
+            }
+        }
+        Self {
+            used,
+            cntr: 0,
+            pfx: "_TMP".to_string(),
+        }
+    }
+
+    pub fn next(&mut self) -> Identifier {
+        loop {
+            let candidate = Identifier::Name(format!("{}_{}", self.pfx, self.cntr));
+            self.cntr += 1;
+            if !self.used.contains(&candidate) {
+                return candidate;
+            }
+        }
+    }
+}
+
+
 #[derive(Debug, Clone)]
 pub struct FirGraph {
     pub graph: IRGraph,
     pub ext_info: Option<ExtModuleInfo>,
     pub blackbox: bool,
+    pub namespace: NameSpace
 }
 
 impl FirGraph {
     pub fn new(blackbox: bool) -> Self {
-        Self { graph: IRGraph::new(), blackbox, ext_info: None }
+        Self {
+            graph: IRGraph::new(),
+            blackbox,
+            ext_info: None,
+            namespace: NameSpace::default()
+        }
     }
 
     /// Returns a TypeTree of all its IO signals
@@ -199,6 +242,10 @@ impl FirGraph {
         let subtree = ttree.subtree_from_expr(&edge.src).unwrap();
         subtree.is_bidirectional()
     }
+
+    pub fn build_namespace(&mut self) {
+        self.namespace = NameSpace::new(self);
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -224,6 +271,15 @@ impl FirIR {
                 false)?;
         }
         Ok(())
+    }
+
+    /// Adds a new module to the IR
+    pub fn add_module(&mut self, name: Identifier, fg: FirGraph) {
+        self.graphs.insert(name, fg);
+
+        let new_hier = Hierarchy::new(self);
+        self.name = new_hier.top_name().clone();
+        self.hier = new_hier;
     }
 }
 

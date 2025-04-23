@@ -21,6 +21,68 @@ impl TypeTree {
     }
 }
 
+fn create_and_reductiont_tree(dcpld_inputs: &Vec<NodeIndex>, fg: &mut FirGraph) -> Option<NodeIndex> {
+    if dcpld_inputs.is_empty() {
+        return None;
+    }
+
+    // Extract valid signals from decoupled inputs
+    let valid_signals: Vec<NodeIndex> = dcpld_inputs.iter().map(|&input_id| {
+        let node = fg.graph.node_weight(input_id).unwrap();
+        let valid_ref = Expr::Reference(Reference::RefDot(
+            Box::new(Reference::Ref(node.name.as_ref().unwrap().clone())),
+            Identifier::Name("valid".to_string())
+        ));
+
+        let wire_name = fg.namespace.next();
+        let valid_node = FirNode::new(
+            Some(wire_name.clone()),
+            FirNodeType::Wire,
+            None
+        );
+        let valid_id = fg.graph.add_node(valid_node);
+
+        let edge = FirEdge::new(valid_ref, Some(Reference::Ref(wire_name)), FirEdgeType::Wire);
+        fg.graph.add_edge(input_id, valid_id, edge);
+
+        valid_id
+    }).collect();
+
+    // Build reduction tree
+    fn build_tree(signals: &[NodeIndex], fg: &mut FirGraph) -> NodeIndex {
+        if signals.len() == 1 {
+            return signals[0];
+        }
+
+        let mid = signals.len() / 2;
+        let left = build_tree(&signals[..mid], fg);
+        let right = build_tree(&signals[mid..], fg);
+
+        let and_node = FirNode::new(
+            Some(fg.namespace.next()),
+            FirNodeType::PrimOp2Expr(PrimOp2Expr::And),
+            None
+        );
+        let and_id = fg.graph.add_node(and_node);
+
+        let lname = fg.graph.node_weight(left).unwrap().name.as_ref().unwrap().clone();
+        let rname = fg.graph.node_weight(right).unwrap().name.as_ref().unwrap().clone();
+        let left_ref = Expr::Reference(Reference::Ref(lname));
+        let right_ref = Expr::Reference(Reference::Ref(rname));
+
+        fg.graph.add_edge(left, and_id, FirEdge::new(left_ref, None, FirEdgeType::Operand0));
+        fg.graph.add_edge(right, and_id, FirEdge::new(right_ref, None, FirEdgeType::Operand1));
+
+        and_id
+    }
+
+    if valid_signals.len() == 1 {
+        Some(valid_signals[0])
+    } else {
+        Some(build_tree(&valid_signals, fg))
+    }
+}
+
 pub fn fame1_transform(fir: &mut FirIR) {
     let top_name = fir.hier.graph.node_weight(fir.hier.top().unwrap()).unwrap();
     let top = fir.graphs.get(top_name.name()).unwrap();
@@ -94,17 +156,17 @@ pub fn fame1_transform(fir: &mut FirIR) {
         fame_top.graph.add_edge(id, patient_ssm_id, idata_conn);
     }
 
-
-
-
+    let all_input_valid = create_and_reductiont_tree(
+        &ichan_map.iter().map(|(_, v)| *v).collect(),
+        &mut fame_top).unwrap();
 
 
 // get inputs
 // get outputs
-// create new top
 // create FSM
 // change clock of the patient SSM to enable
 
+    fir.add_module(Identifier::Name("FameTop".to_string()), fame_top);
 
 }
 
@@ -123,6 +185,8 @@ mod test {
         let mut fir = run_fir_passes(&circuit)?;
 
         fame1_transform(&mut fir);
+
+        fir.export("./test-outputs", "fame")?;
 
         Ok(())
     }
