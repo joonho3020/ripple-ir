@@ -76,7 +76,8 @@ impl Hierarchy {
         }
     }
 
-    pub fn root(&self) -> Option<NodeIndex> {
+    /// Returns the id of the top module
+    pub fn top(&self) -> Option<NodeIndex> {
         let mut ret = None;
         for id in self.graph.node_indices() {
             let incoming = self.graph.neighbors_directed(id, Incoming);

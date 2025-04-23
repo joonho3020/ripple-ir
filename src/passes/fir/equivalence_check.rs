@@ -31,7 +31,7 @@ pub fn equivalence_check(input_fir: &str) -> Result<(), RippleIRErr> {
     let circuit_str = printer.print_circuit(&circuit_reconstruct);
     export_firrtl_and_sv("impl", input_fir, &circuit_str)?;
 
-    let top_name = match old_hier.graph.node_weight(old_hier.root().unwrap()).unwrap().name() {
+    let top_name = match old_hier.graph.node_weight(old_hier.top().unwrap()).unwrap().name() {
         Identifier::Name(x) => x,
         _ => unreachable!()
     };

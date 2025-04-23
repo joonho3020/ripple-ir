@@ -188,6 +188,7 @@ impl FirGraph {
         return ret;
     }
 
+    /// Returns true if a edge contains bidirectional connections
     pub fn bidirectional(&self, id: EdgeIndex) -> bool {
         let edge = self.graph.edge_weight(id).unwrap();
         let (src, _dst) = self.graph.edge_endpoints(id).unwrap();
@@ -195,11 +196,7 @@ impl FirGraph {
             .ttree.as_ref().unwrap()
             .view().unwrap();
 
-// println!("src {:?}, dst{:?}", src, _dst);
-
         let subtree = ttree.subtree_from_expr(&edge.src).unwrap();
-// subtree.print_tree();
-// println!("subtree is bidirectional {:?}", subtree.is_bidirectional());
         subtree.is_bidirectional()
     }
 }

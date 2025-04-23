@@ -413,6 +413,11 @@ impl<'a> SubTreeView<'a> {
         }
     }
 
+    pub fn subtree_from_id(&self, id: TypeTreeNodeIndex) -> SubTreeView<'_> {
+        let graph_root = self.ttree().graph_id(id).unwrap();
+        SubTreeView::from_subtree(self, *graph_root)
+    }
+
     pub fn subtree_array_element(&self) -> SubTreeView<'_> {
         assert_eq!(self.root_node().unwrap().tpe, TypeTreeNodeType::Array);
         let elem_subtree = self.subtree_from_ref(
