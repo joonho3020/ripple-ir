@@ -2,6 +2,8 @@ use chirrtl_parser::ast::*;
 use indexmap::IndexMap;
 use crate::ir::rir::rgraph::*;
 use crate::ir::hierarchy::*;
+use crate::common::RippleIRErr;
+use crate::common::graphviz::*;
 
 #[derive(Debug, Clone)]
 pub struct RippleIR {
@@ -17,5 +19,16 @@ impl RippleIR {
             graphs: IndexMap::new(),
             hierarchy: Hierarchy::default(),
         }
+    }
+
+    pub fn export(&self, outdir: &str, pfx: &str) -> Result<(), RippleIRErr> {
+        for (module, rg) in self.graphs.iter() {
+            rg.export_graphviz(
+                &format!("{}/{}-{}.{}.pdf", outdir, self.name.to_string(), module, pfx),
+                None,
+                None,
+                false)?;
+        }
+        Ok(())
     }
 }

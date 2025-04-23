@@ -38,8 +38,10 @@ fn combinational_analaysis_graph(rg: &RippleGraph, name: &Identifier, deps: &mut
     for id in output_ids {
         let oport_name = graph.node_weight(id).unwrap().data.name.as_ref().unwrap();
         let dep_ids = find_comb_cone(rg, id, deps);
+
         for dep_id in dep_ids {
             let dep = graph.node_weight(dep_id).unwrap();
+
             if dep.data.tpe == RippleNodeType::Input {
                 let iport_name = dep.data.name.as_ref().unwrap().clone();
                 port_deps.entry(oport_name.clone()).or_insert_with(Vec::new).push(iport_name);
@@ -123,7 +125,10 @@ pub mod test {
         let filename = format!("./test-inputs/{}.fir", input);
 
         let fir = run_passes_from_filepath(&filename)?;
+// fir.export("./test-outputs", "comb.fir")?;
+
         let rir = from_fir(&fir);
+// rir.export("./test-outputs", "comb.rir")?;
 
         let ret = combinational_analaysis(&rir);
         println!("Deps {:?}", ret);
