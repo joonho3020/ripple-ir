@@ -40,6 +40,8 @@ fn combinational_analaysis_graph(rg: &RippleGraph, name: &Identifier, deps: &mut
         let oport_name = graph.node_weight(id).unwrap().data.name.as_ref().unwrap();
         let dep_ids = find_comb_cone(rg, id, deps);
 
+        port_deps.insert(oport_name.clone(), IndexSet::new());
+
         for dep_id in dep_ids {
             let dep = graph.node_weight(dep_id).unwrap();
             if dep.data.tpe == RippleNodeType::Input {

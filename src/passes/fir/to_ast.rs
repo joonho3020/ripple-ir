@@ -1038,7 +1038,7 @@ mod test {
     use crate::ir::whentree::*;
     use crate::passes::ast::print::Printer;
     use crate::common::RippleIRErr;
-    use crate::passes::runner::run_fir_passes;
+    use crate::passes::runner::run_fir_passes_from_circuit;
     use chirrtl_parser::parse_circuit;
     use test_case::test_case;
     use indexmap::IndexMap;
@@ -1125,7 +1125,7 @@ mod test {
         let source = std::fs::read_to_string(format!("./test-inputs/{}.fir", name))?;
         let circuit = parse_circuit(&source).expect("firrtl parser");
 
-        let ir = run_fir_passes(&circuit)?;
+        let ir = run_fir_passes_from_circuit(&circuit)?;
         check_whentree_equivalence(&ir, &circuit)?;
 
         let circuit_reconstruct = to_ast(&ir);

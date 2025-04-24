@@ -3,7 +3,7 @@ use crate::passes::fir::modify_names::add_sfx_to_module_names;
 use crate::passes::fir::to_ast::to_ast;
 use crate::common::RippleIRErr;
 use crate::passes::ast::print::Printer;
-use crate::passes::runner::run_fir_passes;
+use crate::passes::runner::run_fir_passes_from_circuit;
 use chirrtl_parser::ast::{Circuit, CircuitModule, DefName, Identifier};
 use chirrtl_parser::parse_circuit;
 use std::fs;
@@ -21,7 +21,7 @@ pub fn equivalence_check(input_fir: &str) -> Result<(), RippleIRErr> {
     export_firrtl_and_sv("golden", input_fir, &source)?;
 
     let circuit = parse_circuit(&source).expect("firrtl parser");
-    let mut ir = run_fir_passes(&circuit)?;
+    let mut ir = run_fir_passes_from_circuit(&circuit)?;
 
     let old_hier = ir.hier.clone();
     add_sfx_to_module_names(&mut ir, "_impl");

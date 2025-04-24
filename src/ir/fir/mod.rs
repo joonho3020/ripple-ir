@@ -142,7 +142,7 @@ impl From<&ExtModule> for ExtModuleInfo {
 }
 
 // TODO: NameSpace should be part of the IR
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Clone)]
 pub struct NameSpace {
     used: IndexSet<Identifier>,
     cntr: u32,
@@ -172,6 +172,16 @@ impl NameSpace {
             if !self.used.contains(&candidate) {
                 return candidate;
             }
+        }
+    }
+}
+
+impl Default for NameSpace {
+    fn default() -> Self {
+        Self {
+            used: IndexSet::new(),
+            cntr: 0,
+            pfx: "_TMP".to_string(),
         }
     }
 }
@@ -321,7 +331,7 @@ mod test {
     use crate::ir::typetree::typetree::*;
     use crate::ir::typetree::tnode::*;
     use crate::ir::typetree::tedge::*;
-    use crate::passes::runner::run_fir_passes;
+    use crate::passes::runner::run_fir_passes_from_circuit;
     use chirrtl_parser::ast::*;
     use chirrtl_parser::parse_circuit;
 
@@ -329,7 +339,7 @@ mod test {
     fn io_typetree() -> Result<(), RippleIRErr> {
         let source = std::fs::read_to_string("./test-inputs/GCD.fir")?;
         let circuit = parse_circuit(&source).expect("firrtl parser");
-        let fir = run_fir_passes(&circuit)?;
+        let fir = run_fir_passes_from_circuit(&circuit)?;
 
         for (_name, fg) in fir.graphs {
             let mut io_typetree = fg.io_typetree();

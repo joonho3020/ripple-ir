@@ -54,4 +54,13 @@ impl TypeTreeNodePath {
         };
         self.tpe = child.tpe.clone();
     }
+
+    pub fn name(&self) -> Option<Identifier> {
+        match &self.rc {
+            Some(x) => {
+                Some(Identifier::Name(x.to_string()))
+            }
+            None => None
+        }
+    }
 }

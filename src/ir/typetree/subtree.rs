@@ -184,17 +184,7 @@ impl<'a> SubTreeView<'a> {
             None => "".to_string()
         };
 
-        match node.tpe {
-            TypeTreeNodeType::Ground(..) => {
-                chain.push_str(&name);
-            }
-            TypeTreeNodeType::Fields => {
-                chain.push_str(&name);
-            }
-            TypeTreeNodeType::Array => {
-                chain.push_str(&name);
-            }
-        }
+        chain.push_str(&name);
     }
 
     /// Returns a stringified node name of a node in a tree
