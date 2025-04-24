@@ -325,7 +325,7 @@ checksum = "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd"
 [[package]]
 name = "chirrtl-parser"
 version = "0.1.8"
-source = "git+ssh://git@github.com/joonho3020/chirrtl-parser.git?branch=main#6d3a11e560fe046a6b06784a9b2617718ffe0975"
+source = "git+ssh://git@github.com/joonho3020/chirrtl-parser.git?branch=main#b59e34b39eefc8cc89892709c0145bb293e3c8cf"
 dependencies = [
  "graphviz-rust",
  "indexmap",
@@ -2586,9 +2586,9 @@ checksum = "589f6da84c646204747d1270a2a5661ea66ed1cced2631d546fdfb155959f9ec"
 
 [[package]]
 name = "winnow"
-version = "0.7.6"
+version = "0.7.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "63d3fcd9bba44b03821e7d699eeee959f3126dcc4aa8e4ae18ec617c2a5cea10"
+checksum = "6cb8234a863ea0e8cd7284fcdd4f145233eb00fee02bbdd9861aec44e6477bc5"
 dependencies = [
  "memchr",
 ]

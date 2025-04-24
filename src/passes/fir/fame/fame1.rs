@@ -173,7 +173,7 @@ pub fn fame1_transform(fir: &mut FirIR) {
     for (name, ttree) in ichans {
         let dcpld_ttree = ttree.decoupled(TypeDirection::Outgoing);
         let ichan_port = FirNode::new(
-            Some(name.clone()),
+            Some(name.flat()),
             FirNodeType::Input,
             Some(dcpld_ttree));
 
@@ -182,7 +182,7 @@ pub fn fame1_transform(fir: &mut FirIR) {
 
         let src = Expr::Reference(
             Reference::RefDot(
-                Box::new(Reference::Ref(name.clone())),
+                Box::new(Reference::Ref(name.flat())),
                 Identifier::Name("bits".to_string())));
 
         let dst = Reference::RefDot(
@@ -199,7 +199,6 @@ pub fn fame1_transform(fir: &mut FirIR) {
     let comb_deps = hier_comb_deps.get(top_name.name()).unwrap();
 
     // Get module outputs and create decoupled interfaces with control logic
-    let mut ochan_map: IndexMap<Identifier, NodeIndex> = IndexMap::new();
     let mut fired_or_firing_nodes = Vec::new();
     let mut fired_mux_nodes = Vec::new();
 
@@ -207,19 +206,18 @@ pub fn fame1_transform(fir: &mut FirIR) {
         // Create output port
         let dcpld_ttree = ttree.decoupled(TypeDirection::Incoming);
         let ochan_port = FirNode::new(
-            Some(name.clone()),
+            Some(name.flat()),
             FirNodeType::Output,
             Some(dcpld_ttree)
         );
         let ochan_id = fame_top.graph.add_node(ochan_port);
-        ochan_map.insert(name.clone(), ochan_id);
 
         // Connect data from patient SSM to output port
         let src = Reference::RefDot(
             Box::new(Reference::Ref(top_name.name().clone())),
             name.clone());
         let dst = Reference::RefDot(
-            Box::new(Reference::Ref(name.clone())),
+            Box::new(Reference::Ref(name.flat())),
             Identifier::Name("bits".to_string()));
 
         let odata_conn = FirEdge::new(
@@ -238,7 +236,7 @@ pub fn fame1_transform(fir: &mut FirIR) {
         let ccls_valid_id = dcpld_valid_reduction_tree(&comb_dep_ichan_map, &mut fame_top).unwrap();
 
         // Create per-output fired and firing registers
-        let fired_name = Identifier::Name(format!("{}_fired", name.to_string()));
+        let fired_name = Identifier::Name(format!("{}_fired", name.flat().to_string()));
         let fired_node = FirNode::new(
             Some(fired_name.clone()),
             FirNodeType::Reg,
@@ -254,7 +252,7 @@ pub fn fame1_transform(fir: &mut FirIR) {
         fame_top.graph.add_edge(host_clock_id, fired_id, clk_edge);
 
         // Create not of the fired register output
-        let not_fired_name = Identifier::Name(format!("{}_not_fired", name.to_string()));
+        let not_fired_name = Identifier::Name(format!("{}_not_fired", name.flat().to_string()));
         let not_fired_node = FirNode::new(
             Some(not_fired_name.clone()),
             FirNodeType::PrimOp1Expr(PrimOp1Expr::Not),
@@ -271,7 +269,7 @@ pub fn fame1_transform(fir: &mut FirIR) {
         fame_top.graph.add_edge(fired_id, not_fired_id, edge);
 
         // And the not-fired with ccls_input_valid
-        let out_valid_name = Identifier::Name(format!("{}_valid", name.to_string()));
+        let out_valid_name = Identifier::Name(format!("{}_valid", name.flat().to_string()));
         let out_valid = FirNode::new(
             Some(out_valid_name.clone()),
             FirNodeType::PrimOp2Expr(PrimOp2Expr::And),
@@ -284,7 +282,7 @@ pub fn fame1_transform(fir: &mut FirIR) {
             // Output channel has at least one combinationally coupled input channel
             Some(name) => Expr::Reference(Reference::Ref(name.clone())),
             // Output has no combinationally coupled input channel
-            None => Expr::Reference(Reference::Ref(name.clone())),
+            None => Expr::UIntInit(Width(1), Int::from(1)),
         };
 
         let op0 = FirEdge::new(
@@ -305,13 +303,13 @@ pub fn fame1_transform(fir: &mut FirIR) {
         let edge = FirEdge::new(
             Expr::Reference(Reference::Ref(out_valid_name.clone())),
             Some(Reference::RefDot(
-                    Box::new(Reference::Ref(name.clone())),
+                    Box::new(Reference::Ref(name.flat())),
                     Identifier::Name("valid".to_string()))),
             FirEdgeType::Wire);
         fame_top.graph.add_edge(out_valid_id, ochan_id, edge);
 
         // Create Firing logic
-        let firing_name = Identifier::Name(format!("{}_firing", name.to_string()));
+        let firing_name = Identifier::Name(format!("{}_firing", name.flat().to_string()));
         let firing = FirNode::new(
             Some(firing_name.clone()),
             FirNodeType::PrimOp2Expr(PrimOp2Expr::And),
@@ -327,7 +325,7 @@ pub fn fame1_transform(fir: &mut FirIR) {
 
         let op1 = FirEdge::new(
             Expr::Reference(Reference::RefDot(
-                    Box::new(Reference::Ref(name.clone())),
+                    Box::new(Reference::Ref(name.flat())),
                     Identifier::Name("ready".to_string()))),
             None,
             FirEdgeType::Operand1);
@@ -335,7 +333,7 @@ pub fn fame1_transform(fir: &mut FirIR) {
         fame_top.graph.add_edge(ochan_id, firing_id, op1);
 
         // Create per-output firedOrFiring logic
-        let fired_or_firing_name = Identifier::Name(format!("{}_firedOrFiring", name.to_string()));
+        let fired_or_firing_name = Identifier::Name(format!("{}_firedOrFiring", name.flat().to_string()));
         let fired_or_firing = FirNode::new(
             Some(fired_or_firing_name.clone()),
             FirNodeType::PrimOp2Expr(PrimOp2Expr::Or),
@@ -360,7 +358,7 @@ pub fn fame1_transform(fir: &mut FirIR) {
 
 
         // Create mux that drives the Fired register
-        let mux_name = Identifier::Name(format!("{}_fired_mux", name.to_string()));
+        let mux_name = Identifier::Name(format!("{}_fired_mux", name.flat().to_string()));
         let mux = FirNode::new(Some(mux_name.clone()), FirNodeType::Mux, None);
         let mux_id = fame_top.graph.add_node(mux);
         fired_mux_nodes.push(mux_id);
@@ -439,20 +437,29 @@ pub fn fame1_transform(fir: &mut FirIR) {
         let rdy = FirEdge::new(
             Expr::Reference(Reference::Ref(cycle_finishing_name.clone())),
             Some(Reference::RefDot(
-                    Box::new(Reference::Ref(name.clone())),
+                    Box::new(Reference::Ref(name.flat())),
                     Identifier::Name("ready".to_string()))),
             FirEdgeType::Wire);
         fame_top.graph.add_edge(cycle_finishing_id, *ichan_id, rdy);
     }
 
     // Connect cycle_finishing to clock signal of top
-    let ssm_clk = FirEdge::new(
+    let ssm_clk_name = Identifier::Name("PatientSSMClock".to_string());
+    let cast_to_clk = FirNode::new(Some(ssm_clk_name.clone()), FirNodeType::PrimOp1Expr(PrimOp1Expr::AsClock), None);
+    let cast_to_clk_id = fame_top.graph.add_node(cast_to_clk);
+    let clk_edge = FirEdge::new(
             Expr::Reference(Reference::Ref(cycle_finishing_name.clone())),
+            None,
+            FirEdgeType::Operand0);
+    fame_top.graph.add_edge(cycle_finishing_id, cast_to_clk_id, clk_edge);
+
+    let ssm_clk = FirEdge::new(
+            Expr::Reference(Reference::Ref(ssm_clk_name.clone())),
             Some(Reference::RefDot(
                     Box::new(Reference::Ref(top_name.name().clone())),
                     clock.unwrap().0)),
             FirEdgeType::Wire);
-    fame_top.graph.add_edge(cycle_finishing_id, patient_ssm_id, ssm_clk);
+    fame_top.graph.add_edge(cast_to_clk_id, patient_ssm_id, ssm_clk);
 
     // Add the module to FIR
     fir.add_module(Identifier::Name("FameTop".to_string()), fame_top);
@@ -486,7 +493,7 @@ mod test {
         let mut printer = Printer::new();
         let circuit_str = printer.print_circuit(&transformed_circuit);
         std::fs::write(&firrtl, circuit_str)?;
-// export_circuit(&firrtl, &format!("test-outputs/{}/verilog", "GCD"))?;
+        export_circuit(&firrtl, &format!("test-outputs/{}/verilog", "GCD"))?;
 
         Ok(())
     }
