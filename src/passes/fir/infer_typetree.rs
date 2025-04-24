@@ -151,6 +151,7 @@ fn infer_typetree_graph(fir: &mut FirIR, name: &Identifier) {
     let undir_graph = fg.graph.clone().into_edge_type::<Undirected>();
     let mut visited = 0;
     let mut vis_map = fg.graph.visit_map();
+    let mut topo_vismap = fg.graph.visit_map();
     for id in fg.graph.node_indices() {
         if vis_map.is_visited(&id) {
             continue;
@@ -193,6 +194,7 @@ fn infer_typetree_graph(fir: &mut FirIR, name: &Identifier) {
 
         // Infer type in topo sorted order
         for nidx in topo_sort_order.iter() {
+            topo_vismap.visit(*nidx);
             let node = fg.graph.node_weight(*nidx).unwrap();
             if node.ttree.is_some() {
                 continue;
@@ -202,12 +204,21 @@ fn infer_typetree_graph(fir: &mut FirIR, name: &Identifier) {
 
         visited += topo_sort_order.len();
     }
-    assert!(
-        visited == vis_map.len(),
-        "{:?}: visited {} nodes out of {} nodes while topo sorting",
-        name,
-        visited,
-        vis_map.len());
+
+    if visited != vis_map.len() {
+        for id in fg.graph.node_indices() {
+            if !topo_vismap.is_visited(&id) {
+                let unvisited = fg.graph.node_weight(id).unwrap();
+                println!("Unvisited {:?}", unvisited);
+            }
+        }
+        assert!(
+            false,
+            "{:?}: visited {} nodes out of {} nodes while topo sorting",
+            name,
+            visited,
+            vis_map.len());
+    }
 }
 
 fn infer_typetree_node(fg: &mut FirGraph, id: NodeIndex, name: &Identifier) {

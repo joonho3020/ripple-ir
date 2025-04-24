@@ -1,5 +1,5 @@
 use clap::Parser;
-use ripple_ir::passes::runner::run_fir_passes;
+use ripple_ir::passes::runner::run_fir_passes_from_circuit;
 use std::path::PathBuf;
 use chirrtl_parser::parse_circuit;
 use ripple_ir::passes::fir::to_ast::to_ast;
@@ -24,7 +24,7 @@ fn main() -> Result<(), RippleIRErr> {
     let source = std::fs::read_to_string(args.input)?;
     let circuit = parse_circuit(&source).expect("firrtl parser");
 
-    let ir = run_fir_passes(&circuit)?;
+    let ir = run_fir_passes_from_circuit(&circuit)?;
     let circuit_reconstruct = to_ast(&ir);
 
     let mut printer = Printer::new();

@@ -204,7 +204,7 @@ impl RippleGraph {
                 let dst_ttree_leaf_id = dst_leaves.get(src_path_identity).unwrap();
                 let dst_flatid = self.flatid(dst_id, *dst_ttree_leaf_id).unwrap();
 
-                let dst_ttree_leaf = self.ttree_leaf(dst_id, *dst_ttree_leaf_id).unwrap();
+// let dst_ttree_leaf = self.ttree_leaf(dst_id, *dst_ttree_leaf_id).unwrap();
 // println!("src_ttree_leaf {:?}", src_ttree_leaf);
 // println!("dst_ttree_leaf {:?}", dst_ttree_leaf);
 
