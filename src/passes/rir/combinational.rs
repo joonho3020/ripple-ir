@@ -6,9 +6,10 @@ use petgraph::Direction::Incoming;
 
 use crate::ir::rir::{rgraph::RippleGraph ,rir::RippleIR, rnode::RippleNodeType};
 use indexmap::IndexMap;
+use indexmap::IndexSet;
 
 /// List of input ports that are combinationally coupled to each output port
-pub type PortCombDeps = IndexMap<Identifier, Vec<Identifier>>;
+pub type PortCombDeps = IndexMap<Identifier, IndexSet<Identifier>>;
 
 /// Maps each module to PortCombDeps
 pub type HierCombDeps = IndexMap<Identifier, PortCombDeps>;
@@ -41,10 +42,9 @@ fn combinational_analaysis_graph(rg: &RippleGraph, name: &Identifier, deps: &mut
 
         for dep_id in dep_ids {
             let dep = graph.node_weight(dep_id).unwrap();
-
             if dep.data.tpe == RippleNodeType::Input {
                 let iport_name = dep.data.name.as_ref().unwrap().clone();
-                port_deps.entry(oport_name.clone()).or_insert_with(Vec::new).push(iport_name);
+                port_deps.entry(oport_name.clone()).or_insert_with(IndexSet::new).insert(iport_name);
             }
         }
     }
@@ -91,10 +91,11 @@ fn find_comb_cone(rg: &RippleGraph, id: NodeIndex, deps: &HierCombDeps) -> Vec<N
                     for inst_port_id in inst_port_ids {
                         let port = graph.node_weight(inst_port_id).unwrap();
                         let port_name = port.data.name.as_ref().unwrap().to_string();
+
                         for ip in iports.iter() {
                             if port_name.contains(&ip.to_string()) {
-                                q.push_back(pid);
-                                ret.push(pid);
+                                q.push_back(inst_port_id);
+                                ret.push(inst_port_id);
                             }
                         }
                     }

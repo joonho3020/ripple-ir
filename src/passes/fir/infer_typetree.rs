@@ -58,7 +58,7 @@ fn infer_typetree_graph(fir: &mut FirIR, name: &Identifier) {
     let node_ids: Vec<NodeIndex> = fir.graphs.get(name).unwrap().node_indices().collect();
 
     // Take care of nodes with ground types and memory
-    for id in node_ids {
+    for &id in node_ids.iter() {
         let fg = fir.graphs.get(name).unwrap();
         let nt = &fg.graph.node_weight(id).unwrap().nt;
         match nt {
@@ -96,6 +96,14 @@ fn infer_typetree_graph(fir: &mut FirIR, name: &Identifier) {
                     }
                 }
             }
+            _ => {
+            }
+        }
+    }
+    for &id in node_ids.iter() {
+        let fg = fir.graphs.get(name).unwrap();
+        let nt = &fg.graph.node_weight(id).unwrap().nt;
+        match nt {
             FirNodeType::Phi(..) => {
                 let childs: Vec<NodeIndex> = fg.graph.neighbors_directed(id, Outgoing).collect();
                 assert!(childs.len() == 1, "Phi node should have a single child {:?}", name);
@@ -103,11 +111,18 @@ fn infer_typetree_graph(fir: &mut FirIR, name: &Identifier) {
                 let cid = childs[0];
                 let mut child_ttree = fg.graph.node_weight(cid).unwrap().ttree.clone();
                 let child = fg.graph.node_weight(cid).unwrap();
-                let child_is_io = child.nt == FirNodeType::Input || child.nt == FirNodeType::Output;
+                let child_is_io_or_inst = match child.nt {
+                    FirNodeType::Input |
+                        FirNodeType::Output |
+                        FirNodeType::Inst(..) => {
+                            true
+                    }
+                    _ => false,
+                };
 
                 let node_mut = fir.graphs.get_mut(name).unwrap().graph.node_weight_mut(id).unwrap();
 
-                if child_is_io {
+                if child_is_io_or_inst {
                     child_ttree.as_mut().unwrap().flip();
                 }
                 node_mut.ttree = child_ttree;

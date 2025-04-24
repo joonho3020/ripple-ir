@@ -1,6 +1,8 @@
 use crate::ir::fir::{FirEdge, FirEdgeType, FirGraph, FirIR, FirNode, FirNodeType};
 use crate::ir::typetree::tnode::{GroundType, TypeDirection, TypeTreeNodeType};
 use crate::ir::typetree::typetree::TypeTree;
+use crate::passes::rir::combinational::combinational_analaysis;
+use crate::passes::rir::from_fir::from_fir;
 use chirrtl_parser::ast::*;
 use indexmap::IndexMap;
 use petgraph::graph::NodeIndex;
@@ -159,6 +161,9 @@ pub fn fame1_transform(fir: &mut FirIR) {
     let all_input_valid = create_and_reductiont_tree(
         &ichan_map.iter().map(|(_, v)| *v).collect(),
         &mut fame_top).unwrap();
+
+    let rir = from_fir(&fir);
+    let comb_deps = combinational_analaysis(&rir);
 
 
 // get inputs

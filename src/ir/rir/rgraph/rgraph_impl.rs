@@ -180,6 +180,10 @@ impl RippleGraph {
         dst_ref: &Reference,
         edge: AggEdgeData
     ) -> AggEdgeIndex {
+// println!("src_ref {:?} dst_ref {:?}", src_ref, dst_ref);
+// println!("src_agg_tpe {:?}", self.node_weight_agg(src_id).unwrap().nt);
+// println!("src agg {:?}", self.node_weight_agg(src_id).unwrap());
+
         let src_leaves = self.ttree_leaves_with_path(src_id, src_ref);
         let dst_leaves = self.ttree_leaves_with_path(dst_id, dst_ref);
 
@@ -199,6 +203,10 @@ impl RippleGraph {
                 // Dst node id
                 let dst_ttree_leaf_id = dst_leaves.get(src_path_identity).unwrap();
                 let dst_flatid = self.flatid(dst_id, *dst_ttree_leaf_id).unwrap();
+
+                let dst_ttree_leaf = self.ttree_leaf(dst_id, *dst_ttree_leaf_id).unwrap();
+// println!("src_ttree_leaf {:?}", src_ttree_leaf);
+// println!("dst_ttree_leaf {:?}", dst_ttree_leaf);
 
                 // Add edge
                 if src_ttree_leaf.dir == TypeDirection::Outgoing {
