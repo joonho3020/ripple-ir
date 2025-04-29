@@ -7,3 +7,4 @@ pub mod to_ast;
 pub mod modify_names;
 pub mod equivalence_check;
 mod common_subgraph;
+mod hashing_function;

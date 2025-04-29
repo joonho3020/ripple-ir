@@ -5,7 +5,8 @@ use petgraph::graph::EdgeIndex;
 use petgraph::unionfind::UnionFind;
 use petgraph::Undirected;
 use priority_queue::PriorityQueue;
-use petgraph::visit::EdgeRef;
+use petgraph::visit::{EdgeRef, IntoNeighbors};
+use crate::ir::fir::FirGraph;
 
 // Return minimum spanning tree using Kruskals algorithm, (v1, v2) is an undirected edge between v1 and v2
 pub fn graph_kruskals(graph: &Graph<u32, u32, Undirected>) -> Vec<(NodeIndex, NodeIndex)> {
@@ -61,6 +62,31 @@ pub fn graph_prims(graph: &Graph<u32, u32, Undirected>, start_vertex: NodeIndex)
     }
     return maximum_spanning_tree
 }
+
+// BFS for nodes of exactly distance k away from start node
+pub fn neighbors_of_distance_k(graph: &FirGraph, start: NodeIndex, k: usize) -> Vec<NodeIndex> {
+    let mut visited = HashSet::new(); // Dont backtrack
+    let mut vec = Vec::new();
+    vec.push(start);
+    for i in 0..k {
+        let mut curr_vec = Vec::new();
+        for neighbor in &vec {
+            for v in graph.graph.neighbors(*neighbor) {
+                if !visited.contains(&v) {
+                    visited.insert(v);
+                    curr_vec.push(v);
+                }
+            }
+        }
+        vec = curr_vec;
+    }
+    return vec
+}
+
+
+
+
+
 
 
 
