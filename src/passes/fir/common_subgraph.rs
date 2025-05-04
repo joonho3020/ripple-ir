@@ -64,31 +64,7 @@ pub fn graph_prims(graph: &Graph<u32, u32, Undirected>, start_vertex: NodeIndex)
 }
 
 // BFS for nodes of exactly distance k away from start node
-pub fn neighbors_of_distance_k(graph: &FirGraph, start: NodeIndex, k: usize) -> Vec<NodeIndex> {
-    let mut visited = HashSet::new(); // Dont backtrack
-    let mut result = Vec::new();
-    let mut current = Vec::new();
-    visited.insert(start);
-    result.push(start);
-    current.push(start);
-    for i in 0..k {
-        let mut next = Vec::new();
-        for neighbor in &current {
-            for v in graph.graph.neighbors(*neighbor) {
-                if !visited.contains(&v) {
-                    visited.insert(v);
-                    result.push(v);
-                    next.push(v);
-                }
-            }
-        }
-        if next.is_empty() {
-            break;
-        }
-        current = next;
-    }
-    return result;
-}
+
 
 
 
