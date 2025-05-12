@@ -283,4 +283,36 @@ mod tests {
 
         Ok(())
     }
+
+
+    #[test_case("GCD", "GCDDelta" ; "GCD")]
+    #[test_case("AESStep1", "AESStep2" ; "AES1")]
+    #[test_case("AESStep2", "AESStep3" ; "AES2")]
+    #[test_case("CordicStep1", "CordicStep2" ; "Cordic1")]
+    #[test_case("CordicStep2", "CordicStep3" ; "Cordic2")]
+    #[test_case("FFTStep1", "FFTStep2" ; "FFT1")]
+    #[test_case("FFTStep2", "FFTStep3" ; "FFT2")]
+    #[test_case("FFTStep3", "FFTStep4" ; "FFT3")]
+    fn compute_overlap(src: &str, dst: &str) -> Result<(), RippleIRErr> {
+        let source = std::fs::read_to_string(format!("./test-inputs/{}.fir", src))?;
+        let circuit = parse_circuit(&source).expect("firrtl parser");
+        let src_graph = FirrtlGraph::from_circuit(&circuit);
+
+        let source_delta = std::fs::read_to_string(format!("./test-inputs/{}.fir", dst))?;
+        let circuit_delta = parse_circuit(&source_delta).expect("firrtl parser");
+        let dst_graph = FirrtlGraph::from_circuit(&circuit_delta);
+
+        let gumtree = GumTree::default();
+        let matches = gumtree.diff(&src_graph, &dst_graph);
+
+        let src_graph_sz = src_graph.graph.node_count();
+        let match_sz = matches.len();
+
+        let percentage = match_sz as f32 / src_graph_sz as f32 * 100.0;
+        println!("percentage for {:?} vs {:?}: match {} / src {} x 100 = {} %",
+            src, dst,
+            match_sz, src_graph_sz, percentage);
+
+        Ok(())
+    }
 }

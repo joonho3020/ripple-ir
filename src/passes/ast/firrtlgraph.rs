@@ -64,10 +64,10 @@ impl std::hash::Hash for ASTElement {
                     Stmt::Connect(_lhs, _rhs, _info) => {}
                     Stmt::Invalidate(_lhs, _info) => {}
                     Stmt::When(_cond, _info, _when, _else_opt) => {}
-                    Stmt::Printf(_clk, _en, msg, _args, _info) => {
+                    Stmt::Printf(_name, _clk, _en, msg, _args, _info) => {
                         msg.hash(state);
                     }
-                    Stmt::Assert(_clk, _en, _cond, msg, _info) => {
+                    Stmt::Assert(_name, _clk, _en, _cond, msg, _info) => {
                         msg.hash(state);
                     }
                     Stmt::ChirrtlMemory(..) => {}
@@ -375,7 +375,7 @@ impl FirrtlGraph {
                 Stmt::Invalidate(lhs, _) => {
                     Self::add_expression(graph, idx, lhs);
                 }
-                Stmt::Printf(clock, en, _msg, args_opt, _) => {
+                Stmt::Printf(_name, clock, en, _msg, args_opt, _) => {
                     // Add clock and enable expressions
                     Self::add_expression(graph, idx, clock);
                     Self::add_expression(graph, idx, en);
@@ -387,7 +387,7 @@ impl FirrtlGraph {
                         }
                     }
                 }
-                Stmt::Assert(clock, pred, en, _msg, _) => {
+                Stmt::Assert(_name, clock, pred, en, _msg, _) => {
                     // Add clock, predicate and enable expressions
                     Self::add_expression(graph, idx, clock);
                     Self::add_expression(graph, idx, pred);
