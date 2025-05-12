@@ -50,20 +50,23 @@ fn check_phi_node_connections_graph(fg: &FirGraph, name: &Identifier) -> Result<
                     FirEdgeType::PhiSel => {
                         phi_sel_cnt += 1;
                     }
-                    FirEdgeType::PhiInput(_pcond) => {
+                    FirEdgeType::PhiInput(_pcond, _flipped) => {
                         phi_in_cnt += 1;
                     }
                     _ => { }
                 }
             }
 
-            if phi_sel_cnt == 0 {
+            let pedges = fg.graph.edges_directed(id, Incoming);
+            let pcnt = pedges.count();
+
+            if phi_sel_cnt == 0 && pcnt == 1 {
                 fg.export_graphviz(&format!("./test-outputs/{:?}.removephi.pdf", name), None, None, false)?;
                 return Err(RippleIRErr::PhiNodeError(
                         format!("Module {:?} Phi nodes {:?} should have at least one selection signal", name, node)))
             }
 
-            if phi_in_cnt == 0 {
+            if phi_in_cnt == 0 && pcnt == 1 {
                 return Err(RippleIRErr::PhiNodeError(
                         format!("Module {:?} Phi nodes {:?} should have at least one input signal", name, node)))
             }

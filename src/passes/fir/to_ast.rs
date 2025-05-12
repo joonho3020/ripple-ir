@@ -95,20 +95,33 @@ fn topo_start_node(fg: &FirGraph, id: NodeIndex) -> bool {
     }
 }
 
-/// Finds the chain of addresses
-fn find_array_addr_chain(fg: &FirGraph, id: NodeIndex) -> IndexSet<NodeIndex> {
+/// Finds all array nodes that are used as address inputs for a given array access
+/// ref_expr: regfile_1[io.addr]
+fn find_array_addr_chain(fg: &FirGraph, id: NodeIndex, ref_expr: &Expr) -> IndexSet<NodeIndex> {
     let mut array_parents: IndexSet<NodeIndex> = IndexSet::new();
     for peid in fg.graph.edges_directed(id, Incoming) {
         let pedge = fg.graph.edge_weight(peid.id()).unwrap();
         let ep = fg.graph.edge_endpoints(peid.id()).unwrap();
-        if pedge.et == FirEdgeType::ArrayAddr {
-            array_parents.insert(ep.0);
 
+        // Only process ArrayAddr edges which represent array indexing operations
+        if pedge.et == FirEdgeType::ArrayAddr {
             if let Expr::Reference(r) = &pedge.src {
+                // If this edge's source matches our reference expression,
+                // add it to dependencies
+                if &pedge.src == ref_expr {
+                    array_parents.insert(ep.0);
+                }
+
                 match r {
-                    Reference::RefIdxExpr(_par, _leaf) => {
-                        let mut p_arr = find_array_addr_chain(fg, ep.0);
-                        array_parents.append(&mut p_arr);
+                    // For nested array accesses (e.g., regfile_1[io.addr] in our example)
+                    // recursively find their dependencies
+                    // - _par: regfile_1
+                    // - leaf: io.addr
+                    Reference::RefIdxExpr(_par, leaf) => {
+                        if &pedge.src == ref_expr {
+                            let mut p_arr = find_array_addr_chain(fg, ep.0, leaf.as_ref());
+                            array_parents.append(&mut p_arr);
+                        }
                     }
                     _ => {
                         continue;
@@ -120,6 +133,12 @@ fn find_array_addr_chain(fg: &FirGraph, id: NodeIndex) -> IndexSet<NodeIndex> {
     array_parents
 }
 
+/// Analyzes array dependencies in reference expressions and builds a dependency graph
+/// For example, in `regfile_2[regfile_1[io.addr]]`, it:
+/// 1. Processes the nested reference structure (RefIdxExpr)
+/// 2. Finds all array accesses that must be evaluated first
+/// 3. Updates array_addr_edges to track dependencies between arrays
+/// 4. Maintains indeg counts for topological sorting
 fn find_array_addr_chain_in_ref(
     fg: &FirGraph,
     src: NodeIndex,
@@ -130,11 +149,17 @@ fn find_array_addr_chain_in_ref(
     indeg: &mut IndexMap<NodeIndex, u32>
 ) {
     match ref_expr {
-        Reference::RefIdxExpr(x, _y) => {
-            let chain = find_array_addr_chain(fg, src);
+        Reference::RefIdxExpr(x, y) => {
+            // Handle array indexing expressions like regfile_2.a.bits[regfile_1[io.addr]]
+            // - x: regfile_2.a.bits
+            // - y: regfile_1[io.addr]
+
+            // Find all arrays used in the index expression
+            let chain = find_array_addr_chain(fg, src, y.as_ref());
+
             for addr_src in chain {
-                // In cases like below, the sink of the phi node can
-                // feed into the phi node itself.
+                // Handle special case for phi nodes in SSA form
+                // where a node might feed back into itself.
                 // In this case, if this node can be used as a starting node
                 // during topological sort, don't increment the indeg count
                 // as this phi node will not be traversed
@@ -148,6 +173,8 @@ fn find_array_addr_chain_in_ref(
                     }
                 }
 
+                // Build the dependency graph by recording that addr_src must be
+                // evaluated before dst, and increment dst's indegree count
                 if !array_addr_edges.contains_key(&addr_src) {
                     array_addr_edges.insert(addr_src, IndexSet::new());
                 }
@@ -157,11 +184,14 @@ fn find_array_addr_chain_in_ref(
                     *indeg.get_mut(&dst).unwrap() += 1;
                 }
             }
+            // Recursively process the parent reference
             find_array_addr_chain_in_ref(fg, src, dst, x, whentree, array_addr_edges, indeg);
         }
+        // Handle field access like 'io.addr'
         Reference::RefDot(a, _field) => {
             find_array_addr_chain_in_ref(fg, src, dst, a, whentree, array_addr_edges, indeg);
         }
+        // Handle constant integer indexing like array[5]
         Reference::RefIdxInt(a, _idx) => {
             find_array_addr_chain_in_ref(fg, src, dst, a, whentree, array_addr_edges, indeg);
         }
@@ -189,7 +219,7 @@ fn reconstruct_whentree(fg: &FirGraph) -> WhenTree {
                 let eids = fg.graph.edges_directed(id, Incoming);
                 for eid in eids {
                     let edge = fg.graph.edge_weight(eid.id()).unwrap();
-                    if let FirEdgeType::PhiInput(ppath) = &edge.et {
+                    if let FirEdgeType::PhiInput(ppath, _flipped) = &edge.et {
                         cond_priority_pair.push(&ppath.path);
                     }
                 }
@@ -197,6 +227,10 @@ fn reconstruct_whentree(fg: &FirGraph) -> WhenTree {
             FirNodeType::ReadMemPort(ppath)  |
             FirNodeType::WriteMemPort(ppath) |
             FirNodeType::InferMemPort(ppath) => {
+                cond_priority_pair.push(&ppath.path);
+            }
+            FirNodeType::Printf(.., ppath) |
+            FirNodeType::Assert(.., ppath) => {
                 cond_priority_pair.push(&ppath.path);
             }
             _ => {
@@ -212,9 +246,26 @@ fn is_reginit(fg: &FirGraph, id: NodeIndex) -> bool {
     node.nt == FirNodeType::RegReset
 }
 
+fn reverse_adjacency_list(
+    graph: &IndexMap<NodeIndex, IndexSet<NodeIndex>>,
+) -> IndexMap<NodeIndex, IndexSet<NodeIndex>> {
+    let mut reversed = IndexMap::<NodeIndex, IndexSet<NodeIndex>>::new();
+
+    for (src, dsts) in graph {
+        for dst in dsts {
+            reversed
+                .entry(*dst)
+                .or_insert_with(IndexSet::new)
+                .insert(*src);
+        }
+    }
+
+    reversed
+}
+
 fn collect_stmts(fg: &FirGraph, stmts: &mut Stmts) {
     let mut whentree = reconstruct_whentree(fg);
-    let mut array_addr_edges: IndexMap<NodeIndex, IndexSet<NodeIndex>> = IndexMap::new();
+    let mut array_addr_childs: IndexMap<NodeIndex, IndexSet<NodeIndex>> = IndexMap::new();
     let mut invalidate_edges: IndexMap<NodeIndex, IndexSet<NodeIndex>> = IndexMap::new();
 
     // Compute indeg for the entire graph
@@ -242,10 +293,12 @@ fn collect_stmts(fg: &FirGraph, stmts: &mut Stmts) {
                     continue;
                 }
                 visited_refs.insert((dst, ref_expr));
-                find_array_addr_chain_in_ref(fg, src, dst, ref_expr, &whentree, &mut array_addr_edges, &mut indeg);
+                find_array_addr_chain_in_ref(fg, src, dst, ref_expr, &whentree, &mut array_addr_childs, &mut indeg);
             }
         }
     }
+
+    let array_addr_parents = reverse_adjacency_list(&array_addr_childs);
 
     // Add implicit dependency edges for invalidate stmts
     for eid in fg.graph.edge_indices() {
@@ -331,8 +384,8 @@ fn collect_stmts(fg: &FirGraph, stmts: &mut Stmts) {
             topo_vis_map.visit(nidx);
             topo_sort_order.push(nidx);
 
-            if array_addr_edges.contains_key(&nidx) {
-                let addr_childs = array_addr_edges.get(&nidx).unwrap();
+            if array_addr_childs.contains_key(&nidx) {
+                let addr_childs = array_addr_childs.get(&nidx).unwrap();
                 for &cidx in addr_childs {
                     if is_reginit(fg, cidx) {
                         continue;
@@ -423,11 +476,11 @@ fn collect_stmts(fg: &FirGraph, stmts: &mut Stmts) {
                 FirNodeType::PrimOp1Expr(..) |
                 FirNodeType::PrimOp1Expr1Int(..) |
                 FirNodeType::PrimOp1Expr2Int(..) => {
-                    let pconds = insert_op_stmts(fg, nidx, &emission_info, &mut whentree);
+                    let pconds = insert_op_stmts(fg, nidx, &emission_info, &array_addr_parents, &mut whentree);
                     emission_info.topdown.insert(nidx, pconds.clone());
                 }
                 FirNodeType::DontCare => {
-                    let pconds = insert_invalidate_stmts(fg, nidx, &mut whentree);
+                    let pconds = insert_invalidate_stmts(fg, nidx, &emission_info, &mut whentree);
                     emission_info.topdown.insert(nidx, pconds.clone());
                 }
                 FirNodeType::SMem(..) |
@@ -439,7 +492,7 @@ fn collect_stmts(fg: &FirGraph, stmts: &mut Stmts) {
                 FirNodeType::Reg      |
                 FirNodeType::Wire     |
                 FirNodeType::Inst(..) => {
-                    let pconds = insert_def_topo_start_stmts(fg, nidx, &mut whentree);
+                    let pconds = insert_def_topo_start_stmts(fg, nidx, &emission_info, &mut whentree);
                     emission_info.topdown.insert(nidx, pconds.clone());
                 }
                 _ => {
@@ -462,6 +515,9 @@ fn collect_stmts(fg: &FirGraph, stmts: &mut Stmts) {
             visited,
             fg.graph.node_count());
     }
+
+    // Insert assertions and printfs
+    insert_printf_assertion_stmts(fg, &mut whentree);
 
     // Insert connection stmts
     insert_conn_stmts(fg, &mut whentree);
@@ -531,9 +587,37 @@ fn insert_def_mem_stmts(
 fn insert_def_topo_start_stmts(
     fg: &FirGraph,
     id: NodeIndex,
+    emission_info: &EmissionInfo,
     whentree: &mut WhenTree
 ) -> CondPath {
+    let node = fg.node_weight(id).unwrap();
     let mut highest_path = whentree.get_top_path();
+
+    match &node.nt {
+        FirNodeType::RegReset => {
+            let clk_eid  = fg.parent_with_type(id, FirEdgeType::Clock).unwrap();
+            let rst_eid = fg.parent_with_type(id, FirEdgeType::Reset).unwrap();
+            let init_eid = fg.parent_with_type(id, FirEdgeType::InitValue).unwrap();
+
+            let clk_src = fg.graph.edge_endpoints(clk_eid).unwrap().0;
+            let rst_src = fg.graph.edge_endpoints(rst_eid).unwrap().0;
+            let init_src = fg.graph.edge_endpoints(init_eid).unwrap().0;
+
+            if emission_info.topdown.contains_key(&clk_src) {
+                let pconds = emission_info.topdown.get(&clk_src).unwrap();
+                highest_path = lower(highest_path, pconds.clone());
+            }
+            if emission_info.topdown.contains_key(&rst_src) {
+                let pconds = emission_info.topdown.get(&rst_src).unwrap();
+                highest_path = lower(highest_path, pconds.clone());
+            }
+            if emission_info.topdown.contains_key(&init_src) {
+                let pconds = emission_info.topdown.get(&init_src).unwrap();
+                highest_path = lower(highest_path, pconds.clone());
+            }
+        }
+        _ => {}
+    }
 
     if let Some(peid) = fg.parent_with_type(id, FirEdgeType::PhiOut) {
         let phi_id = fg.graph.edge_endpoints(peid).unwrap().0;
@@ -552,7 +636,6 @@ fn insert_def_topo_start_stmts(
         Some(&highest_path.last().unwrap().prior))
             .unwrap();
 
-    let node = fg.node_weight(id).unwrap();
     match &node.nt {
         FirNodeType::RegReset => {
             let tpe = node.ttree.as_ref().unwrap().to_type();
@@ -611,9 +694,10 @@ fn insert_def_topo_start_stmts(
 fn insert_invalidate_stmts(
     fg: &FirGraph,
     id: NodeIndex,
+    emission_info: &EmissionInfo,
     whentree: &mut WhenTree
 ) -> CondPath {
-    let mut highest_path = whentree.get_top_path();
+    let mut highest_path = find_highest_path(fg, id, &emission_info.topdown, whentree);
     let childs = fg.graph.neighbors_directed(id, Outgoing);
     for cid in childs {
         let child = fg.graph.node_weight(cid).unwrap();
@@ -720,10 +804,20 @@ fn insert_op_stmts(
     fg: &FirGraph,
     id: NodeIndex,
     emission_info: &EmissionInfo,
+    array_addr_parents: &IndexMap<NodeIndex, IndexSet<NodeIndex>>,
     whentree: &mut WhenTree
 ) -> CondPath {
     let node = fg.graph.node_weight(id).unwrap();
     let mut highest_path = find_highest_path(fg, id, &emission_info.topdown, &whentree);
+
+    if array_addr_parents.contains_key(&id) {
+        let parents = array_addr_parents.get(&id).unwrap();
+        for pid in parents {
+            if emission_info.topdown.contains_key(pid) {
+                highest_path = lower(highest_path, emission_info.topdown.get(pid).unwrap().clone());
+            }
+        }
+    }
 
     let bu_pconds = emission_info.bottomup.get(&id);
     if bu_pconds.is_some() {
@@ -830,7 +924,7 @@ fn fill_bottom_up_emission_info(
                     FirEdgeType::DontCare => {
                         continue;
                     }
-                    FirEdgeType::PhiInput(pconds) => {
+                    FirEdgeType::PhiInput(pconds, _flipped) => {
                         conds.push(pconds.path.clone());
                     }
                     _ => {
@@ -845,7 +939,7 @@ fn fill_bottom_up_emission_info(
                         let parents = fg.graph.edges_directed(cid, Incoming);
                         for peid in parents {
                             let pedge = fg.graph.edge_weight(peid.id()).unwrap();
-                            if let FirEdgeType::PhiInput(pconds) = &pedge.et {
+                            if let FirEdgeType::PhiInput(pconds, _flipped) = &pedge.et {
                                 if pconds.path.collect_sels().contains(&edge.src) {
                                     let x = pconds.path.cond_path(&edge.src);
                                     conds.push(x);
@@ -865,6 +959,23 @@ fn fill_bottom_up_emission_info(
     }
 }
 
+fn insert_printf_assertion_stmts(fg: &FirGraph, whentree: &mut WhenTree) {
+    for id in fg.graph.node_indices() {
+        let node = fg.graph.node_weight(id).unwrap();
+        match &node.nt {
+            FirNodeType::Printf(stmt, pcond) |
+            FirNodeType::Assert(stmt, pcond) => {
+                let leaf = whentree.get_node_mut(&pcond.path, None).unwrap();
+                let pstmt = StmtWithPrior::new(stmt.clone(), None);
+                leaf.stmts.push(pstmt);
+            }
+            _ => {
+                continue;
+            }
+        }
+    }
+}
+
 /// Insert connection stmts to the appropriate position in the whentree
 fn insert_conn_stmts(
     fg: &FirGraph,
@@ -880,20 +991,25 @@ fn insert_conn_stmts(
 
         let lhs = Expr::Reference(edge.dst.as_ref().unwrap().clone());
         let rhs = edge.src.clone();
-        let stmt = Stmt::Connect(lhs, rhs, Info::default());
         match &edge.et {
             FirEdgeType::DontCare => {
                 continue;
             }
-            FirEdgeType::PhiInput(ppath) => {
+            FirEdgeType::PhiInput(ppath, flipped) => {
                 if !ordered_stmts.contains_key(&ppath.path) {
                     ordered_stmts.insert(&ppath.path, vec![]);
                 }
+                let stmt = if *flipped {
+                    Stmt::Connect(rhs, lhs, Info::default())
+                } else {
+                    Stmt::Connect(lhs, rhs, Info::default())
+                };
                 let pstmt = StmtWithPrior::new(stmt, Some(ppath.prior));
                 ordered_stmts.get_mut(&ppath.path).unwrap().push(pstmt);
             }
             _ => {
                 let leaf = whentree.get_node_mut(&CondPath::bottom(), None).unwrap();
+                let stmt = Stmt::Connect(lhs, rhs, Info::default());
                 let pstmt = StmtWithPrior::new(stmt, None);
                 leaf.stmts.push(pstmt);
             }
@@ -921,10 +1037,8 @@ mod test {
     use crate::common::export_circuit;
     use crate::ir::whentree::*;
     use crate::passes::ast::print::Printer;
-    use crate::passes::fir::from_ast::from_circuit;
-    use crate::passes::fir::remove_unnecessary_phi::remove_unnecessary_phi;
-    use crate::passes::fir::check_phi_nodes::check_phi_node_connections;
     use crate::common::RippleIRErr;
+    use crate::passes::runner::run_fir_passes_from_circuit;
     use chirrtl_parser::parse_circuit;
     use test_case::test_case;
     use indexmap::IndexMap;
@@ -973,6 +1087,7 @@ mod test {
 
     #[test_case("GCD" ; "GCD")]
     #[test_case("NestedWhen" ; "NestedWhen")]
+    #[test_case("NestedIndex" ; "NestedIndex")]
     #[test_case("LCS1" ; "LCS1")]
     #[test_case("LCS2" ; "LCS2")]
     #[test_case("LCS3" ; "LCS3")]
@@ -1002,16 +1117,15 @@ mod test {
     #[test_case("DCacheDataArray" ; "DCacheDataArray")]
     #[test_case("Hierarchy" ; "Hierarchy")]
     #[test_case("Cache" ; "Cache")]
+    #[test_case("TLXbar_pbus" ; "TLXbar_pbus")]
+    #[test_case("BTBBranchPredictorBank" ; "BTBBranchPredictorBank")]
     #[test_case("chipyard.harness.TestHarness.RocketConfig" ; "Rocket")]
     #[test_case("chipyard.harness.TestHarness.LargeBoomV3Config" ; "Boom")]
     fn run(name: &str) -> Result<(), RippleIRErr> {
         let source = std::fs::read_to_string(format!("./test-inputs/{}.fir", name))?;
         let circuit = parse_circuit(&source).expect("firrtl parser");
 
-        let mut ir = from_circuit(&circuit);
-        remove_unnecessary_phi(&mut ir);
-        check_phi_node_connections(&ir)?;
-
+        let ir = run_fir_passes_from_circuit(&circuit)?;
         check_whentree_equivalence(&ir, &circuit)?;
 
         let circuit_reconstruct = to_ast(&ir);

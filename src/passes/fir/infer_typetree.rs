@@ -58,7 +58,7 @@ fn infer_typetree_graph(fir: &mut FirIR, name: &Identifier) {
     let node_ids: Vec<NodeIndex> = fir.graphs.get(name).unwrap().node_indices().collect();
 
     // Take care of nodes with ground types and memory
-    for id in node_ids {
+    for &id in node_ids.iter() {
         let fg = fir.graphs.get(name).unwrap();
         let nt = &fg.graph.node_weight(id).unwrap().nt;
         match nt {
@@ -96,15 +96,36 @@ fn infer_typetree_graph(fir: &mut FirIR, name: &Identifier) {
                     }
                 }
             }
+            _ => {
+            }
+        }
+    }
+    for &id in node_ids.iter() {
+        let fg = fir.graphs.get(name).unwrap();
+        let nt = &fg.graph.node_weight(id).unwrap().nt;
+        match nt {
             FirNodeType::Phi(..) => {
                 let childs: Vec<NodeIndex> = fg.graph.neighbors_directed(id, Outgoing).collect();
                 assert!(childs.len() == 1, "Phi node should have a single child {:?}", name);
 
                 let cid = childs[0];
-                let child_ttree = fg.graph.node_weight(cid).unwrap().ttree.clone();
-                let node_mut = fir.graphs.get_mut(name).unwrap().graph.node_weight_mut(id).unwrap();
-                node_mut.ttree = child_ttree;
+                let mut child_ttree = fg.graph.node_weight(cid).unwrap().ttree.clone();
+                let child = fg.graph.node_weight(cid).unwrap();
+                let child_is_io_or_inst = match child.nt {
+                    FirNodeType::Input |
+                        FirNodeType::Output |
+                        FirNodeType::Inst(..) => {
+                            true
+                    }
+                    _ => false,
+                };
 
+                let node_mut = fir.graphs.get_mut(name).unwrap().graph.node_weight_mut(id).unwrap();
+
+                if child_is_io_or_inst {
+                    child_ttree.as_mut().unwrap().flip();
+                }
+                node_mut.ttree = child_ttree;
                 assert!(node_mut.ttree.is_some());
             }
             _ => {
@@ -130,6 +151,7 @@ fn infer_typetree_graph(fir: &mut FirIR, name: &Identifier) {
     let undir_graph = fg.graph.clone().into_edge_type::<Undirected>();
     let mut visited = 0;
     let mut vis_map = fg.graph.visit_map();
+    let mut topo_vismap = fg.graph.visit_map();
     for id in fg.graph.node_indices() {
         if vis_map.is_visited(&id) {
             continue;
@@ -172,6 +194,7 @@ fn infer_typetree_graph(fir: &mut FirIR, name: &Identifier) {
 
         // Infer type in topo sorted order
         for nidx in topo_sort_order.iter() {
+            topo_vismap.visit(*nidx);
             let node = fg.graph.node_weight(*nidx).unwrap();
             if node.ttree.is_some() {
                 continue;
@@ -181,12 +204,21 @@ fn infer_typetree_graph(fir: &mut FirIR, name: &Identifier) {
 
         visited += topo_sort_order.len();
     }
-    assert!(
-        visited == vis_map.len(),
-        "{:?}: visited {} nodes out of {} nodes while topo sorting",
-        name,
-        visited,
-        vis_map.len());
+
+    if visited != vis_map.len() {
+        for id in fg.graph.node_indices() {
+            if !topo_vismap.is_visited(&id) {
+                let unvisited = fg.graph.node_weight(id).unwrap();
+                println!("Unvisited {:?}", unvisited);
+            }
+        }
+        assert!(
+            false,
+            "{:?}: visited {} nodes out of {} nodes while topo sorting",
+            name,
+            visited,
+            vis_map.len());
+    }
 }
 
 fn infer_typetree_node(fg: &mut FirGraph, id: NodeIndex, name: &Identifier) {
@@ -406,6 +438,9 @@ fn infer_typetree_node(fg: &mut FirGraph, id: NodeIndex, name: &Identifier) {
             assert!(op0_type_tree.is_ground_type());
             set_ground_type(fg, id, GroundType::UInt(None));
         }
+        FirNodeType::Printf(..) |
+            FirNodeType::Assert(..) => {
+        }
         _ => {
             panic!("{:?}: Called infer_typetree_node on unexpected node type {:?}", name, node);
         }
@@ -422,10 +457,18 @@ pub fn check_typetree_inference(ir: &FirIR) -> Result<(), RippleIRErr> {
 fn check_typetree_inference_graph(fg: &FirGraph) -> Result<(), RippleIRErr> {
     for id in fg.graph.node_indices() {
         let node = fg.graph.node_weight(id).unwrap();
-        if !node.ttree.is_some() {
-            return Err(
-                RippleIRErr::TypeTreeInferenceError(
-                    format!("{:?} does not have a typetree", node.clone())));
+        match node.nt {
+            FirNodeType::Printf(..) |
+                FirNodeType::Assert(..) => {
+                    continue;
+            }
+            _ => {
+                if node.ttree.is_none() {
+                    return Err(
+                        RippleIRErr::TypeTreeInferenceError(
+                            format!("{:?} does not have a typetree", node.clone())));
+                }
+            }
         }
     }
     return Ok(());

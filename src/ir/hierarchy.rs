@@ -76,7 +76,8 @@ impl Hierarchy {
         }
     }
 
-    pub fn root(&self) -> Option<NodeIndex> {
+    /// Returns the id of the top module
+    pub fn top(&self) -> Option<NodeIndex> {
         let mut ret = None;
         for id in self.graph.node_indices() {
             let incoming = self.graph.neighbors_directed(id, Incoming);
@@ -88,6 +89,12 @@ impl Hierarchy {
         return ret;
     }
 
+    /// Returns the name of the top module
+    pub fn top_name(&self) -> &Identifier {
+        self.graph.node_weight(self.top().unwrap()).unwrap().name()
+    }
+
+    /// Constructs a new hierarchy from the FIR representation
     pub fn new(fir: &FirIR) -> Self {
         let mut ret = Self::default();
         ret.build_from_fir(fir);
@@ -162,9 +169,7 @@ impl GraphViz for Hierarchy {
 #[cfg(test)]
 mod test {
     use crate::common::RippleIRErr;
-    use crate::passes::fir::from_ast::from_circuit;
-    use crate::passes::fir::remove_unnecessary_phi::*;
-    use crate::passes::fir::check_phi_nodes::*;
+    use crate::passes::runner::run_fir_passes_from_circuit;
 
     use super::*;
     use chirrtl_parser::parse_circuit;
@@ -174,10 +179,7 @@ mod test {
         let source = std::fs::read_to_string("./test-inputs/Hierarchy.fir".to_string())?;
         let circuit = parse_circuit(&source).expect("firrtl parser");
 
-        let mut fir = from_circuit(&circuit);
-        remove_unnecessary_phi(&mut fir);
-        check_phi_node_connections(&fir)?;
-
+        let fir = run_fir_passes_from_circuit(&circuit)?;
         let h = Hierarchy::new(&fir);
         let hns: Vec<&HierNode> = h.topo_order().collect();
 

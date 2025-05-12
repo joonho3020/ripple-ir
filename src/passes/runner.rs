@@ -19,23 +19,26 @@ pub fn run_passes_from_filepath(name: &str) -> Result<FirIR, RippleIRErr> {
         parse_circuit(&source)
     }).expect("firrtl parser");
 
-    run_fir_passes(&circuit)
+    run_fir_passes_from_circuit(&circuit)
 }
 
-pub fn run_fir_passes(circuit: &Circuit) -> Result<FirIR, RippleIRErr> {
+pub fn run_fir_passes_from_circuit(circuit: &Circuit) -> Result<FirIR, RippleIRErr> {
     let mut fir = from_circuit(&circuit);
+    run_fir_passes(&mut fir)?;
+    Ok(fir)
+}
 
-    timeit!("remove_unnecessary_phi", {
-        remove_unnecessary_phi(&mut fir);
-        check_phi_node_connections(&fir)?;
-    });
-
+pub fn run_fir_passes(fir: &mut FirIR) -> Result<(), RippleIRErr> {
     timeit!("infer_typetree", {
-        infer_typetree(&mut fir);
+        infer_typetree(fir);
         check_typetree_inference(&fir)?;
     });
 
-    Ok(fir)
+    timeit!("remove_unnecessary_phi", {
+        remove_unnecessary_phi(fir);
+        check_phi_node_connections(&fir)?;
+    });
+    Ok(())
 }
 
 pub fn run_rir_passes(fir: &FirIR) -> Result<RippleIR, RippleIRErr> {

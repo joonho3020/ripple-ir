@@ -10,7 +10,7 @@ use petgraph::graph::NodeIndex;
 use bimap::BiMap;
 use indexmap::IndexMap;
 
-type IRGraph = Graph<RippleNode, RippleEdge>;
+pub type FlatRippleGraph = Graph<RippleNode, RippleEdge>;
 
 #[derive(Debug, Clone)]
 pub struct RippleGraph {
@@ -27,7 +27,7 @@ pub struct RippleGraph {
     edge_idx_gen: IndexGen,
 
     /// Graph of this IR
-    graph: IRGraph,
+    graph: FlatRippleGraph,
 
     /// Bi-directional map that ties a low level graph node to 
     /// each aggregate node and vice-versa

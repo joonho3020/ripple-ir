@@ -46,7 +46,7 @@ pub fn change_name(fir: &mut FirIR, cur: &Identifier, new: Identifier) {
         fir.graphs.insert(new.clone(), fg);
     }
 
-    if hid == fir.hier.root().unwrap() {
+    if hid == fir.hier.top().unwrap() {
         fir.name = new.clone();
     }
 }

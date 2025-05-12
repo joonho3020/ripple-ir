@@ -184,17 +184,7 @@ impl<'a> SubTreeView<'a> {
             None => "".to_string()
         };
 
-        match node.tpe {
-            TypeTreeNodeType::Ground(..) => {
-                chain.push_str(&name);
-            }
-            TypeTreeNodeType::Fields => {
-                chain.push_str(&name);
-            }
-            TypeTreeNodeType::Array => {
-                chain.push_str(&name);
-            }
-        }
+        chain.push_str(&name);
     }
 
     /// Returns a stringified node name of a node in a tree
@@ -413,6 +403,11 @@ impl<'a> SubTreeView<'a> {
         }
     }
 
+    pub fn subtree_from_id(&self, id: TypeTreeNodeIndex) -> SubTreeView<'_> {
+        let graph_root = self.ttree().graph_id(id).unwrap();
+        SubTreeView::from_subtree(self, *graph_root)
+    }
+
     pub fn subtree_array_element(&self) -> SubTreeView<'_> {
         assert_eq!(self.root_node().unwrap().tpe, TypeTreeNodeType::Array);
         let elem_subtree = self.subtree_from_ref(
@@ -463,5 +458,19 @@ impl<'a> SubTreeView<'a> {
             }
         }
     }
-}
 
+    /// Checks whether all the leaves have the same direction
+    pub fn is_bidirectional(&self) -> bool {
+        let leaves = self.leaves();
+        if leaves.len() <= 1 {
+            return false;
+        }
+        leaves.first()
+            .and_then(|first| self.get_node(*first))
+            .map_or(false, |first_node| {
+                leaves.iter()
+                    .map(|id| self.get_node(*id))
+                    .any(|node| node.map_or(false, |n| n.dir != first_node.dir))
+            })
+    }
+}

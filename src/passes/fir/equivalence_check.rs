@@ -1,12 +1,10 @@
 use crate::common::export_circuit;
-use crate::passes::fir::from_ast::from_circuit;
-use crate::passes::fir::remove_unnecessary_phi::remove_unnecessary_phi;
-use crate::passes::fir::check_phi_nodes::check_phi_node_connections;
 use crate::passes::fir::modify_names::add_sfx_to_module_names;
 use crate::passes::fir::to_ast::to_ast;
 use crate::common::RippleIRErr;
 use crate::passes::ast::print::Printer;
-use chirrtl_parser::ast::{CircuitModule, DefName, Identifier};
+use crate::passes::runner::run_fir_passes_from_circuit;
+use chirrtl_parser::ast::{Circuit, CircuitModule, DefName, Identifier};
 use chirrtl_parser::parse_circuit;
 use std::fs;
 use std::fs::create_dir_all;
@@ -23,9 +21,7 @@ pub fn equivalence_check(input_fir: &str) -> Result<(), RippleIRErr> {
     export_firrtl_and_sv("golden", input_fir, &source)?;
 
     let circuit = parse_circuit(&source).expect("firrtl parser");
-    let mut ir = from_circuit(&circuit);
-    remove_unnecessary_phi(&mut ir);
-    check_phi_node_connections(&ir)?;
+    let mut ir = run_fir_passes_from_circuit(&circuit)?;
 
     let old_hier = ir.hier.clone();
     add_sfx_to_module_names(&mut ir, "_impl");
@@ -35,7 +31,7 @@ pub fn equivalence_check(input_fir: &str) -> Result<(), RippleIRErr> {
     let circuit_str = printer.print_circuit(&circuit_reconstruct);
     export_firrtl_and_sv("impl", input_fir, &circuit_str)?;
 
-    let top_name = match old_hier.graph.node_weight(old_hier.root().unwrap()).unwrap().name() {
+    let top_name = match old_hier.graph.node_weight(old_hier.top().unwrap()).unwrap().name() {
         Identifier::Name(x) => x,
         _ => unreachable!()
     };
@@ -43,37 +39,44 @@ pub fn equivalence_check(input_fir: &str) -> Result<(), RippleIRErr> {
     top_sv_filename.push_str(&format!("/{}.sv", top_name));
     export_miter(&input_fir, &top_sv_filename)?;
 
-    for cm in circuit.modules {
-        if let CircuitModule::ExtModule(em) = cm.as_ref() {
-            if let DefName(Identifier::Name(x)) = &em.defname {
-                println!("exte module {:?}", x);
-                let input = format!("./test-inputs/{}.v", x);
-                copy_file(&input,
-                     &format!("{}/{}.sv", verilog_outdir("golden", input_fir), x))?;
-                copy_file(&input,
-                     &format!("{}/{}.sv", verilog_outdir("impl", input_fir), x))?;
-            }
-        }
-    }
 
-    export_tcl(&input_fir, top_name)?;
+    copy_extmodules(&circuit, input_fir)?;
+    export_tcl(&input_fir, top_name, "clock", "reset")?;
 
     let result = run_jaspergold(&input_fir, ".")?;
     match result {
-        EquivStatus::Proven => {
+        EquivStatus::Proven(x) => {
+            println!("Proved {} properties", x);
             Ok(())
         }
         EquivStatus::NothingToProve => {
             println!("Nothing to prove...");
             Ok(())
         }
-        EquivStatus::CounterExample => {
-            panic!("Found counter example");
+        EquivStatus::CounterExample(x) => {
+            panic!("Found {} counter examples", x);
         }
-        EquivStatus::Unknown => {
+        EquivStatus::Unknown(stdout) => {
+            println!("{}", stdout);
             panic!("Found unknown");
         }
     }
+}
+
+fn copy_extmodules(circuit: &Circuit, input_fir: &str) -> Result<(), RippleIRErr> {
+    for cm in circuit.modules.iter() {
+        if let CircuitModule::ExtModule(em) = cm.as_ref() {
+            if let DefName(Identifier::Name(x)) = &em.defname {
+                println!("exte modul {:?}", x);
+                let input = format!("./test-inputs/{}.v", x);
+                copy_file(&input,
+                    &format!("{}/{}.sv", verilog_outdir("golden", input_fir), x))?;
+                copy_file(&input,
+                    &format!("{}/{}.sv", verilog_outdir("impl", input_fir), x))?;
+            }
+        }
+    }
+    Ok(())
 }
 
 fn remove_dir_if_exists(path: &str) -> Result<(), RippleIRErr> {
@@ -306,7 +309,7 @@ fn generate_miter(module: &Module) -> String {
 }
 
 
-pub fn export_tcl(firname: &str, top: &str) -> Result<(), RippleIRErr> {
+pub fn export_tcl(firname: &str, top: &str, clock: &str, reset: &str) -> Result<(), RippleIRErr> {
     let golden_dir = verilog_outdir("golden", firname);
     let impl_dir = verilog_outdir("impl", firname);
     let output_file = tcl_filename(firname);
@@ -355,10 +358,15 @@ pub fn export_tcl(firname: &str, top: &str) -> Result<(), RippleIRErr> {
     tcl_content.push_str("# Elaborate designs\n");
     tcl_content.push_str(&format!("check_sec -elaborate -spec -top {}\n", top));
     tcl_content.push_str(&format!("check_sec -elaborate -imp -top {}_impl\n", top));
+
+    tcl_content.push_str("# Setup equivalence check\n");
     tcl_content.push_str(&format!("check_sec -setup -spec_dut {} -imp_dut {}_impl\n", top, top));
+
     tcl_content.push_str("# Set clock and reset signals\n");
-    tcl_content.push_str("clock clock\n");
-    tcl_content.push_str("reset reset\n\n");
+    tcl_content.push_str(&format!("clock {}\n", clock));
+    tcl_content.push_str(&format!("reset {}\n\n", reset));
+
+    tcl_content.push_str("# Assert filter\n");
     tcl_content.push_str(&format!("assert -disable {{^{}\\..*}} -regexp\n", top));
     tcl_content.push_str("autoprove\n\n");
     tcl_content.push_str(&format!("report -file ./test-outputs/{}/report.txt -force\n", firname));
@@ -395,20 +403,22 @@ pub fn run_jaspergold<P: AsRef<Path>>(firname: &str, dir: P) -> Result<EquivStat
 }
 
 pub enum EquivStatus {
-    Proven,
-    CounterExample,
+    Proven(u32),
+    CounterExample(u32),
     NothingToProve,
-    Unknown,
+    Unknown(String),
 }
 
 pub fn parse_jasper_summary(stdout: &str) -> EquivStatus {
     let mut in_summary = false;
+    let mut has_summary = false;
     let mut proven = 0;
     let mut cex = 0;
 
     for line in stdout.lines() {
         if line.contains("SUMMARY") {
             in_summary = true;
+            has_summary = true;
             continue;
         }
 
@@ -437,13 +447,13 @@ pub fn parse_jasper_summary(stdout: &str) -> EquivStatus {
     }
 
     if cex > 0 {
-        EquivStatus::CounterExample
+        EquivStatus::CounterExample(cex)
     } else if proven > 0 {
-        EquivStatus::Proven
-    } else if cex == 0 && proven == 0 {
+        EquivStatus::Proven(proven)
+    } else if cex == 0 && proven == 0 && has_summary {
         EquivStatus::NothingToProve
     } else {
-        EquivStatus::Unknown
+        EquivStatus::Unknown(stdout.to_string())
     }
 }
 
@@ -483,12 +493,13 @@ mod test {
     #[test_case("Atomics" ; "Atomics")]
     #[test_case("PhitArbiter" ; "PhitArbiter")]
     #[test_case("PointerChasing" ; "PointerChasing")]
-    #[test_case("TLMonitor" ; "TLMonitor")]
     #[test_case("TLBusBypassBar" ; "TLBusBypassBar")]
     #[test_case("DCacheDataArray" ; "DCacheDataArray")]
     #[test_case("WireRegInsideWhen" ; "WireRegInsideWhen")]
     #[test_case("MultiWhen" ; "MultiWhen")]
     #[test_case("RegFile" ; "RegFile")]
+    #[test_case("CLINT" ; "CLINT")]
+// #[test_case("TLMonitor" ; "TLMonitor")]
 // #[test_case("ListBuffer" ; "ListBuffer")]
     fn run(name: &str) -> Result<(), RippleIRErr> {
         equivalence_check(name)?;
