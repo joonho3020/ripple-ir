@@ -4,12 +4,12 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 use chirrtl_parser::ast::Identifier;
 use petgraph::graph::NodeIndex;
 use crate::common::graphviz::DefaultGraphVizCore;
-use crate::ir::fir::{FirGraph, FirNode, FirNodeType};
+use crate::ir::fir::{FirGraph, FirNodeType};
 use lsh_rs::{LshMem, L2};
 use petgraph::data::DataMap;
 use petgraph::visit::IntoNeighbors;
-use crate::ir::fir::FirNodeType::{Input, Output};
 use crate::passes::runner::run_passes_from_filepath;
+use std::time::Instant;
 
 
 pub fn neighbors_of_distance_k(graph: &FirGraph, start: NodeIndex, k: usize) -> Vec<NodeIndex> {
@@ -366,11 +366,12 @@ pub fn max_approx(src_file: &str, dst_file: &str, k: usize, n_proj: usize, n_tab
 
 #[cfg(test)]
 mod tests {
+    use petgraph::visit::NodeCount;
     use super::*;
-    const k: usize = 10;
-    const n_projections: usize = 18;
-    const n_hash_tables: usize = 12;
-    const bucket_width: f32 = 1e8;
+    const k: usize = 2;
+    const n_projections: usize = 20;
+    const n_hash_tables: usize = 16;
+    const bucket_width: f32 = 1.0;
 
     fn node_desc(g: &FirGraph, idx: NodeIndex) -> String {
         let w = g.graph.node_weight(idx).unwrap();
@@ -437,30 +438,37 @@ mod tests {
 
     #[test]
     pub fn test_approx() {
-        let mcs = max_approx("BitSel1", "BitSel2", k, n_projections, n_hash_tables, bucket_width);
+        let start = Instant::now();
+        let mcs = max_approx("AESStep2", "AESStep3", k, n_projections, n_hash_tables, bucket_width);
+        let src_fir = run_passes_from_filepath(&format!("./test-inputs/{}.fir", "BitSel1")).expect("failed to load src .fir");
         for (module, nodes) in mcs {
+            let (i, graph) = src_fir.graphs.iter().next().unwrap();
             eprintln!("Module {} has {} common nodes", module, nodes.len());
+            eprintln!("Match percentage: {}", (nodes.len() as f32) / (graph.node_indices().count() as f32));
             for node in nodes {
                 eprintln!("{:#?}", node);
             }
         }
+        eprintln!("Elapsed time: {:#?}", start.elapsed().as_millis());
     }
 
     #[test]
     fn test_mcs_and_print1() {
-        let src_fir = run_passes_from_filepath("./test-inputs/BitSel1.fir").expect("failed to load GCD.fir");
-        let dst_fir = run_passes_from_filepath("./test-inputs/BitSel2.fir").expect("failed to load GCDDelta.fir");
+        let start = Instant::now();
+        let src_fir = run_passes_from_filepath("./test-inputs/GCD.fir").expect("failed to load GCD.fir");
+        let dst_fir = run_passes_from_filepath("./test-inputs/GCDDelta.fir").expect("failed to load GCDDelta.fir");
         let src_graph = src_fir.graphs.values().next().unwrap();
         let dst_graph = dst_fir.graphs.values().next().unwrap();
         let mapping = max_common_subgraph(src_graph, dst_graph, k, n_projections, n_hash_tables, bucket_width);
         assert!(!mapping.is_empty(), "MCS mapping should not be empty");
         let covered = mapping.len();
         let total   = src_graph.graph.node_count();
-        eprintln!("≈‑MCS size: {} of {} source vertices\n", covered, total);
+        eprint!("≈‑MCS size: {} of {} source vertices\n", covered, total);
+        eprintln!("Percent mapped: {:.2}", (covered as f32) / (total as f32) * 100.0);
         for (src_idx, dst_idx) in &mapping {
             eprintln!("{:<40}  ↔  {}", node_desc(src_graph, *src_idx), node_desc(dst_graph, *dst_idx));
         }
-        eprintln!();
+        eprintln!("Elapsed time: {:#?}", start.elapsed().as_millis());
     }
 
     #[test]
