@@ -174,6 +174,13 @@ Considering that Scala is a much expressive language, we can infer that the comp
   ],
 ) <fig:gumtree_results>
 
+#figure(
+  image("./assets/gumtree-time.png", width: 100%),
+  caption: [
+    Execution time of the GumTree algorithm on our example circuits.
+  ],
+) <fig:gumtree_time>
+
 Our tree-based approach to circuit deduplication, while not performing structural or semantic diffing in the traditional sense, offers a practical solution to the subgraph matching problem. While we may not always find the largest possible common subgraph, our evaluation shows that the matches we do find are sufficient for practical optimization purposes.
 
 The key insight is that for many hardware designs, especially those with regular structures and control logic, the tree representation captures enough of the circuit's structure to enable meaningful optimizations.
@@ -182,6 +189,7 @@ The match percentage represents the ratio of nodes that the algorithm identified
 For many cases, we can see that the algorithm works well, while there are cases where it fails catastrophically, and the match percentage is not necessarily correlated to the size of the circuit.
 We leave the investigation of the algorithmic deficiencies to future work.
 
+@fig:gumtree_time shows the execution time of the algorithm. We can see that it is linear to the size of the graph and can scale to larger graphs.
 
 == Direct circuit deduplication
 

@@ -1,7 +1,7 @@
 import matplotlib.pyplot as plt
 import numpy as np
 
-def plot_match_percentages_with_src(save_path="match_percentages_with_src.png"):
+def plot_match_percentages_with_src(save_path="gumtree-results.png"):
     # Data
     comparisons = [
         "GCD 1 vs 2",
@@ -46,8 +46,41 @@ def plot_match_percentages_with_src(save_path="match_percentages_with_src.png"):
     plt.close()
     print(f"Chart saved to {save_path}")
 
+def plot_size_vs_execution_time(save_path="gumtree-time.png"):
+    # Data
+    src_sizes = [55, 482, 582, 1956, 2147, 220, 340, 1500]
+    exec_times_ms = [
+        0.174, 20.471333, 23.857666, 467.543584,
+        3.96825, 3.197459, 18.080667, 49.972041
+    ]
+    labels = [
+        "GCD 1 vs 2", "Cordic 1 vs 2", "Cordic 2 vs 3",
+        "AES 1 vs 2", "AES 2 vs 3", "FFT 1 vs 2",
+        "FFT 2 vs 3", "FFT 3 vs 4"
+    ]
+
+    # Plot
+    plt.figure(figsize=(8, 6))
+    plt.scatter(src_sizes, exec_times_ms, color='purple', s=60)
+    plt.xscale('log')
+    plt.yscale('log')
+    plt.xlabel("Source Size", fontsize=13)
+    plt.ylabel("Execution Time (ms)", fontsize=13)
+    plt.title("Execution Time vs. Source Size (log-log)", fontsize=15)
+
+    # Add labels to points
+    for x, y, label in zip(src_sizes, exec_times_ms, labels):
+        plt.text(x, y, label, fontsize=9, ha='left', va='bottom')
+
+    plt.grid(True, which="both", linestyle="--", linewidth=0.5)
+    plt.tight_layout()
+    plt.savefig(save_path, format="png")
+    plt.close()
+    print(f"Size vs execution time plot saved to {save_path}")
+
 def main():
   plot_match_percentages_with_src()
+  plot_size_vs_execution_time()
 
 if __name__ == "__main__":
   main()
