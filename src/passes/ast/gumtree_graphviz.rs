@@ -266,6 +266,7 @@ mod tests {
     use super::*;
     use crate::passes::ast::firrtlgraph::FirrtlGraph;
     use crate::common::RippleIRErr;
+    use crate::timeit;
 
     #[test_case("GCD", "GCDDelta" ; "GCD")]
     #[test_case("Adder", "Subtracter" ; "Adder")]
@@ -284,7 +285,6 @@ mod tests {
         Ok(())
     }
 
-
     #[test_case("GCD", "GCDDelta" ; "GCD")]
     #[test_case("AESStep1", "AESStep2" ; "AES1")]
     #[test_case("AESStep2", "AESStep3" ; "AES2")]
@@ -302,16 +302,18 @@ mod tests {
         let circuit_delta = parse_circuit(&source_delta).expect("firrtl parser");
         let dst_graph = FirrtlGraph::from_circuit(&circuit_delta);
 
-        let gumtree = GumTree::default();
-        let matches = gumtree.diff(&src_graph, &dst_graph);
+        timeit!("GumTree algorithm", {
+            let gumtree = GumTree::default();
+            let matches = gumtree.diff(&src_graph, &dst_graph);
 
-        let src_graph_sz = src_graph.graph.node_count();
-        let match_sz = matches.len();
+            let src_graph_sz = src_graph.graph.node_count();
+            let match_sz = matches.len();
 
-        let percentage = match_sz as f32 / src_graph_sz as f32 * 100.0;
-        println!("percentage for {:?} vs {:?}: match {} / src {} x 100 = {} %",
-            src, dst,
-            match_sz, src_graph_sz, percentage);
+            let percentage = match_sz as f32 / src_graph_sz as f32 * 100.0;
+            println!("percentage for {:?} vs {:?}: match {} / src {} x 100 = {} %",
+                src, dst,
+                match_sz, src_graph_sz, percentage);
+        });
 
         Ok(())
     }
