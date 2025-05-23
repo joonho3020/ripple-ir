@@ -7,7 +7,7 @@ pub mod typetree_graphviz;
 
 #[cfg(test)]
 mod test {
-    use chirrtl_parser::ast::*;
+    use rusty_firrtl::*;
     use chirrtl_parser::parse_circuit;
     use indexmap::IndexMap;
     use crate::common::RippleIRErr;

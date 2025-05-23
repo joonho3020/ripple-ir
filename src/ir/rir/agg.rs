@@ -1,5 +1,5 @@
 use fixedbitset::FixedBitSet;
-use chirrtl_parser::ast::*;
+use rusty_firrtl::*;
 use crate::define_index_type;
 use crate::ir::rir::rnode::*;
 use crate::ir::rir::redge::*;

@@ -1,4 +1,4 @@
-use chirrtl_parser::ast::*;
+use rusty_firrtl::*;
 use petgraph::{graph::{Graph, NodeIndex}, visit::EdgeRef, Direction::Outgoing};
 use std::hash::{Hash, Hasher};
 use std::collections::hash_map::DefaultHasher;
@@ -72,6 +72,8 @@ impl std::hash::Hash for ASTElement {
                     }
                     Stmt::ChirrtlMemory(..) => {}
                     Stmt::ChirrtlMemoryPort(..) => {}
+                    Stmt::Stop(..) => { unimplemented!(); }
+                    Stmt::Memory(..) => { unimplemented!(); }
                 }
             }
             ASTElement::Type(typ) => typ.hash(state),
@@ -392,6 +394,12 @@ impl FirrtlGraph {
                     Self::add_expression(graph, idx, clock);
                     Self::add_expression(graph, idx, pred);
                     Self::add_expression(graph, idx, en);
+                }
+                Stmt::Stop(..) => {
+                    unimplemented!();
+                }
+                Stmt::Memory(..) => {
+                    unimplemented!();
                 }
             }
         }

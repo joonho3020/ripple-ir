@@ -1,4 +1,4 @@
-use chirrtl_parser::ast::Width;
+use rusty_firrtl::Width;
 use crate::ir::fir::FirEdgeType;
 use crate::impl_clean_display;
 use crate::define_index_type;

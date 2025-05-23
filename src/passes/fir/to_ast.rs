@@ -1,7 +1,7 @@
 use crate::common::graphviz::DefaultGraphVizCore;
 use crate::ir::fir::{FirEdgeType, FirGraph, FirIR, FirNodeType};
 use crate::ir::whentree::{CondPath, CondPathWithPrior, StmtWithPrior, WhenTree};
-use chirrtl_parser::ast::*;
+use rusty_firrtl::*;
 use std::collections::VecDeque;
 use indexmap::IndexMap;
 use indexmap::IndexSet;

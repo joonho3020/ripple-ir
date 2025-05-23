@@ -1,4 +1,4 @@
-use chirrtl_parser::ast::*;
+use rusty_firrtl::*;
 use derivative::Derivative;
 use petgraph::graph::{Graph, NodeIndex};
 use indexmap::IndexMap;

@@ -1,4 +1,4 @@
-use chirrtl_parser::ast::Identifier;
+use rusty_firrtl::Identifier;
 use petgraph::Direction::{Incoming, Outgoing};
 use petgraph::visit::EdgeRef;
 use crate::ir::fir::FirGraph;

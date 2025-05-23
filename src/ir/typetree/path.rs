@@ -1,5 +1,5 @@
 use std::hash::{Hash, Hasher};
-use chirrtl_parser::ast::*;
+use rusty_firrtl::*;
 use crate::ir::typetree::tnode::*;
 
 /// Used for representing a path in the `TypeTree`

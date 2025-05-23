@@ -1,4 +1,4 @@
-use chirrtl_parser::ast::*;
+use rusty_firrtl::*;
 use indexmap::IndexMap;
 
 pub fn is_reference(expr: &Expr) -> bool {
@@ -145,6 +145,12 @@ pub fn check_stmt_assumption(stmts: &Stmts) {
             }
             Stmt::Assert(..) => {
                 continue;
+            }
+            Stmt::Stop(..) => {
+                unimplemented!();
+            }
+            Stmt::Memory(..) => {
+                unimplemented!();
             }
         }
     }

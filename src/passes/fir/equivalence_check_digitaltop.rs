@@ -1,5 +1,5 @@
 use indexmap::IndexSet;
-use chirrtl_parser::ast::{CircuitModule, DefName, Identifier};
+use rusty_firrtl::{CircuitModule, DefName, Identifier};
 use chirrtl_parser::parse_circuit;
 use crate::passes::fir::equivalence_check::*;
 use crate::passes::fir::modify_names::add_sfx_to_module_names;

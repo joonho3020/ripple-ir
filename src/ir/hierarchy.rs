@@ -1,4 +1,4 @@
-use chirrtl_parser::ast::Identifier;
+use rusty_firrtl::Identifier;
 use petgraph::graph::{Graph, NodeIndex};
 use petgraph::algo::toposort;
 use indexmap::IndexMap;

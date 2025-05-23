@@ -1,6 +1,6 @@
 use petgraph::{graph::NodeIndex, visit::EdgeRef, Direction::{Incoming, Outgoing}};
 use indexmap::{IndexSet, IndexMap};
-use chirrtl_parser::ast::*;
+use rusty_firrtl::*;
 use crate::ir::fir::*;
 
 pub type RWPortMap = IndexMap<Identifier, Vec<Identifier>>;
@@ -300,7 +300,7 @@ fn track_en_drivers(fg: &FirGraph, cur_expr: &Expr, id: NodeIndex, drivers: &mut
 #[cfg(test)]
 mod test {
     use indexmap::IndexMap;
-    use chirrtl_parser::ast::Identifier;
+    use rusty_firrtl::Identifier;
     use crate::{
         common::RippleIRErr,
         passes::fir::check_mport_assumptions::check_mport_assumptions,

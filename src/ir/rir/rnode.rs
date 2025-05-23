@@ -1,4 +1,4 @@
-use chirrtl_parser::ast::*;
+use rusty_firrtl::*;
 use derivative::Derivative;
 use std::hash::Hash;
 use crate::ir::whentree::*;

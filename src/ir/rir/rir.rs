@@ -1,4 +1,4 @@
-use chirrtl_parser::ast::*;
+use rusty_firrtl::*;
 use indexmap::IndexMap;
 use crate::ir::rir::rgraph::*;
 use crate::ir::hierarchy::*;

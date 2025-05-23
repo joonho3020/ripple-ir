@@ -1,4 +1,4 @@
-use chirrtl_parser::ast::Identifier;
+use rusty_firrtl::Identifier;
 use petgraph::Direction::Incoming;
 
 use crate::ir::fir::{FirIR, FirNodeType};

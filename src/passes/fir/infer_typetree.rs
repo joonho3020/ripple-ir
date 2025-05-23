@@ -1,5 +1,5 @@
 use std::collections::VecDeque;
-use chirrtl_parser::ast::*;
+use rusty_firrtl::*;
 use petgraph::Direction::{Incoming, Outgoing};
 use petgraph::graph::NodeIndex;
 use petgraph::visit::{EdgeRef, VisitMap, Visitable};

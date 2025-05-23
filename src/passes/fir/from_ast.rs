@@ -6,7 +6,7 @@ use crate::ir::typetree::typetree::TypeTree;
 use crate::ir::typetree::tnode::*;
 use crate::ir::fir::*;
 use crate::passes::ast::check_ast_assumption::*;
-use chirrtl_parser::ast::*;
+use rusty_firrtl::*;
 use petgraph::graph::NodeIndex;
 use indexmap::{IndexMap, IndexSet};
 use petgraph::visit::EdgeRef;
@@ -261,6 +261,12 @@ fn add_graph_node_from_stmt(ir: &mut FirGraph, stmt: &Stmt, nm: &mut NodeMap) {
             let nt = FirNodeType::Assert(stmt.clone(), CondPathWithPrior::default());
             let id = add_node(ir, None, None, TypeDirection::Outgoing, nt);
             nm.assert_map.insert(stmt.clone(), id);
+        }
+        Stmt::Stop(..) => {
+            unimplemented!();
+        }
+        Stmt::Memory(..) => {
+            unimplemented!();
         }
     }
 }
@@ -522,6 +528,12 @@ fn add_graph_edge_from_stmt(ir: &mut FirGraph, stmt: &Stmt, nm: &mut NodeMap) {
             let assert_id = nm.assert_map.get(stmt).unwrap();
             let clk_edge = FirEdge::new(clk.clone(), None, FirEdgeType::Clock);
             add_graph_edge_from_expr(ir, *assert_id, clk, clk_edge, nm);
+        }
+        Stmt::Stop(..) => {
+            unimplemented!();
+        }
+        Stmt::Memory(..) => {
+            unimplemented!();
         }
     }
 }

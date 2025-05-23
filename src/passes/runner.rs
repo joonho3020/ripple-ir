@@ -7,7 +7,7 @@ use crate::passes::fir::check_phi_nodes::check_phi_node_connections;
 use crate::passes::rir::from_fir::from_fir;
 use crate::common::RippleIRErr;
 use crate::timeit;
-use chirrtl_parser::ast::Circuit;
+use rusty_firrtl::Circuit;
 use chirrtl_parser::parse_circuit;
 
 

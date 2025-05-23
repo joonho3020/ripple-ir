@@ -2,7 +2,7 @@ use petgraph::graph::EdgeIndex;
 use petgraph::visit::EdgeRef;
 use petgraph::Direction::Incoming;
 use petgraph::Direction::Outgoing;
-use chirrtl_parser::ast::*;
+use rusty_firrtl::*;
 use derivative::Derivative;
 use indexmap::IndexMap;
 use indexmap::IndexSet;
@@ -332,7 +332,7 @@ mod test {
     use crate::ir::typetree::tnode::*;
     use crate::ir::typetree::tedge::*;
     use crate::passes::runner::run_fir_passes_from_circuit;
-    use chirrtl_parser::ast::*;
+    use rusty_firrtl::*;
     use chirrtl_parser::parse_circuit;
 
     #[test]

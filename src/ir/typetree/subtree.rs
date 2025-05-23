@@ -2,7 +2,7 @@ use crate::ir::typetree::typetree::*;
 use crate::ir::typetree::tnode::*;
 use crate::ir::typetree::path::*;
 use crate::ir::typetree::tedge::*;
-use chirrtl_parser::ast::*;
+use rusty_firrtl::*;
 use petgraph::graph::Neighbors;
 use petgraph::{graph::NodeIndex, Direction::{Outgoing, Incoming}};
 use std::collections::VecDeque;

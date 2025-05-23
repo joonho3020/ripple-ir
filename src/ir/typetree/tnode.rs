@@ -1,4 +1,4 @@
-use chirrtl_parser::ast::*;
+use rusty_firrtl::*;
 use std::cmp::Ordering;
 use crate::define_index_type;
 use crate::impl_clean_display;

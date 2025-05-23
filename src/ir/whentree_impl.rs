@@ -1,5 +1,5 @@
 use super::whentree::*;
-use chirrtl_parser::ast::*;
+use rusty_firrtl::*;
 use petgraph::{graph::NodeIndex, visit::Bfs, Direction::Outgoing};
 use petgraph::Direction::Incoming;
 use indexmap::IndexMap;

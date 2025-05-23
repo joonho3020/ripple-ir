@@ -3,7 +3,7 @@ use crate::ir::typetree::tnode::{GroundType, TypeDirection, TypeTreeNodeType};
 use crate::ir::typetree::typetree::TypeTree;
 use crate::passes::rir::combinational::combinational_analaysis;
 use crate::passes::rir::from_fir::from_fir;
-use chirrtl_parser::ast::*;
+use rusty_firrtl::*;
 use indexmap::IndexMap;
 use petgraph::graph::NodeIndex;
 

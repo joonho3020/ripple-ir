@@ -6,7 +6,7 @@ use crate::ir::rir::agg::*;
 use crate::ir::typetree::subtree::SubTreeView;
 use crate::ir::typetree::tnode::*;
 use crate::ir::typetree::subtree::LeavesWithPath;
-use chirrtl_parser::ast::*;
+use rusty_firrtl::*;
 use petgraph::graph::NodeIndex;
 use indexmap::IndexSet;
 use petgraph::graph::EdgeIndex;

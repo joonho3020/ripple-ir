@@ -1,6 +1,6 @@
 use std::collections::VecDeque;
 
-use chirrtl_parser::ast::Identifier;
+use rusty_firrtl::Identifier;
 use petgraph::graph::NodeIndex;
 use petgraph::Direction::Incoming;
 

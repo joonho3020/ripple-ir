@@ -4,7 +4,7 @@ use crate::passes::fir::to_ast::to_ast;
 use crate::common::RippleIRErr;
 use crate::passes::ast::print::Printer;
 use crate::passes::runner::run_fir_passes_from_circuit;
-use chirrtl_parser::ast::{Circuit, CircuitModule, DefName, Identifier};
+use rusty_firrtl::{Circuit, CircuitModule, DefName, Identifier};
 use chirrtl_parser::parse_circuit;
 use std::fs;
 use std::fs::create_dir_all;

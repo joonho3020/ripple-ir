@@ -1,4 +1,4 @@
-use chirrtl_parser::ast::*;
+use rusty_firrtl::*;
 use serde_json::Value;
 
 /// Can be used to stringify a FIRRTL AST:

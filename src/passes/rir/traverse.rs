@@ -6,7 +6,7 @@ use crate::ir::rir::agg::*;
 use crate::timeit;
 use crate::common::graphviz::*;
 use std::collections::VecDeque;
-use chirrtl_parser::ast::*;
+use rusty_firrtl::*;
 use graphviz_rust::attributes::{NodeAttributes, color_name};
 
 pub fn traverse_aggregate(rir: RippleIR, export: bool) -> Result<(), RippleIRErr> {

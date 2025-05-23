@@ -3,7 +3,7 @@ use petgraph::{
     graph::{NodeIndex, EdgeIndex},
     visit::EdgeRef, Direction::{Incoming, Outgoing}
 };
-use chirrtl_parser::ast::*;
+use rusty_firrtl::*;
 use indexmap::IndexMap;
 use indexmap::IndexSet;
 

@@ -1,4 +1,4 @@
-use chirrtl_parser::ast::*;
+use rusty_firrtl::*;
 use std::fmt::Debug;
 use std::collections::VecDeque;
 use petgraph::{graph::{Graph, NodeIndex}, Direction::Outgoing};
