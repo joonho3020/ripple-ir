@@ -11,7 +11,7 @@ use petgraph::{
     Direction::Incoming,
 };
 use petgraph::visit::DfsPostOrder;
-use crate::passes::ast::firrtlgraph::*;
+use crate::passes::ast::firrtltree::*;
 
 /// Dice: metric representing how similar two subtrees are
 #[derive(Debug, Clone, Hash, Ord, Eq)]
@@ -127,7 +127,7 @@ impl PriorityQueue {
     }
 
     /// Adds all the child nodes of `id` of `fg` into the priority queue
-    fn open(&mut self, fg: &FirrtlGraph, id: NodeIndex) {
+    fn open(&mut self, fg: &FirrtlTree, id: NodeIndex) {
         for cidx in fg.graph.neighbors_directed(id, Outgoing) {
             let cnode = fg.graph.node_weight(cidx).unwrap();
             self.push(HeightNodeIndex::new(cnode.height, cidx));
@@ -136,7 +136,7 @@ impl PriorityQueue {
 
     /// Pops all the nodes in `pq` with `height`, and adds all of their children
     /// into `pq`
-    fn open_all(&mut self, fg: &FirrtlGraph, height: Height) {
+    fn open_all(&mut self, fg: &FirrtlTree, height: Height) {
         while self.peek().unwrap().height == height {
             let hnidx = self.0.pop().unwrap();
             self.open(fg, hnidx.idx);
@@ -145,7 +145,7 @@ impl PriorityQueue {
 
     /// Removes all nodes in `self` with `height`. Returns a node hash to node index
     /// mapping
-    fn pop(&mut self, fg: &FirrtlGraph, height: u32) -> HashToIndex {
+    fn pop(&mut self, fg: &FirrtlTree, height: u32) -> HashToIndex {
         let mut hm: HashToIndex = IndexMap::new();
         while self.peek().is_some() && self.peek().unwrap().height == height {
             let hnidx = self.0.pop().unwrap();
@@ -199,7 +199,7 @@ impl GumTree {
 }
 
 impl GumTree {
-    pub fn top_down_phase(&self, src: &FirrtlGraph, dst: &FirrtlGraph) -> Matches {
+    pub fn top_down_phase(&self, src: &FirrtlTree, dst: &FirrtlTree) -> Matches {
         let mut src_pq = PriorityQueue::new();
         let mut dst_pq = PriorityQueue::new();
 
@@ -317,7 +317,7 @@ impl GumTree {
 
     /// Counts the number of matches under (and including) each node
     fn descendent_match_cnt(
-        fg: &FirrtlGraph,
+        fg: &FirrtlTree,
         ast_matches: &IndexSet<NodeIndex>
     ) -> IndexMap<NodeIndex, u32> {
         let mut desc_cnt: IndexMap<NodeIndex, u32> = IndexMap::new();
@@ -344,8 +344,8 @@ impl GumTree {
     fn dice_list<'a>(
         mappings: &HeightMatches,
         candidates: &'a HeightMatches,
-        src: &FirrtlGraph,
-        dst: &FirrtlGraph
+        src: &FirrtlTree,
+        dst: &FirrtlTree
     ) -> Vec<(Dice, &'a HeightNodeIndex, &'a HeightNodeIndex)> {
         let mut dices: Vec<(Dice, &HeightNodeIndex, &HeightNodeIndex)> = vec![];
 
@@ -386,8 +386,8 @@ impl GumTree {
 impl GumTree {
     pub fn bottom_up_phase(
         self: &Self,
-        src: &FirrtlGraph,
-        dst: &FirrtlGraph,
+        src: &FirrtlTree,
+        dst: &FirrtlTree,
         mappings: &Matches
     ) -> Matches {
         let mut ret: Matches = Matches::new();
@@ -437,7 +437,7 @@ impl GumTree {
 
     /// Returns a map where given a node, returns a list of descendent nodes that are matched
     fn matched_descendent_set(
-        fg: &FirrtlGraph,
+        fg: &FirrtlTree,
         matched: &IndexSet<&NodeIndex>
     ) -> MatchedDescSet {
         let mut ret: MatchedDescSet = IndexMap::new();
@@ -459,8 +459,8 @@ impl GumTree {
  
     fn bottom_up_candidate(
         src_id: NodeIndex,
-        src: &FirrtlGraph,
-        dst: &FirrtlGraph,
+        src: &FirrtlTree,
+        dst: &FirrtlTree,
         src_matched_desc_set: &MatchedDescSet,
         dst_matched: &IndexSet<&NodeIndex>,
         dst_matched_desc_set: &MatchedDescSet,
@@ -523,7 +523,7 @@ impl GumTree {
 impl GumTree {
     /// Given two `LnastTree`s, returns a vector containing the tuple of matched
     /// node indices
-    pub fn diff(self: &Self, src: &FirrtlGraph, dst: &FirrtlGraph) -> Matches {
+    pub fn diff(self: &Self, src: &FirrtlTree, dst: &FirrtlTree) -> Matches {
         let mut td_matches = self.top_down_phase(src, dst);
         let bu_matches = self.bottom_up_phase(src, dst, &mut td_matches);
         td_matches.extend(bu_matches);

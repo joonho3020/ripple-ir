@@ -5,7 +5,7 @@ use std::collections::hash_map::DefaultHasher;
 use std::cmp::max;
 use std::fmt::Display;
 use indexmap::IndexMap;
-use crate::passes::ast::print::Printer;
+use crate::passes::ast::chirrtl_print::ChirrtlPrinter;
 
 /// A node in the FIRRTL AST for GumTree comparison
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -135,7 +135,7 @@ impl Display for FirrtlNode {
 
 /// Graph representation of FIRRTL AST for GumTree algorithm
 #[derive(Debug, Clone)]
-pub struct FirrtlGraph {
+pub struct FirrtlTree {
     pub graph: Graph<FirrtlNode, OrderedEdge>,
     pub root: NodeIndex,
 }
@@ -165,7 +165,7 @@ pub enum FirrtlGraphError {
     GraphMismatch(String),
 }
 
-impl FirrtlGraph {
+impl FirrtlTree {
     /// Returns the height of the node
     pub fn height(&self, id: NodeIndex) -> Height {
         self.graph.node_weight(id).unwrap().height
@@ -272,7 +272,7 @@ impl FirrtlGraph {
     }
 }
 
-impl FirrtlGraph {
+impl FirrtlTree {
     pub fn from_circuit(circuit: &Circuit) -> Self {
         let mut graph: Graph<FirrtlNode, OrderedEdge> = Graph::new();
         let root = graph.add_node(FirrtlNode::from(ASTElement::Circuit(
@@ -439,7 +439,7 @@ impl FirrtlGraph {
     }
 }
 
-impl FirrtlGraph {
+impl FirrtlTree {
     /// Reconstruct a Circuit from the graph representation
     pub fn to_circuit(&self) -> Result<Circuit, FirrtlGraphError> {
         match &self.graph[self.root].elem {
@@ -568,7 +568,7 @@ impl FirrtlGraph {
         if reconstructed == *original {
             Ok(())
         } else {
-            let mut printer = Printer::new();
+            let mut printer = ChirrtlPrinter::new();
             let circuit_str = printer.print_circuit(&reconstructed);
             std::fs::write(
                 &format!("./test-outputs/{}.reconstruct.fir", original.name.to_string()),
@@ -596,7 +596,7 @@ mod tests {
 
         // Create a simple test circuit
         // Convert to graph
-        let graph = FirrtlGraph::from_circuit(&circuit);
+        let graph = FirrtlTree::from_circuit(&circuit);
 
         // Verify reconstruction
         graph.verify(&circuit)

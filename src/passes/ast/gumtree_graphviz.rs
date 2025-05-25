@@ -11,7 +11,7 @@ use petgraph::graph::NodeIndex;
 use petgraph::graph::Graph;
 use petgraph::Direction::Outgoing;
 use petgraph::Direction::Incoming;
-use crate::{common::RippleIRErr, passes::ast::firrtlgraph::*};
+use crate::{common::RippleIRErr, passes::ast::firrtltree::*};
 use super::gumtree::*;
 
 type TreeNodeIndex = NodeIndex;
@@ -184,7 +184,7 @@ impl GumTree {
     }
 
     fn add_graph(
-        ln: &FirrtlGraph,
+        ln: &FirrtlTree,
         print_graph: &mut PrintGraph,
         edge_type: PrintGraphEdge,
     ) -> IndexMap<TreeNodeIndex, PrintNodeIndex> {
@@ -207,8 +207,8 @@ impl GumTree {
 
     pub fn export_gumtree_diff(
         &self,
-        src: &FirrtlGraph,
-        dst: &FirrtlGraph,
+        src: &FirrtlTree,
+        dst: &FirrtlTree,
         path: &str
     ) -> Result<(), RippleIRErr> {
         let mut print_graph: PrintGraph = Graph::new();
@@ -264,7 +264,7 @@ mod tests {
     use test_case::test_case;
 
     use super::*;
-    use crate::passes::ast::firrtlgraph::FirrtlGraph;
+    use crate::passes::ast::firrtltree::FirrtlTree;
     use crate::common::RippleIRErr;
     use crate::timeit;
 
@@ -273,11 +273,11 @@ mod tests {
     fn run(src: &str, dst: &str) -> Result<(), RippleIRErr> {
         let source = std::fs::read_to_string(format!("./test-inputs/{}.fir", src))?;
         let circuit = parse_circuit(&source).expect("firrtl parser");
-        let src_graph = FirrtlGraph::from_circuit(&circuit);
+        let src_graph = FirrtlTree::from_circuit(&circuit);
 
         let source_delta = std::fs::read_to_string(format!("./test-inputs/{}.fir", dst))?;
         let circuit_delta = parse_circuit(&source_delta).expect("firrtl parser");
-        let dst_graph = FirrtlGraph::from_circuit(&circuit_delta);
+        let dst_graph = FirrtlTree::from_circuit(&circuit_delta);
 
         let gumtree = GumTree::default();
         gumtree.export_gumtree_diff(&src_graph, &dst_graph, &format!("./test-outputs/{}.diff.pdf", src))?;
@@ -296,11 +296,11 @@ mod tests {
     fn compute_overlap(src: &str, dst: &str) -> Result<(), RippleIRErr> {
         let source = std::fs::read_to_string(format!("./test-inputs/{}.fir", src))?;
         let circuit = parse_circuit(&source).expect("firrtl parser");
-        let src_graph = FirrtlGraph::from_circuit(&circuit);
+        let src_graph = FirrtlTree::from_circuit(&circuit);
 
         let source_delta = std::fs::read_to_string(format!("./test-inputs/{}.fir", dst))?;
         let circuit_delta = parse_circuit(&source_delta).expect("firrtl parser");
-        let dst_graph = FirrtlGraph::from_circuit(&circuit_delta);
+        let dst_graph = FirrtlTree::from_circuit(&circuit_delta);
 
         timeit!("GumTree algorithm", {
             let gumtree = GumTree::default();

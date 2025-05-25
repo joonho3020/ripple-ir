@@ -1036,7 +1036,7 @@ mod test {
     use super::*;
     use crate::common::export_circuit;
     use crate::ir::whentree::*;
-    use crate::passes::ast::print::Printer;
+    use crate::passes::ast::chirrtl_print::ChirrtlPrinter;
     use crate::common::RippleIRErr;
     use crate::passes::runner::run_fir_passes_from_circuit;
     use chirrtl_parser::parse_circuit;
@@ -1132,7 +1132,7 @@ mod test {
 
         let firrtl = format!("./test-outputs/{}.fir", name);
 
-        let mut printer = Printer::new();
+        let mut printer = ChirrtlPrinter::new();
         let circuit_str = printer.print_circuit(&circuit_reconstruct);
         std::fs::write(&firrtl, circuit_str)?;
         export_circuit(&firrtl, &format!("test-outputs/{}/verilog", name))?;

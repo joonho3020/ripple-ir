@@ -3,7 +3,7 @@ use ripple_ir::passes::runner::run_fir_passes_from_circuit;
 use std::path::PathBuf;
 use chirrtl_parser::parse_circuit;
 use ripple_ir::passes::fir::to_ast::to_ast;
-use ripple_ir::passes::ast::print::Printer;
+use ripple_ir::passes::ast::chirrtl_print::ChirrtlPrinter;
 use ripple_ir::common::RippleIRErr;
 
 #[derive(Parser, Debug)]
@@ -27,7 +27,7 @@ fn main() -> Result<(), RippleIRErr> {
     let ir = run_fir_passes_from_circuit(&circuit)?;
     let circuit_reconstruct = to_ast(&ir);
 
-    let mut printer = Printer::new();
+    let mut printer = ChirrtlPrinter::new();
     let circuit_str = printer.print_circuit(&circuit_reconstruct);
     std::fs::write(&args.output, circuit_str)?;
 

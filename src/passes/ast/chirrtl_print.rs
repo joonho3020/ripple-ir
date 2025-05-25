@@ -3,14 +3,14 @@ use serde_json::Value;
 
 /// Can be used to stringify a FIRRTL AST:
 /// ```rust
-/// let mut printer = Printer::new();
+/// let mut printer = ChirrtlPrinter::new();
 /// let circuit = printer.print_circuit(&ast);
 /// ```
-pub struct Printer {
+pub struct ChirrtlPrinter {
     indent: u32,
 }
 
-impl Printer {
+impl ChirrtlPrinter {
     pub fn new() -> Self {
         Self {
             indent: 0

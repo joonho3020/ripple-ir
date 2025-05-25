@@ -473,7 +473,7 @@ mod test {
     use crate::common::export_circuit;
     use crate::passes::fir::to_ast::to_ast;
     use crate::passes::runner::{run_fir_passes, run_fir_passes_from_circuit};
-    use crate::passes::ast::print::Printer;
+    use crate::passes::ast::chirrtl_print::ChirrtlPrinter;
     use chirrtl_parser::parse_circuit;
 
     #[test]
@@ -490,7 +490,7 @@ mod test {
 
         let firrtl = format!("./test-outputs/GCD.fir");
 
-        let mut printer = Printer::new();
+        let mut printer = ChirrtlPrinter::new();
         let circuit_str = printer.print_circuit(&transformed_circuit);
         std::fs::write(&firrtl, circuit_str)?;
         export_circuit(&firrtl, &format!("test-outputs/{}/verilog", "GCD"))?;

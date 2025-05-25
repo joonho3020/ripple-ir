@@ -4,7 +4,7 @@ use chirrtl_parser::parse_circuit;
 use crate::passes::fir::equivalence_check::*;
 use crate::passes::fir::modify_names::add_sfx_to_module_names;
 use crate::passes::fir::to_ast::to_ast;
-use crate::passes::ast::print::Printer;
+use crate::passes::ast::chirrtl_print::ChirrtlPrinter;
 use crate::common::RippleIRErr;
 use crate::passes::runner::run_fir_passes_from_circuit;
 
@@ -20,7 +20,7 @@ pub fn equivalence_check_customtop(input_fir: &str, top: &str, clock: &str, rese
     add_sfx_to_module_names(&mut ir, "_impl");
 
     let circuit_reconstruct = to_ast(&ir);
-    let mut printer = Printer::new();
+    let mut printer = ChirrtlPrinter::new();
     let circuit_str = printer.print_circuit(&circuit_reconstruct);
     export_firrtl_and_sv("impl", input_fir, &circuit_str).expect("impl verilog export failed");
 
