@@ -5,6 +5,7 @@ use crate::passes::fir::equivalence_check::*;
 use crate::passes::fir::modify_names::add_sfx_to_module_names;
 use crate::passes::fir::to_ast::to_ast;
 use crate::passes::ast::chirrtl_print::ChirrtlPrinter;
+use crate::passes::ast::print::Printer;
 use crate::common::RippleIRErr;
 use crate::passes::runner::run_fir_passes_from_circuit;
 

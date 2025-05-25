@@ -6,6 +6,7 @@ use std::cmp::max;
 use std::fmt::Display;
 use indexmap::IndexMap;
 use crate::passes::ast::chirrtl_print::ChirrtlPrinter;
+use crate::passes::ast::print::Printer;
 
 /// A node in the FIRRTL AST for GumTree comparison
 #[derive(Debug, Clone, PartialEq, Eq)]

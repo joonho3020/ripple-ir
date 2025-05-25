@@ -474,6 +474,7 @@ mod test {
     use crate::passes::fir::to_ast::to_ast;
     use crate::passes::runner::{run_fir_passes, run_fir_passes_from_circuit};
     use crate::passes::ast::chirrtl_print::ChirrtlPrinter;
+    use crate::passes::ast::print::Printer;
     use chirrtl_parser::parse_circuit;
 
     #[test]

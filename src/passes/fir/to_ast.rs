@@ -1039,6 +1039,7 @@ mod test {
     use crate::passes::ast::chirrtl_print::ChirrtlPrinter;
     use crate::common::RippleIRErr;
     use crate::passes::runner::run_fir_passes_from_circuit;
+    use crate::passes::ast::print::Printer;
     use chirrtl_parser::parse_circuit;
     use test_case::test_case;
     use indexmap::IndexMap;

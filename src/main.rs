@@ -5,6 +5,7 @@ use chirrtl_parser::parse_circuit;
 use ripple_ir::passes::fir::to_ast::to_ast;
 use ripple_ir::passes::ast::chirrtl_print::ChirrtlPrinter;
 use ripple_ir::common::RippleIRErr;
+use ripple_ir::passes::ast::print::Printer;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]

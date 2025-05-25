@@ -1,5 +1,7 @@
 pub mod check_ast_assumption;
 pub mod chirrtl_print;
+pub mod firrtl3_print;
+pub mod print;
 pub mod gumtree;
 pub mod firrtltree;
 pub mod gumtree_graphviz;
