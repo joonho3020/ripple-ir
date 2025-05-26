@@ -1,13 +1,11 @@
 use std::cmp::Ordering;
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::hash::{DefaultHasher, Hash, Hasher};
-use chirrtl_parser::ast::Identifier;
+use rusty_firrtl::Identifier;
 use petgraph::graph::NodeIndex;
 use crate::common::graphviz::DefaultGraphVizCore;
 use crate::ir::fir::{FirGraph, FirNodeType};
 use lsh_rs::{LshMem, L2};
-use petgraph::data::DataMap;
-use petgraph::visit::IntoNeighbors;
 use crate::passes::runner::run_passes_from_filepath;
 use std::time::Instant;
 use num_traits::pow;
@@ -20,7 +18,7 @@ pub fn neighbors_of_distance_k(graph: &FirGraph, start: NodeIndex, k: usize) -> 
     visited.insert(start);
     result.push(start);
     current.push(start);
-    for i in 0..k {
+    for _ in 0..k {
         let mut next = Vec::new();
         for neighbor in &current {
             for v in graph.graph.neighbors_undirected(*neighbor) {
@@ -387,7 +385,7 @@ mod tests {
         let dst_file:&str = "GCDDelta";
         let map = compare_graphs(src_file, dst_file, k, n_projections, n_hash_tables, bucket_width);
         print_differing_nodes(&map, src_file);
-        assert!(map.is_empty(), "Circuits are different");
+        assert!(!map.is_empty(), "No different nodes found");
     }
 
     #[test]
@@ -396,7 +394,7 @@ mod tests {
         let dst_file:&str = "BitSel2";
         let map = compare_graphs(src_file, dst_file, k, n_projections, n_hash_tables, bucket_width);
         print_differing_nodes(&map, src_file);
-        assert!(map.is_empty(), "Circuits are different");
+        assert!(!map.is_empty(), "No different nodes found");
     }
 
     #[test]
@@ -405,7 +403,7 @@ mod tests {
         let dst_file:&str = "AESStep2";
         let map = compare_graphs(src_file, dst_file, k, n_projections, n_hash_tables, bucket_width);
         print_differing_nodes(&map, src_file);
-        assert!(map.is_empty(), "Circuits are different");
+        assert!(!map.is_empty(), "No different nodes found");
     }
 
     #[test]
@@ -414,7 +412,7 @@ mod tests {
         let dst_file:&str = "IssueSlot_24";
         let map = compare_graphs(src_file, dst_file, k, n_projections, n_hash_tables, bucket_width);
         print_differing_nodes(&map, src_file);
-        assert!(map.is_empty(), "Circuits are different");
+        assert!(!map.is_empty(), "No different nodes found");
     }
 
     #[test]
@@ -423,7 +421,7 @@ mod tests {
         let dst_file:&str = "CordicStep3";
         let map = compare_graphs(src_file, dst_file, k, n_projections, n_hash_tables, bucket_width);
         print_differing_nodes(&map, src_file);
-        assert!(map.is_empty(), "Circuits are different");
+        assert!(!map.is_empty(), "No different nodes found");
     }
 
     #[test]
@@ -432,7 +430,7 @@ mod tests {
         let dst_file:&str = "FFTStep4";
         let map = compare_graphs(src_file, dst_file, k, n_projections, n_hash_tables, bucket_width);
         print_differing_nodes(&map, src_file);
-        assert!(map.is_empty(), "Circuits are different");
+        assert!(!map.is_empty(), "No different nodes found");
     }
 
 
@@ -480,6 +478,7 @@ mod tests {
         let dst_graph = dst_fir.graphs.values().next().unwrap();
         let mapping = max_common_subgraph(src_graph, dst_graph, k, n_projections, n_hash_tables, bucket_width);
         assert!(!mapping.is_empty(), "MCS mapping should not be empty");
+
         let covered = mapping.len();
         let total   = src_graph.graph.node_count();
         eprintln!("≈‑MCS size: {} of {} source vertices\n", covered, total);
