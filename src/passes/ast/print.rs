@@ -4,7 +4,10 @@ use serde_json::Value;
 pub trait Printer {
     fn print_circuit(&mut self, circuit: &Circuit) -> String {
         let mut ret = "".to_string();
-        ret.push_str(&format!("FIRRTL {}\n", circuit.version));
+
+        if circuit.version != rusty_firrtl::Version::default() {
+            ret.push_str(&format!("FIRRTL {}\n", circuit.version));
+        }
 
         let annos_is_empty = match &circuit.annos.0 {
             serde_json::Value::Null => true,
@@ -51,7 +54,11 @@ pub trait Printer {
     }
 
     fn print_module(&mut self, module: &Module, ret: &mut String) {
-        ret.push_str(&self.println_indent(format!("module {} : {}", module.name, module.info)));
+        if module.info != Info::default() {
+            ret.push_str(&self.println_indent(format!("module {} : {}", module.name, module.info)));
+        } else {
+            ret.push_str(&self.println_indent(format!("module {} :", module.name)));
+        }
         self.add_indent();
 
         self.print_ports(&module.ports, ret);
@@ -62,11 +69,14 @@ pub trait Printer {
     }
 
     fn print_ext_module(&mut self, ext: &ExtModule, ret: &mut String) {
-        ret.push_str(&self.println_indent(format!("extmodule {} : {}", ext.name, ext.info)));
+        if ext.info != Info::default() {
+            ret.push_str(&self.println_indent(format!("extmodule {} : {}", ext.name, ext.info)));
+        } else {
+            ret.push_str(&self.println_indent(format!("extmodule {} :", ext.name)));
+        }
         self.add_indent();
 
         self.print_ports(&ext.ports, ret);
-        ret.push_str("\n");
 
         ret.push_str(&self.println_indent(format!("{}", ext.defname)));
         for param in ext.params.iter() {
@@ -99,13 +109,23 @@ pub trait Printer {
                     }
                 }
                 _ => {
-                    ret.push_str(&self.println_indent(format!("{}", stmt)));
+                    ret.push_str(&self.println_indent(self.stmt_str(stmt)));
                 }
             }
         }
     }
 
     fn println_indent(&self, str: String) -> String {
-        format!("{}{}\n", " ".repeat((self.indent() * 2) as usize), str)
+        // Add indent to all lines of the string
+        let indent_str = " ".repeat((self.indent() * 2) as usize);
+        let indented_str = str
+            .lines()
+            .map(|line| format!("{}{}", indent_str, line))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        format!("{}\n", indented_str)
     }
+
+    fn stmt_str(&self, stmt: &Stmt) -> String;
 }

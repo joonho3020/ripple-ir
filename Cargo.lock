@@ -297,9 +297,9 @@ checksum = "d71b6127be86fdcfddb610f7182ac57211d4b18a3e9c82eb2d17662f2227ad6a"
 
 [[package]]
 name = "cc"
-version = "1.2.23"
+version = "1.2.24"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5f4ac86a9e5bc1e2b3449ab9d7d3a6a405e3d1bb28d7b9be8614f55846ae3766"
+checksum = "16595d3be041c03b09d08d0858631facccee9221e579704070e6e9e4915d3bc7"
 dependencies = [
  "jobserver",
  "libc",
@@ -690,7 +690,7 @@ dependencies = [
 [[package]]
 name = "firrtl3-parser"
 version = "0.1.8"
-source = "git+ssh://git@github.com/joonho3020/firrtl3-parser.git?branch=main#9de12ba18209846ed5746d2a9e27ada8590feb30"
+source = "git+ssh://git@github.com/joonho3020/firrtl3-parser.git?branch=main#9794471ff7e1e99d8d57d560d9e4618b71a913d6"
 dependencies = [
  "graphviz-rust",
  "indexmap",
@@ -1835,7 +1835,7 @@ checksum = "8a0d197bd2c9dc6e53b84da9556a69ba4cdfab8619eb41a8bd1cc2027a0f6b1d"
 [[package]]
 name = "rusty-firrtl"
 version = "0.1.0"
-source = "git+ssh://git@github.com/joonho3020/rusty-firrtl.git?branch=main#0c76f1b17aac8b0bdd541db09552f17cf1ea8dbe"
+source = "git+ssh://git@github.com/joonho3020/rusty-firrtl.git?branch=main#505f3962f6ab41b33e7b2d02b5475a618119e585"
 dependencies = [
  "num-bigint",
  "num-traits",

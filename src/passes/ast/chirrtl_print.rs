@@ -29,4 +29,8 @@ impl Printer for ChirrtlPrinter {
     fn add_dedent(&mut self) {
         self._indent -= 1;
     }
+
+    fn stmt_str(&self, stmt: &rusty_firrtl::Stmt) -> String {
+        format!("{}", stmt)
+    }
 }

@@ -1,5 +1,6 @@
 /target
 test-inputs
+test-inputs-firrtl3
 test-outputs
 pdfium
 .DS_Store

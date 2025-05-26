@@ -5,6 +5,11 @@ test_inputs_tar := "test-inputs.tar.gz"
 boom_modules_dir   := test_inputs_dir + "/" + "boom-modules"
 rocket_modules_dir := test_inputs_dir + "/" + "rocket-modules"
 
+firrtl3_test_inputs_tar := "test-inputs-firrtl3.tar.gz"
+firrtl3_test_inputs_dir := "test-inputs-firrtl3"
+firrtl3_boom_modules_dir   := firrtl3_test_inputs_dir + "/" + "boom-modules"
+firrtl3_rocket_modules_dir := firrtl3_test_inputs_dir + "/" + "rocket-modules"
+
 [group: 'test']
 split fir_file out_dir:
   python scripts/firrtl-module-splitter.py {{fir_file}} {{out_dir}}
@@ -14,6 +19,9 @@ uncompress:
   tar -xvzf {{test_inputs_tar}}
   python scripts/firrtl-module-splitter.py {{test_inputs_dir}}/chipyard.harness.TestHarness.LargeBoomV3Config.fir  {{boom_modules_dir}}
   python scripts/firrtl-module-splitter.py {{test_inputs_dir}}/chipyard.harness.TestHarness.RocketConfig.fir       {{rocket_modules_dir}}
+  tar -xvzf {{firrtl3_test_inputs_tar}}
+  python scripts/firrtl-module-splitter.py {{firrtl3_test_inputs_dir}}/FireSimLargeBoom.fir  {{firrtl3_boom_modules_dir}}
+  python scripts/firrtl-module-splitter.py {{firrtl3_test_inputs_dir}}/FireSimRocket.fir     {{firrtl3_rocket_modules_dir}}
 
 [group: 'test']
 make_output_dir:
@@ -48,7 +56,7 @@ repackage_test_inputs:
 
 [group: 'clean']
 clean:
-  rm -rf {{test_inputs_dir}} {{test_outputs_dir}}
+  rm -rf {{test_inputs_dir}} {{test_outputs_dir}} {{firrtl3_test_inputs_dir}}
 
 [group: 'clean']
 clean_build:
