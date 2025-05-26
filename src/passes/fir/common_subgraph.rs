@@ -5,8 +5,7 @@ use petgraph::graph::EdgeIndex;
 use petgraph::unionfind::UnionFind;
 use petgraph::Undirected;
 use priority_queue::PriorityQueue;
-use petgraph::visit::{EdgeRef, IntoNeighbors};
-use crate::ir::fir::FirGraph;
+use petgraph::visit::EdgeRef;
 
 // Return minimum spanning tree using Kruskals algorithm, (v1, v2) is an undirected edge between v1 and v2
 pub fn graph_kruskals(graph: &Graph<u32, u32, Undirected>) -> Vec<(NodeIndex, NodeIndex)> {
@@ -43,7 +42,7 @@ pub fn graph_prims(graph: &Graph<u32, u32, Undirected>, start_vertex: NodeIndex)
         pq.push((start_vertex, edge.target()), *edge.weight());
     }
     while !pq.is_empty() {
-        let ((v1, v2), weight) = pq.pop().unwrap();
+        let ((v1, v2), _weight) = pq.pop().unwrap();
         if !visited.contains(&v2) {
             visited.insert(v2);
             if v1 < v2 {
@@ -152,7 +151,7 @@ mod tests {
         let n3 = g.add_node(0);
         let n4 = g.add_node(0);
         let n5 = g.add_node(0);
-        let n6 = g.add_node(0);
+        let _n6 = g.add_node(0);
         let n7 = g.add_node(0);
         let n8 = g.add_node(0);
         let n9 = g.add_node(0);
@@ -189,7 +188,7 @@ mod tests {
         let n3 = g.add_node(0);
         let n4 = g.add_node(0);
         let n5 = g.add_node(0);
-        let n6 = g.add_node(0);
+        let _n6 = g.add_node(0);
         let n7 = g.add_node(0);
         let n8 = g.add_node(0);
         let n9 = g.add_node(0);

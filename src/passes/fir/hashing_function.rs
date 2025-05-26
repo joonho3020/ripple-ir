@@ -7,7 +7,6 @@ use crate::common::graphviz::DefaultGraphVizCore;
 use crate::ir::fir::{FirGraph, FirNodeType};
 use lsh_rs::{LshMem, L2};
 use crate::passes::runner::run_passes_from_filepath;
-use std::time::Instant;
 use num_traits::pow;
 
 
@@ -82,7 +81,7 @@ pub fn get_k_lsh(graph: &FirGraph, k: usize, n_projections: usize, n_hash_tables
     }
 
     let mut lsh = LshMem::<L2>::new(n_projections, n_hash_tables, k).l2(bucket_width).unwrap(); // Define LSH
-    lsh.store_vecs(&vec_of_k_neighbors_per_node);
+    let _ = lsh.store_vecs(&vec_of_k_neighbors_per_node);
     return (lsh, node_indices);
 }
 
@@ -90,12 +89,12 @@ pub fn get_k_lsh(graph: &FirGraph, k: usize, n_projections: usize, n_hash_tables
 pub fn compare_graphs(src_file: &str, dst_file: &str, k: usize, n_proj: usize, n_tables: usize, bucket_width: f32) -> HashMap<Identifier, Vec<NodeIndex>> {
     let src_fir = run_passes_from_filepath(&format!("./test-inputs/{}.fir", src_file)).expect("failed src file");
     let dst_fir = run_passes_from_filepath(&format!("./test-inputs/{}.fir", dst_file)).expect("failed dst file");
-    let mut src_list:Vec<(&Identifier, &FirGraph)> = src_fir.graphs.iter().collect(); // Collect all modules of FirIR
-    let mut dst_list:Vec<(&Identifier, &FirGraph)> = dst_fir.graphs.iter().collect();
+    let src_list:Vec<(&Identifier, &FirGraph)> = src_fir.graphs.iter().collect(); // Collect all modules of FirIR
+    let dst_list:Vec<(&Identifier, &FirGraph)> = dst_fir.graphs.iter().collect();
     let mut different_nodes:HashMap<Identifier, Vec<NodeIndex>> = HashMap::new();
 
     // Iterate through all pairs of vertices in opposing graphs, 'zip' tuples together, automatically stops at min(src.len(), dst.len())
-    for ((src_name, src_fg), (dst_name, dst_fg)) in src_list.iter().zip(dst_list.iter()) {
+    for ((src_name, src_fg), (_dst_name, dst_fg)) in src_list.iter().zip(dst_list.iter()) {
         // Construct a LSH for the src FirGraph
         let (lsh, node_order) = get_k_lsh(src_fg, k, n_proj, n_tables, bucket_width);
         let mut missing: Vec<NodeIndex> = Vec::new();
@@ -195,7 +194,7 @@ pub fn have_all_common_neighbors(graph:&FirGraph, node:NodeIndex, map:&Vec<NodeI
 pub fn vector_distance(vec1:&Vec<f32>, vec2:&Vec<f32>) -> f32 {
     let mut distance = 0.0;
     for (x1, x2) in vec1.iter().zip(vec2.iter()) {
-        distance = distance + pow((x1 - x2),2);
+        distance = distance + pow(x1 - x2, 2);
     }
     return pow(distance, 2);
 }
@@ -215,109 +214,109 @@ pub fn find_best_candidate(nodes:Vec<NodeIndex>, graph: &FirGraph, query_vec:&Ve
 }
 
 
-pub fn max_common_subgraph(graphA: &FirGraph, graphB: &FirGraph, k:usize, n_proj:usize, n_tables:usize, bucket_width:f32) -> HashMap<NodeIndex, NodeIndex> {
-    let (in_A, out_A) = find_ports(graphA);
-    let (in_B, out_B) = find_ports(graphB);
+pub fn max_common_subgraph(graph_a: &FirGraph, graph_b: &FirGraph, k:usize, n_proj:usize, n_tables:usize, bucket_width:f32) -> HashMap<NodeIndex, NodeIndex> {
+    let (in_a, out_a) = find_ports(graph_a);
+    let (in_b, out_b) = find_ports(graph_b);
     let mut in_name:HashMap<Identifier, NodeIndex> = HashMap::new();
-    for &id in &in_B { // Only matching input ports
-        if let Some(ident) = graphB.node_weight(id).unwrap().name.clone() {
+    for &id in &in_b { // Only matching input ports
+        if let Some(ident) = graph_b.node_weight(id).unwrap().name.clone() {
             in_name.insert(ident, id);
         }
     }
     let mut out_name:HashMap<Identifier, NodeIndex> = HashMap::new();
-    for &id in &out_B { // Only matching output ports
-        if let Some(ident) = graphB.node_weight(id).unwrap().name.clone() {
+    for &id in &out_b { // Only matching output ports
+        if let Some(ident) = graph_b.node_weight(id).unwrap().name.clone() {
             out_name.insert(ident, id);
         }
     }
     let mut max_common_subgraph:HashMap<NodeIndex, NodeIndex> = HashMap::new(); // To return
-    let mut F = BTreeSet::new(); // Final
-    for &id in &in_A{ // Match inputs
-        if let Some(identA) = graphA.node_weight(id).unwrap().name.as_ref() {
-            if let Some(&identB) = in_name.get(identA) {
-                max_common_subgraph.insert(id, identB);
-                F.insert(id);
+    let mut result = BTreeSet::new(); // Final
+    for &id in &in_a{ // Match inputs
+        if let Some(ident_a) = graph_a.node_weight(id).unwrap().name.as_ref() {
+            if let Some(&ident_b) = in_name.get(ident_a) {
+                max_common_subgraph.insert(id, ident_b);
+                result.insert(id);
             }
         }
     }
-    for &id in &out_A{ // Match outputs
-        if let Some(identA) = graphA.node_weight(id).unwrap().name.as_ref() {
-            if let Some(&identB) = out_name.get(identA) {
-                max_common_subgraph.insert(id, identB);
-                F.insert(id);
+    for &id in &out_a{ // Match outputs
+        if let Some(ident_a) = graph_a.node_weight(id).unwrap().name.as_ref() {
+            if let Some(&ident_b) = out_name.get(ident_a) {
+                max_common_subgraph.insert(id, ident_b);
+                result.insert(id);
             }
         }
     }
-    for idx_a in graphA.node_indices() {
-        let Some(name_a) = graphA.node_weight(idx_a).unwrap().name.as_ref() else { //
+    for idx_a in graph_a.node_indices() {
+        let Some(name_a) = graph_a.node_weight(idx_a).unwrap().name.as_ref() else { //
             continue
         };
         if max_common_subgraph.contains_key(&idx_a) { // Already mapped
             continue
         };
-        if let Some(idx_b) = graphB.node_indices().find(|&n| graphB.node_weight(n).unwrap().name.as_ref() == Some(name_a)) { // If exists in both graphs
-            if graphA.node_weight(idx_a).unwrap().nt == graphB.node_weight(idx_b).unwrap().nt { // Same name
+        if let Some(idx_b) = graph_b.node_indices().find(|&n| graph_b.node_weight(n).unwrap().name.as_ref() == Some(name_a)) { // If exists in both graphs
+            if graph_a.node_weight(idx_a).unwrap().nt == graph_b.node_weight(idx_b).unwrap().nt { // Same name
                 max_common_subgraph.insert(idx_a, idx_b);
-                F.insert(idx_a);
+                result.insert(idx_a);
             }
         }
     }
-    let mut D: VecDeque<NodeIndex> = VecDeque::new(); // Initialize discovered
-    for &v in &F {
-        for neighbor in graphA.graph.neighbors_undirected(v) {
-            if !F.contains(&neighbor) && !D.contains(&neighbor) {
-                D.push_back(neighbor);
+    let mut discovered: VecDeque<NodeIndex> = VecDeque::new(); // Initialize discovered
+    for &v in &result {
+        for neighbor in graph_a.graph.neighbors_undirected(v) {
+            if !result.contains(&neighbor) && !discovered.contains(&neighbor) {
+                discovered.push_back(neighbor);
             }
         }
     }
     let mut blocked:HashSet<NodeIndex> = HashSet::new();
-    let (lshB, orderB) = get_k_lsh(graphB, k, n_proj, n_tables, bucket_width); // LSH
-    while let Some(dA) = D.pop_front() { // While D not null set
-        if blocked.contains(&dA) {
+    let (_lsh_b, order_b) = get_k_lsh(graph_b, k, n_proj, n_tables, bucket_width); // LSH
+    while let Some(da) = discovered.pop_front() { // While D not null set
+        if blocked.contains(&da) {
             continue;
         }
-        let mut NB:Vec<NodeIndex> = Vec::new(); // Neighbor candidates
-        for v in graphA.graph.neighbors_undirected(dA) {
+        let mut neighbor_candidates:Vec<NodeIndex> = Vec::new(); // Neighbor candidates
+        for v in graph_a.graph.neighbors_undirected(da) {
             if max_common_subgraph.get(&v).is_some() {
-                NB.push(v);
+                neighbor_candidates.push(v);
             }
         }
-        let mut filtered_NB = Vec::new();
-        for n in &NB {
+        let mut filtered_nb = Vec::new();
+        for n in &neighbor_candidates {
             if let Some(&v) = max_common_subgraph.get(n) {
-                filtered_NB.push(v);
+                filtered_nb.push(v);
             }
         }
-        if filtered_NB.is_empty() {
-            blocked.insert(dA);
+        if filtered_nb.is_empty() {
+            blocked.insert(da);
             continue;
         }
-        let hash_vector = get_hash_vector_of_distance_k(graphA, dA, k);
-        let mut CB = Vec::new();
-        for &nodeB in orderB.iter() {
-            let hash_vec = get_hash_vector_of_distance_k(graphB, nodeB, k);
-            if graphB.node_weight(nodeB).unwrap().nt != graphA.node_weight(dA).unwrap().nt { // If different FirNodeType, continue
+        let hash_vector = get_hash_vector_of_distance_k(graph_a, da, k);
+        let mut candidate_best = Vec::new();
+        for &node_b in order_b.iter() {
+            let _hash_vec = get_hash_vector_of_distance_k(graph_b, node_b, k);
+            if graph_b.node_weight(node_b).unwrap().nt != graph_a.node_weight(da).unwrap().nt { // If different FirNodeType, continue
                 continue;
             }
-            if max_common_subgraph.values().any(|&mapped| mapped == nodeB) { // If already mapped, continue
+            if max_common_subgraph.values().any(|&mapped| mapped == node_b) { // If already mapped, continue
                 continue;
             }
-            if have_all_common_neighbors(&graphB, nodeB, &filtered_NB) { // Have all identical neighbors
-                CB.push(nodeB);
+            if have_all_common_neighbors(&graph_b, node_b, &filtered_nb) { // Have all identical neighbors
+                candidate_best.push(node_b);
             }
         }
-        if !CB.is_empty() {
-            let best_candidate = find_best_candidate(CB, &graphB, &hash_vector, k); // Best candidate heuristic
-            max_common_subgraph.insert(dA, best_candidate);
-            for neighbor in graphA.graph.neighbors_undirected(dA) {
-                if !F.contains(&neighbor) && !D.contains(&neighbor) && !blocked.contains(&neighbor) {
-                    D.push_back(neighbor);
+        if !candidate_best.is_empty() {
+            let best_candidate = find_best_candidate(candidate_best, &graph_b, &hash_vector, k); // Best candidate heuristic
+            max_common_subgraph.insert(da, best_candidate);
+            for neighbor in graph_a.graph.neighbors_undirected(da) {
+                if !result.contains(&neighbor) && !discovered.contains(&neighbor) && !blocked.contains(&neighbor) {
+                    discovered.push_back(neighbor);
                 }
             }
-            F.insert(dA);
+            result.insert(da);
         }
         else {
-            blocked.insert(dA); // Not suitable
+            blocked.insert(da); // Not suitable
         }
 
     }
@@ -365,12 +364,13 @@ pub fn max_approx(src_file: &str, dst_file: &str, k: usize, n_proj: usize, n_tab
 
 #[cfg(test)]
 mod tests {
-    use petgraph::visit::NodeCount;
+    use std::time::Instant;
     use super::*;
-    const k: usize = 6;
-    const n_projections: usize = 30;
-    const n_hash_tables: usize = 13;
-    const bucket_width: f32 = 2.0;
+
+    const K: usize = 6;
+    const N_PROJECTIONS: usize = 30;
+    const N_HASHTABLES: usize = 13;
+    const BUCKET_WIDTH: f32 = 2.0;
 
     fn node_desc(g: &FirGraph, idx: NodeIndex) -> String {
         let w = g.graph.node_weight(idx).unwrap();
@@ -380,55 +380,55 @@ mod tests {
     }
 
     #[test]
-    pub fn test_GCD() {
+    pub fn test_gcd() {
         let src_file:&str = "GCD";
         let dst_file:&str = "GCDDelta";
-        let map = compare_graphs(src_file, dst_file, k, n_projections, n_hash_tables, bucket_width);
+        let map = compare_graphs(src_file, dst_file, K, N_PROJECTIONS, N_HASHTABLES, BUCKET_WIDTH);
         print_differing_nodes(&map, src_file);
         assert!(!map.is_empty(), "No different nodes found");
     }
 
     #[test]
-    pub fn test_BitSel() {
+    pub fn test_bitsel() {
         let src_file:&str = "BitSel1";
         let dst_file:&str = "BitSel2";
-        let map = compare_graphs(src_file, dst_file, k, n_projections, n_hash_tables, bucket_width);
+        let map = compare_graphs(src_file, dst_file, K, N_PROJECTIONS, N_HASHTABLES, BUCKET_WIDTH);
         print_differing_nodes(&map, src_file);
         assert!(!map.is_empty(), "No different nodes found");
     }
 
     #[test]
-    pub fn test_AESStep() {
+    pub fn test_aesstep() {
         let src_file:&str = "AESStep1";
         let dst_file:&str = "AESStep2";
-        let map = compare_graphs(src_file, dst_file, k, n_projections, n_hash_tables, bucket_width);
+        let map = compare_graphs(src_file, dst_file, K, N_PROJECTIONS, N_HASHTABLES, BUCKET_WIDTH);
         print_differing_nodes(&map, src_file);
         assert!(!map.is_empty(), "No different nodes found");
     }
 
     #[test]
-    pub fn test_IssueSlot() {
+    pub fn test_issueslot() {
         let src_file:&str = "IssueSlot_1";
         let dst_file:&str = "IssueSlot_24";
-        let map = compare_graphs(src_file, dst_file, k, n_projections, n_hash_tables, bucket_width);
+        let map = compare_graphs(src_file, dst_file, K, N_PROJECTIONS, N_HASHTABLES, BUCKET_WIDTH);
         print_differing_nodes(&map, src_file);
         assert!(!map.is_empty(), "No different nodes found");
     }
 
     #[test]
-    pub fn test_CordicStep() {
+    pub fn test_cordicstep() {
         let src_file:&str = "CordicStep1";
         let dst_file:&str = "CordicStep3";
-        let map = compare_graphs(src_file, dst_file, k, n_projections, n_hash_tables, bucket_width);
+        let map = compare_graphs(src_file, dst_file, K, N_PROJECTIONS, N_HASHTABLES, BUCKET_WIDTH);
         print_differing_nodes(&map, src_file);
         assert!(!map.is_empty(), "No different nodes found");
     }
 
     #[test]
-    pub fn test_FFTStep() {
+    pub fn test_fftstep() {
         let src_file:&str = "FFTStep1";
         let dst_file:&str = "FFTStep4";
-        let map = compare_graphs(src_file, dst_file, k, n_projections, n_hash_tables, bucket_width);
+        let map = compare_graphs(src_file, dst_file, K, N_PROJECTIONS, N_HASHTABLES, BUCKET_WIDTH);
         print_differing_nodes(&map, src_file);
         assert!(!map.is_empty(), "No different nodes found");
     }
@@ -438,10 +438,10 @@ mod tests {
     #[test]
     pub fn test_approx() {
         let start = Instant::now();
-        let mcs = max_approx("FFTStep3", "FFTStep4", k, n_projections, n_hash_tables, bucket_width);
+        let mcs = max_approx("FFTStep3", "FFTStep4", K, N_PROJECTIONS, N_HASHTABLES, BUCKET_WIDTH);
         let src_fir = run_passes_from_filepath(&format!("./test-inputs/{}.fir", "BitSel1")).expect("failed to load src .fir");
         for (module, nodes) in mcs {
-            let (i, graph) = src_fir.graphs.iter().next().unwrap();
+            let (_i, graph) = src_fir.graphs.iter().next().unwrap();
             eprintln!("Module {} has {} common nodes", module, nodes.len());
             eprintln!("Match percentage: {}", (nodes.len() as f32) / (graph.node_indices().count() as f32));
             for node in nodes {
@@ -458,7 +458,7 @@ mod tests {
         let src_graph = src_fir.graphs.values().next().unwrap();
         let dst_graph = dst_fir.graphs.values().next().unwrap();
         let start = Instant::now();
-        let mapping = max_common_subgraph(src_graph, dst_graph, k, n_projections, n_hash_tables, bucket_width);
+        let mapping = max_common_subgraph(src_graph, dst_graph, K, N_PROJECTIONS, N_HASHTABLES, BUCKET_WIDTH);
         eprintln!("Elapsed time: {:#?}", start.elapsed().as_millis());
         assert!(!mapping.is_empty(), "MCS mapping should not be empty");
         let covered = mapping.len();
@@ -476,7 +476,7 @@ mod tests {
         let dst_fir = run_passes_from_filepath("./test-inputs/FFTStep4.fir").expect("failed to load GCDDelta.fir");
         let src_graph = src_fir.graphs.values().next().unwrap();
         let dst_graph = dst_fir.graphs.values().next().unwrap();
-        let mapping = max_common_subgraph(src_graph, dst_graph, k, n_projections, n_hash_tables, bucket_width);
+        let mapping = max_common_subgraph(src_graph, dst_graph, K, N_PROJECTIONS, N_HASHTABLES, BUCKET_WIDTH);
         assert!(!mapping.is_empty(), "MCS mapping should not be empty");
 
         let covered = mapping.len();
