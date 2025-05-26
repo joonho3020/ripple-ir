@@ -5,6 +5,7 @@ use std::process::Command;
 use pdfium_render::prelude::PdfiumError;
 use thiserror::Error;
 use spinoff::{Spinner, spinners};
+use clap::ValueEnum;
 
 #[derive(Debug, Error)]
 pub enum RippleIRErr {
@@ -28,6 +29,12 @@ pub enum RippleIRErr {
 
     #[error("Misc: {0}")]
     MiscError(String),
+}
+
+#[derive(Debug, Clone, ValueEnum)]
+pub enum FIRRTLVersion {
+    Chirrtl,
+    Firrtl3,
 }
 
 #[macro_export]

@@ -740,11 +740,34 @@ fn set_phi_node_priority(ir: &mut FirGraph, stmts: &Stmts, nm: &NodeMap) {
 mod from_ast_test {
     use crate::passes::fir::from_ast::from_circuit_module;
     use crate::common::RippleIRErr;
-    use chirrtl_parser::lexer::FIRRTLLexer;
-    use chirrtl_parser::firrtl::CircuitModuleParser;
+    use crate::common::FIRRTLVersion;
+    use chirrtl_parser::lexer::FIRRTLLexer as ChirrtlLexer;
+    use chirrtl_parser::firrtl::CircuitModuleParser as ChirrtlCircuitModuleParser;
+    use firrtl3_parser::lexer::FIRRTLLexer as FIRRTL3Lexer;
+    use firrtl3_parser::firrtl::CircuitModuleParser as FIRRTL3CircuitModuleParser;
+    use rusty_firrtl::CircuitModule;
+
+    fn parse_chirrtl_source(source: &str) -> CircuitModule {
+        let lexer = ChirrtlLexer::new(&source);
+        let parser = ChirrtlCircuitModuleParser::new();
+        parser.parse(lexer).expect("TOWORK")
+    }
+
+    fn parse_firrtl3_source(source: &str) -> CircuitModule {
+        let lexer = FIRRTL3Lexer::new(&source);
+        let parser = FIRRTL3CircuitModuleParser::new();
+        parser.parse(lexer).expect("TOWORK")
+    }
+
+    fn parse_source(source: &str, firrtl_version: &FIRRTLVersion) -> CircuitModule {
+        match firrtl_version {
+            FIRRTLVersion::Chirrtl => parse_chirrtl_source(source),
+            FIRRTLVersion::Firrtl3 => parse_firrtl3_source(source),
+        }
+    }
 
     /// Check of the AST to graph conversion works for each CircuitModule
-    fn run_check_completion(input_dir: &str) -> Result<(), RippleIRErr> {
+    fn run_check_completion(input_dir: &str, firrtl_version: &FIRRTLVersion) -> Result<(), RippleIRErr> {
         for entry in std::fs::read_dir(input_dir)? {
             let entry = entry?;
             let path = entry.path();
@@ -753,11 +776,7 @@ mod from_ast_test {
             if path.is_file() {
                 match std::fs::read_to_string(&path) {
                     Ok(source) => {
-                        let lexer = FIRRTLLexer::new(&source);
-                        let parser = CircuitModuleParser::new();
-
-                        println!("Parsing file: {:?}", path);
-                        let ast = parser.parse(lexer).expect("TOWORK");
+                        let ast = parse_source(&source, firrtl_version);
                         from_circuit_module(&ast);
                     }
                     Err(e) => {
@@ -770,38 +789,20 @@ mod from_ast_test {
     }
 
     #[test]
-    fn rocket_check_completion() {
-        run_check_completion("./test-inputs/rocket-modules/")
+    fn chirrtl_rocket_check_completion() {
+        run_check_completion("./test-inputs/rocket-modules/", &FIRRTLVersion::Chirrtl)
             .expect("rocket conversion failed");
     }
 
     #[test]
-    fn boom_check_completion() {
-        run_check_completion("./test-inputs/boom-modules/")
+    fn chirrtl_boom_check_completion() {
+        run_check_completion("./test-inputs/boom-modules/", &FIRRTLVersion::Chirrtl)
             .expect("boom conversion failed");
     }
 
-    fn boom_module(name: &str) -> Result<(), RippleIRErr> {
-        let file_name = format!("./test-inputs/boom-modules/{}.fir", name);
-        let source = std::fs::read_to_string(file_name)?;
-        let lexer = FIRRTLLexer::new(&source);
-        let parser = CircuitModuleParser::new();
-
-        let ast = parser.parse(lexer).expect("TOWORK");
-        let (_, _graph) = from_circuit_module(&ast);
-
-        Ok(())
-    }
-
     #[test]
-    fn boom_fetch_target_queue() {
-        // Indirect addressing
-        boom_module("FetchTargetQueue").expect("FetchTargetQueue");
-    }
-
-    #[test]
-    fn boom_lsu() {
-        // Indirect addressing
-        boom_module("LSU").expect("LSU");
+    fn firrtl3_firesim_rocket_check_completion() {
+        run_check_completion("./test-inputs-firrtl3/rocket-modules/", &FIRRTLVersion::Firrtl3)
+            .expect("firesim rocket conversion failed");
     }
 }
