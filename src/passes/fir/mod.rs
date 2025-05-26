@@ -6,5 +6,7 @@ pub mod check_mport_assumptions;
 pub mod to_ast;
 pub mod modify_names;
 pub mod equivalence_check;
+pub mod common_subgraph;
+pub mod hashing_function;
 pub mod equivalence_check_digitaltop;
 pub mod fame;

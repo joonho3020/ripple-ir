@@ -15,7 +15,7 @@
       email: "joonho.whangbo@berkeley.edu"
     ),
     (
-      name: "Maor Adam Fuks",
+      name: "Maor Fuks",
       organization: [UC Berkeley],
       email: "maor_fuks@berkeley.du"
     ),
@@ -134,8 +134,10 @@ The algorithm operates in two phases:
 This approach is particularly effective for circuits that maintain a relatively tree-like structure, common in control logic and behavioral descriptions.
 
 === Approach 2 – Direct common subgraph identification
+Our second approach is a greedy algorithm, executing the locally optimal move at each iteration @maximum_common_subgraph_for_digital_circuits. Given two IR graph abstractions g#sub[A]= (V#sub[A], E#sub[A], L#sub[A]) and g#sub[B]= (V#sub[B], E#sub[B], L#sub[B]), find a mapping M#sub[AB]: V#sub[A]#sym.arrow V#sub[B] that matches as many equivalent nodes as possible, the maximum common subgraph. We use a modified best-first search to heuristically and simultaneously traverse the graphs and identify common nodes, seeding from the input and output ports. The algorithm finds all adjacent vertices of the current node which are present in both graphs, then restricts the search space of candidate nodes by querying a previously-constructed LSH storage (see below) to only search pairs of nodes which are semantically and structurally similar. Then, the algorithm queries the best candidate through the LSH, maps it, and enqueues its undiscovered nodes.
 
-TO MAOR: can you edit/add some more detailed explanations in this part?
+=== Locality Sensitive Hashing (LSH)
+We use locality sensitive hashing as a means to quickly identify semantically similar nodes. For every node we deterministically construct a vector of hashes of nodes within its k-neighborhood and store the vector in the LSH. The LSH type samples n (inputted parameter) points from the multivariate standard normal distribution, and projects each original vector onto a sampled point. These random projections preserve relative distance in expectation. The LSH then assigns the nodes to buckets determined by their Euclidean distance, meaning that similar nodes get mapped to the same bucket. This allows for constant-time retrieval of similar nodes.
 
 Our second approach tackles the subgraph isomorphism problem directly, but exploits key properties of hardware circuits to make the problem tractable:
 
@@ -194,11 +196,28 @@ We leave the investigation of the algorithmic deficiencies to future work.
 == Direct circuit deduplication
 
 
-TO MAOR: can you fill in this part?
+#figure(
+  image("./assets/max_common_subgraph-results.png", width: 100%),
+  caption: [
+    Evaluation of the LSH maximum common subgraph algorithm on our example circuits.
+  ],
+) <fig:max_common_subgraph_results>
 
+#figure(
+  image("./assets/max_common_subgraph-time.png", width: 100%),
+  caption: [
+    Execution time of the LSH common subgraph algorithm on our example circuits.
+  ],
+) <fig:max_common_subgraph_time>
 
+#figure(
+  image("./assets/max_common_subgraph-k-vs-time.png", width: 100%),
+  caption: [
+    Execution time of the LSH common subgraph algorithm plotted against k, the size of each node's hash neighborhood.
+  ],
+) <fig:max_common_subgraph_k_vs_time>
 
-
+Our approach to the maximum common subgraph problem provides a greedy algorithm attempting to make the optimal move at every step, arriving arbitrarily close to the global optimum. Figure 6 shows the results of the algorithm run on our example circuits, with a constant value k = 2 and 30-dimensional projections. We can see that the common subgraph identification remains accurate regardless of the size of the graphs. Comparing these to the GumTree algorithm, we can see that the results remain precise with some variance. Figure 7 shows the execution time plotted against the size of the graphs, scaling linearly in computational complexity @maximum_common_subgraph_for_digital_circuits and allowing for scalability. Figure 8 shows the execution time of the algorithm plotted against values of k. This figure resembles the logistic growth function, showcasing how increasing the value of k initially increases the execution time, and then stabilizes.
 
 = Conclusion and Future Work
 
@@ -221,5 +240,6 @@ Maor implemented the direct common subgraph identification algorithm.
 
 During class, we learned how dont-cares affects the QoR of your circuit.
 We identified this as a problem of FIRRTL.
+The approaches described attempt to reduce the complexity of the maximum common subgraph problem, with applications to FPGA simulation, partitioning, technology mapping, and more.
 Furthermore, we have encountered many NP-complete problems throughout the course and learned you should still try to solve for the general case.
 And indeed we did.
