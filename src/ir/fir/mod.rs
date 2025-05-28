@@ -71,6 +71,7 @@ pub enum FirNodeType {
     Inst(Identifier),
     Printf(Stmt, CondPathWithPrior),
     Assert(Stmt, CondPathWithPrior),
+    Memory(u32, u32, u32, MemoryPorts, ChirrtlMemoryReadUnderWrite),
 
     // Port
     Input,
@@ -162,6 +163,14 @@ impl NameSpace {
             used,
             cntr: 0,
             pfx: "_TMP".to_string(),
+        }
+    }
+
+    pub fn from_used_set(used: IndexSet<Identifier>) -> Self {
+        Self {
+            used,
+            cntr: 0,
+            pfx: "_RUSTGEN".to_string(),
         }
     }
 

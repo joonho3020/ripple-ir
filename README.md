@@ -2,6 +2,8 @@
 
 Graph based intermediate representation for RTL design.
 
+- **Can ingest legacy low FIRRTL & Chisel 6.0 CHIRRTL**
+
 ## Goals
 
 - Ergonomics first

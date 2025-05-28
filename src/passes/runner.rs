@@ -8,22 +8,39 @@ use crate::passes::rir::from_fir::from_fir;
 use crate::common::RippleIRErr;
 use crate::timeit;
 use rusty_firrtl::Circuit;
-use chirrtl_parser::parse_circuit;
+use chirrtl_parser::parse_circuit as parse_chirrtl;
+use firrtl3_parser::parse_circuit as parse_firrtl3;
+
+use super::ast::firrtl3_split_exprs::firrtl3_split_exprs;
 
 
 /// Run the AST to graph conversion and export the graph form
-pub fn run_passes_from_filepath(name: &str) -> Result<FirIR, RippleIRErr> {
+pub fn run_passes_from_chirrtl_file(name: &str) -> Result<FirIR, RippleIRErr> {
     let source = std::fs::read_to_string(name.to_string())?;
 
-    let circuit = timeit!("firrtl parsing", {
-        parse_circuit(&source)
+    let circuit = timeit!("chirrtl parsing", {
+        parse_chirrtl(&source)
     }).expect("firrtl parser");
 
     run_fir_passes_from_circuit(&circuit)
 }
 
+/// Run the AST to graph conversion and export the graph form
+pub fn run_passes_from_firrtl3_file(name: &str) -> Result<FirIR, RippleIRErr> {
+    let source = std::fs::read_to_string(name.to_string())?;
+
+    let mut circuit = timeit!("firrtl3 parsing", {
+        parse_firrtl3(&source)
+    }).expect("firrtl parser");
+
+    firrtl3_split_exprs(&mut circuit);
+    run_fir_passes_from_circuit(&circuit)
+}
+
+
 pub fn run_fir_passes_from_circuit(circuit: &Circuit) -> Result<FirIR, RippleIRErr> {
     let mut fir = from_circuit(&circuit);
+    fir.export("./test-outputs", "firrtl3")?;
     run_fir_passes(&mut fir)?;
     Ok(fir)
 }

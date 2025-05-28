@@ -5,6 +5,7 @@ pub mod print;
 pub mod gumtree;
 pub mod firrtltree;
 pub mod gumtree_graphviz;
+pub mod firrtl3_split_exprs;
 
 #[cfg(test)]
 mod test {

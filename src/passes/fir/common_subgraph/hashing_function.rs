@@ -6,7 +6,7 @@ use petgraph::graph::NodeIndex;
 use crate::common::graphviz::DefaultGraphVizCore;
 use crate::ir::fir::{FirGraph, FirNodeType};
 use lsh_rs::{LshMem, L2};
-use crate::passes::runner::run_passes_from_filepath;
+use crate::passes::runner::run_passes_from_chirrtl_file;
 use num_traits::pow;
 
 
@@ -87,8 +87,8 @@ pub fn get_k_lsh(graph: &FirGraph, k: usize, n_projections: usize, n_hash_tables
 
 // Input two file names, return HashMap with entries (module name, vector of differing nodes) of differing nodes
 pub fn compare_graphs(src_file: &str, dst_file: &str, k: usize, n_proj: usize, n_tables: usize, bucket_width: f32) -> HashMap<Identifier, Vec<NodeIndex>> {
-    let src_fir = run_passes_from_filepath(&format!("./test-inputs/{}.fir", src_file)).expect("failed src file");
-    let dst_fir = run_passes_from_filepath(&format!("./test-inputs/{}.fir", dst_file)).expect("failed dst file");
+    let src_fir = run_passes_from_chirrtl_file(&format!("./test-inputs/{}.fir", src_file)).expect("failed src file");
+    let dst_fir = run_passes_from_chirrtl_file(&format!("./test-inputs/{}.fir", dst_file)).expect("failed dst file");
     let src_list:Vec<(&Identifier, &FirGraph)> = src_fir.graphs.iter().collect(); // Collect all modules of FirIR
     let dst_list:Vec<(&Identifier, &FirGraph)> = dst_fir.graphs.iter().collect();
     let mut different_nodes:HashMap<Identifier, Vec<NodeIndex>> = HashMap::new();
@@ -130,7 +130,7 @@ pub fn print_differing_nodes(map: &HashMap<Identifier, Vec<NodeIndex>>, src_file
     if map.is_empty() { // No nodes differ
         return;
     }
-    let src_fir = run_passes_from_filepath(&format!("./test-inputs/{}.fir", src_file)).expect("src file doesn't exist"); // To retrieve Identifier/name of nodes
+    let src_fir = run_passes_from_chirrtl_file(&format!("./test-inputs/{}.fir", src_file)).expect("src file doesn't exist"); // To retrieve Identifier/name of nodes
 
     for (graph_name, nodes) in map { // For every graph/module
         let fir_graph = src_fir.graphs.get(graph_name).unwrap();
@@ -327,7 +327,7 @@ pub fn max_common_subgraph(graph_a: &FirGraph, graph_b: &FirGraph, k:usize, n_pr
 
 pub fn max_approx(src_file: &str, dst_file: &str, k: usize, n_proj: usize, n_tables: usize, bucket_width: f32) -> HashMap<Identifier, Vec<NodeIndex>> {
     let diffs = compare_graphs(src_file, dst_file, k, n_proj, n_tables, bucket_width); // Different nodes
-    let src_fir = run_passes_from_filepath(&format!("./test-inputs/{}.fir", src_file)).expect("failed to load src .fir");
+    let src_fir = run_passes_from_chirrtl_file(&format!("./test-inputs/{}.fir", src_file)).expect("failed to load src .fir");
     let mut common_map = HashMap::new();
     for (mod_name, src_fg) in src_fir.graphs.iter() {
         let (in_ports, out_ports) = find_ports(src_fg);
@@ -439,7 +439,7 @@ mod tests {
     pub fn test_approx() {
         let start = Instant::now();
         let mcs = max_approx("FFTStep3", "FFTStep4", K, N_PROJECTIONS, N_HASHTABLES, BUCKET_WIDTH);
-        let src_fir = run_passes_from_filepath(&format!("./test-inputs/{}.fir", "BitSel1")).expect("failed to load src .fir");
+        let src_fir = run_passes_from_chirrtl_file(&format!("./test-inputs/{}.fir", "BitSel1")).expect("failed to load src .fir");
         for (module, nodes) in mcs {
             let (_i, graph) = src_fir.graphs.iter().next().unwrap();
             eprintln!("Module {} has {} common nodes", module, nodes.len());
@@ -453,8 +453,8 @@ mod tests {
 
     #[test]
     fn test_mcs_and_print1() {
-        let src_fir = run_passes_from_filepath("./test-inputs/FFTStep2.fir").expect("failed to load GCD.fir");
-        let dst_fir = run_passes_from_filepath("./test-inputs/FFTStep3.fir").expect("failed to load GCDDelta.fir");
+        let src_fir = run_passes_from_chirrtl_file("./test-inputs/FFTStep2.fir").expect("failed to load GCD.fir");
+        let dst_fir = run_passes_from_chirrtl_file("./test-inputs/FFTStep3.fir").expect("failed to load GCDDelta.fir");
         let src_graph = src_fir.graphs.values().next().unwrap();
         let dst_graph = dst_fir.graphs.values().next().unwrap();
         let start = Instant::now();
@@ -472,8 +472,8 @@ mod tests {
 
     #[test]
     fn test_mcs_and_print2() {
-        let src_fir = run_passes_from_filepath("./test-inputs/FFTStep3.fir").expect("failed to load GCD.fir");
-        let dst_fir = run_passes_from_filepath("./test-inputs/FFTStep4.fir").expect("failed to load GCDDelta.fir");
+        let src_fir = run_passes_from_chirrtl_file("./test-inputs/FFTStep3.fir").expect("failed to load GCD.fir");
+        let dst_fir = run_passes_from_chirrtl_file("./test-inputs/FFTStep4.fir").expect("failed to load GCDDelta.fir");
         let src_graph = src_fir.graphs.values().next().unwrap();
         let dst_graph = dst_fir.graphs.values().next().unwrap();
         let mapping = max_common_subgraph(src_graph, dst_graph, K, N_PROJECTIONS, N_HASHTABLES, BUCKET_WIDTH);

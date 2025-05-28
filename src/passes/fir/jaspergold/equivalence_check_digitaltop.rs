@@ -1,7 +1,7 @@
 use indexmap::IndexSet;
 use rusty_firrtl::{CircuitModule, DefName, Identifier};
 use chirrtl_parser::parse_circuit;
-use crate::passes::fir::equivalence_check::*;
+use crate::passes::fir::jaspergold::equivalence_check::*;
 use crate::passes::fir::modify_names::add_sfx_to_module_names;
 use crate::passes::fir::to_ast::to_ast;
 use crate::passes::ast::chirrtl_print::ChirrtlPrinter;

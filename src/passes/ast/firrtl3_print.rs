@@ -192,6 +192,7 @@ mod test {
     #[test_case("RegVecInit" ; "RegVecInit")]
     #[test_case("Subtracter" ; "Subtracter")]
     #[test_case("Top" ; "Top")]
+    #[test_case("Queue.lo" ; "Queue.lo")]
 // #[test_case("MultiWhen" ; "MultiWhen")]
 // #[test_case("MyQueue" ; "MyQueue")]
 // #[test_case("NestedWhen" ; "NestedWhen")]

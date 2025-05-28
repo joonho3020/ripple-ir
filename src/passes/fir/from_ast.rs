@@ -265,8 +265,16 @@ fn add_graph_node_from_stmt(ir: &mut FirGraph, stmt: &Stmt, nm: &mut NodeMap) {
         Stmt::Stop(..) => {
             unimplemented!();
         }
-        Stmt::Memory(..) => {
-            unimplemented!();
+        Stmt::Memory(name, tpe, depth, rlat, wlat, ports, ruw, _info) => {
+            // TODO: Construct proper typetree for memory ports
+            // r: data, flipped addr, flipped en, flipped clk
+            // w: flipped addr, flipped en, flipped clk, flipped data, flipped mask (UInt <1>)
+            // rw: rdata, flipped addr, flipped en, flipped clk, flipped wmode, flipped wdata, flipped wmask
+            for port in ports {
+            }
+            let nt = FirNodeType::Memory(*depth, *rlat, *wlat, ports.clone(), ruw.clone());
+            let id = add_node(ir, Some(tpe), Some(name.clone()), TypeDirection::Outgoing, nt);
+            nm.node_map.insert(Reference::Ref(name.clone()), id);
         }
     }
 }
@@ -533,7 +541,6 @@ fn add_graph_edge_from_stmt(ir: &mut FirGraph, stmt: &Stmt, nm: &mut NodeMap) {
             unimplemented!();
         }
         Stmt::Memory(..) => {
-            unimplemented!();
         }
     }
 }
@@ -734,7 +741,6 @@ fn set_phi_node_priority(ir: &mut FirGraph, stmts: &Stmts, nm: &NodeMap) {
         }
     }
 }
-
 
 #[cfg(test)]
 mod from_ast_test {

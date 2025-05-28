@@ -53,6 +53,10 @@ repackage_test_inputs:
   rm -rf {{rocket_modules_dir}}
   rm {{test_inputs_tar}}
   tar -cvzf {{test_inputs_tar}} {{test_inputs_dir}}
+  rm -rf {{firrtl3_boom_modules_dir}}
+  rm -rf {{firrtl3_rocket_modules_dir}}
+  rm {{firrtl3_test_inputs_tar}}
+  tar -cvzf {{firrtl3_test_inputs_tar}} {{firrtl3_test_inputs_dir}}
 
 [group: 'clean']
 clean:

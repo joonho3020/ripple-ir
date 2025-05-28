@@ -71,6 +71,9 @@ impl From<&FirNodeType> for RippleNodeType {
             FirNodeType::Phi(cond) => Self::Phi(cond.clone()),
             FirNodeType::Printf(stmt, cond) => Self::Printf(stmt.clone(), cond.clone()),
             FirNodeType::Assert(stmt, cond) => Self::Assert(stmt.clone(), cond.clone()),
+            FirNodeType::Memory(..) => {
+                unimplemented!();
+            }
         }
     }
 }

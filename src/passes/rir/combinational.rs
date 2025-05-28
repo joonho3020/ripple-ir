@@ -116,7 +116,7 @@ fn find_comb_cone(rg: &RippleGraph, id: NodeIndex, deps: &HierCombDeps) -> Vec<N
 pub mod test {
     use test_case::test_case;
     use crate::common::RippleIRErr;
-    use crate::passes::runner::run_passes_from_filepath;
+    use crate::passes::runner::run_passes_from_chirrtl_file;
     use crate::passes::rir::from_fir::from_fir;
     use super::*;
 
@@ -127,7 +127,7 @@ pub mod test {
     fn run(input: &str) -> Result<(), RippleIRErr> {
         let filename = format!("./test-inputs/{}.fir", input);
 
-        let fir = run_passes_from_filepath(&filename)?;
+        let fir = run_passes_from_chirrtl_file(&filename)?;
 // fir.export("./test-outputs", "comb.fir")?;
 
         let rir = from_fir(&fir);

@@ -310,7 +310,7 @@ mod test {
 
     /// Run the AST to graph conversion and export the graph form
     fn run(name: &str) -> Result<RWPortMap, RippleIRErr> {
-        let fir = run_passes_from_filepath(&format!("./test-inputs/{}.fir", name))?;
+        let fir = run_passes_from_chirrtl_file(&format!("./test-inputs/{}.fir", name))?;
         let mems_with_rwport = check_mport_assumptions(&fir);
         Ok(mems_with_rwport)
     }

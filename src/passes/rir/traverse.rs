@@ -119,12 +119,12 @@ fn traverse_graph_aggregate(module: &Identifier, rg: &RippleGraph, export: bool)
 #[cfg(test)]
 mod test {
     use crate::common::RippleIRErr;
-    use crate::passes::runner::run_passes_from_filepath;
+    use crate::passes::runner::run_passes_from_chirrtl_file;
     use crate::passes::rir::from_fir::from_fir;
     use super::*;
 
     fn run_traverse(input: &str, export: bool) -> Result<(), RippleIRErr> {
-        let fir = run_passes_from_filepath(input)?;
+        let fir = run_passes_from_chirrtl_file(input)?;
         let rir = from_fir(&fir);
         traverse_aggregate(rir, export)?;
         Ok(())

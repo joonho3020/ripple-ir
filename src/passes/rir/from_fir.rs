@@ -91,12 +91,12 @@ fn from_fir_graph(fg: &FirGraph) -> RippleGraph {
 #[cfg(test)]
 mod test {
     use crate::common::RippleIRErr;
-    use crate::passes::runner::run_passes_from_filepath;
+    use crate::passes::runner::run_passes_from_chirrtl_file;
     use crate::common::graphviz::GraphViz;
     use super::*;
 
     fn run_simple(input: &str) -> Result<(), RippleIRErr> {
-        let fir = run_passes_from_filepath(input)?;
+        let fir = run_passes_from_chirrtl_file(input)?;
         for (module, fg) in fir.graphs.iter() {
             fg.export_graphviz(&format!("./test-outputs/{}-{}.fir.pdf",
                     fir.name.to_string(), module.to_string()), None, None, false)?;

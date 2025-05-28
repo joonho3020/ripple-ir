@@ -71,13 +71,13 @@ fn cleanup_rg_memory(rg: &mut RippleGraph) {
 mod test {
     use crate::common::RippleIRErr;
     use crate::passes::rir::traverse::traverse_aggregate;
-    use crate::passes::runner::run_passes_from_filepath;
+    use crate::passes::runner::run_passes_from_chirrtl_file;
     use crate::common::graphviz::GraphViz;
     use crate::passes::rir::from_fir::from_fir;
     use super::*;
 
     fn run_simple(input: &str, export: bool) -> Result<(), RippleIRErr> {
-        let fir = run_passes_from_filepath(input)?;
+        let fir = run_passes_from_chirrtl_file(input)?;
         let mut rir = from_fir(&fir);
         cleanup_rir(&mut rir);
         if export {

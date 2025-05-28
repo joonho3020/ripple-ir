@@ -37,6 +37,7 @@ fn topo_start_node(nt: &FirNodeType) -> bool {
             FirNodeType::RegReset         |
             FirNodeType::SMem(..)         |
             FirNodeType::CMem             |
+            FirNodeType::Memory(..)       |
             FirNodeType::ReadMemPort(..)  |
             FirNodeType::WriteMemPort(..) |
             FirNodeType::InferMemPort(..) |
@@ -477,10 +478,10 @@ fn check_typetree_inference_graph(fg: &FirGraph) -> Result<(), RippleIRErr> {
 #[cfg(test)]
 mod infer_typetree_test {
     use crate::common::RippleIRErr;
-    use crate::passes::runner::run_passes_from_filepath;
+    use crate::passes::runner::run_passes_from_chirrtl_file;
 
     fn check_run_to_completion(input: &str) -> Result<(), RippleIRErr> {
-        let _fir = run_passes_from_filepath(input)?;
+        let _fir = run_passes_from_chirrtl_file(input)?;
         Ok(())
     }
 
