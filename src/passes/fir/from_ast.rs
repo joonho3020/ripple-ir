@@ -265,15 +265,75 @@ fn add_graph_node_from_stmt(ir: &mut FirGraph, stmt: &Stmt, nm: &mut NodeMap) {
         Stmt::Stop(..) => {
             unimplemented!();
         }
-        Stmt::Memory(name, tpe, depth, rlat, wlat, ports, ruw, _info) => {
-            // TODO: Construct proper typetree for memory ports
+        Stmt::Memory(name, _tpe, depth, rlat, wlat, ports, ruw, _info) => {
+            // Construct proper typetree for memory ports
             // r: data, flipped addr, flipped en, flipped clk
             // w: flipped addr, flipped en, flipped clk, flipped data, flipped mask (UInt <1>)
             // rw: rdata, flipped addr, flipped en, flipped clk, flipped wmode, flipped wdata, flipped wmask
+            let mut memory_fields = Vec::new();
+
             for port in ports {
+                // Create the appropriate type for each port
+                let port_type = match port.as_ref() {
+                    MemoryPort::Read(_) => {
+                        // Read port: data, flipped addr, flipped en, flipped clk
+                        let addr_width = Width(((*depth + 1) as f64).log2().ceil() as u32);
+                        let fields = vec![
+                            Box::new(Field::Straight(Identifier::Name("data".to_string()), Box::new(Type::TypeGround(TypeGround::UInt(None))))),
+                            Box::new(Field::Flipped(Identifier::Name("addr".to_string()), Box::new(Type::TypeGround(TypeGround::UInt(Some(addr_width)))))),
+                            Box::new(Field::Flipped(Identifier::Name("en".to_string()), Box::new(Type::TypeGround(TypeGround::UInt(Some(Width(1))))))),
+                            Box::new(Field::Flipped(Identifier::Name("clk".to_string()), Box::new(Type::TypeGround(TypeGround::Clock)))),
+                        ];
+                        Type::TypeAggregate(Box::new(TypeAggregate::Fields(Box::new(fields))))
+                    }
+                    MemoryPort::Write(_) => {
+                        // Write port: flipped addr, flipped en, flipped clk, flipped data, flipped mask
+                        let addr_width = Width(((*depth + 1) as f64).log2().ceil() as u32);
+                        let fields = vec![
+                            Box::new(Field::Flipped(Identifier::Name("addr".to_string()), Box::new(Type::TypeGround(TypeGround::UInt(Some(addr_width)))))),
+                            Box::new(Field::Flipped(Identifier::Name("en".to_string()), Box::new(Type::TypeGround(TypeGround::UInt(Some(Width(1))))))),
+                            Box::new(Field::Flipped(Identifier::Name("clk".to_string()), Box::new(Type::TypeGround(TypeGround::Clock)))),
+                            Box::new(Field::Flipped(Identifier::Name("data".to_string()), Box::new(Type::TypeGround(TypeGround::UInt(None))))),
+                            Box::new(Field::Flipped(Identifier::Name("mask".to_string()), Box::new(Type::TypeGround(TypeGround::UInt(Some(Width(1))))))),
+                        ];
+                        Type::TypeAggregate(Box::new(TypeAggregate::Fields(Box::new(fields))))
+                    }
+                    MemoryPort::ReadWrite(_) => {
+                        // ReadWrite port: rdata, flipped addr, flipped en, flipped clk, flipped wmode, flipped wdata, flipped wmask
+                        let addr_width = Width((*depth as f64).log2().ceil() as u32);
+                        let fields = vec![
+                            Box::new(Field::Straight(Identifier::Name("rdata".to_string()), Box::new(Type::TypeGround(TypeGround::UInt(None))))),
+                            Box::new(Field::Flipped(Identifier::Name("addr".to_string()), Box::new(Type::TypeGround(TypeGround::UInt(Some(addr_width)))))),
+                            Box::new(Field::Flipped(Identifier::Name("en".to_string()), Box::new(Type::TypeGround(TypeGround::UInt(Some(Width(1))))))),
+                            Box::new(Field::Flipped(Identifier::Name("clk".to_string()), Box::new(Type::TypeGround(TypeGround::Clock)))),
+                            Box::new(Field::Flipped(Identifier::Name("wmode".to_string()), Box::new(Type::TypeGround(TypeGround::UInt(Some(Width(1))))))),
+                            Box::new(Field::Flipped(Identifier::Name("wdata".to_string()), Box::new(Type::TypeGround(TypeGround::UInt(None))))),
+                            Box::new(Field::Flipped(Identifier::Name("wmask".to_string()), Box::new(Type::TypeGround(TypeGround::UInt(Some(Width(1))))))),
+                        ];
+                        Type::TypeAggregate(Box::new(TypeAggregate::Fields(Box::new(fields))))
+                    }
+                };
+
+                let port_name = match port.as_ref() {
+                    MemoryPort::Read(name) |
+                    MemoryPort::Write(name) |
+                    MemoryPort::ReadWrite(name) => {
+                        name.clone()
+                    }
+                };
+
+                // Add this port type as a field in the memory's aggregate type
+                memory_fields.push(Box::new(Field::Straight(
+                    port_name,
+                    Box::new(port_type)
+                )));
             }
+
+            // Create the aggregate type for the memory containing all port types
+            let memory_type = Type::TypeAggregate(Box::new(TypeAggregate::Fields(Box::new(memory_fields))));
+
             let nt = FirNodeType::Memory(*depth, *rlat, *wlat, ports.clone(), ruw.clone());
-            let id = add_node(ir, Some(tpe), Some(name.clone()), TypeDirection::Outgoing, nt);
+            let id = add_node(ir, Some(&memory_type), Some(name.clone()), TypeDirection::Outgoing, nt);
             nm.node_map.insert(Reference::Ref(name.clone()), id);
         }
     }
