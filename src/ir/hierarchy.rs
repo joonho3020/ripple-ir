@@ -56,11 +56,14 @@ impl Hierarchy {
     pub fn build_from_fir(&mut self, fir: &FirIR) {
         let mut module_node_map: IndexMap<&Identifier, NodeIndex> = IndexMap::new();
 
-        for (module, fg) in fir.graphs.iter() {
+        for (module, _fg) in fir.graphs.iter() {
             let hnode = HierNode(module.clone());
             let nid = self.graph.add_node(hnode);
             module_node_map.insert(module, nid);
+        }
 
+        for (module, fg) in fir.graphs.iter() {
+            let nid = *module_node_map.get(module).unwrap();
             for id in fg.graph.node_indices() {
                 let node = fg.graph.node_weight(id).unwrap();
                 match &node.nt {

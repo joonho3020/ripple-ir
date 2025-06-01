@@ -2,7 +2,6 @@ use rusty_firrtl::*;
 use indexmap::IndexSet;
 use indexmap::IndexMap;
 use crate::ir::fir::NameSpace;
-use super::check_ast_assumption::is_reference_or_const_or_primop1expr;
 
 /// Looks at the FIRRTL3 stmts and adds a node if there is a expr on the rhs that is not a
 /// reference
@@ -125,44 +124,108 @@ fn split_nested_exprs(expr: &Expr, ns: &mut NameSpace) -> (Expr, Vec<Box<Stmt>>)
 
 fn split_nested_exprs_recursive(expr: &Expr, ns: &mut NameSpace) -> (Expr, Vec<Box<Stmt>>) {
     let mut stmts = vec![];
-    if is_reference_or_const_or_primop1expr(&expr) {
-        return (expr.clone(), stmts);
-    } else {
-        match expr {
-            Expr::Mux(cond, true_expr, false_expr) => {
-                let (cond_split,  mut cond_stmts) = split_nested_exprs_recursive(cond, ns);
-                let (true_split,  mut true_stmts) = split_nested_exprs_recursive(true_expr, ns);
-                let (false_split, mut  false_stmts) = split_nested_exprs_recursive(false_expr, ns);
-                stmts.append(&mut cond_stmts);
-                stmts.append(&mut true_stmts);
-                stmts.append(&mut false_stmts);
+    match expr {
+        Expr::Mux(cond, true_expr, false_expr) => {
+            let (cond_split,  mut cond_stmts) = split_nested_exprs_recursive(cond, ns);
+            let (true_split,  mut true_stmts) = split_nested_exprs_recursive(true_expr, ns);
+            let (false_split, mut  false_stmts) = split_nested_exprs_recursive(false_expr, ns);
+            stmts.append(&mut cond_stmts);
+            stmts.append(&mut true_stmts);
+            stmts.append(&mut false_stmts);
 
-                let split_expr = Expr::Mux(Box::new(cond_split), Box::new(true_split), Box::new(false_split));
-                let split_expr_name = ns.next();
-                let split_stmt = Stmt::Node(split_expr_name.clone(), split_expr, Info::default());
-                stmts.push(Box::new(split_stmt));
+            let split_expr = Expr::Mux(Box::new(cond_split), Box::new(true_split), Box::new(false_split));
+            let split_expr_name = ns.next();
+            let split_stmt = Stmt::Node(split_expr_name.clone(), split_expr, Info::default());
+            stmts.push(Box::new(split_stmt));
 
-                let ref_expr = Expr::Reference(Reference::Ref(split_expr_name.clone()));
-                return (ref_expr, stmts);
+            let ref_expr = Expr::Reference(Reference::Ref(split_expr_name.clone()));
+            return (ref_expr, stmts);
+        }
+        Expr::PrimOp2Expr(op, a, b) => {
+            let (a_split,  mut a_stmts) = split_nested_exprs_recursive(a, ns);
+            let (b_split,  mut b_stmts) = split_nested_exprs_recursive(b, ns);
+            stmts.append(&mut a_stmts);
+            stmts.append(&mut b_stmts);
+
+            let split_expr = Expr::PrimOp2Expr(op.clone(), Box::new(a_split), Box::new(b_split));
+            let split_expr_name = ns.next();
+            let split_stmt = Stmt::Node(split_expr_name.clone(), split_expr, Info::default());
+            stmts.push(Box::new(split_stmt));
+
+            let ref_expr = Expr::Reference(Reference::Ref(split_expr_name.clone()));
+            return (ref_expr, stmts);
+        }
+        Expr::PrimOp1Expr(op, a) => {
+            match op {
+                PrimOp1Expr::AsUInt |
+                    PrimOp1Expr::AsSInt |
+                    PrimOp1Expr::AsClock |
+                    PrimOp1Expr::AsAsyncReset |
+                    PrimOp1Expr::Neg |
+                    PrimOp1Expr::Not |
+                    PrimOp1Expr::Orr |
+                    PrimOp1Expr::Andr |
+                    PrimOp1Expr::Xorr => {
+                        let (a_split,  mut a_stmts) = split_nested_exprs_recursive(a, ns);
+                        stmts.append(&mut a_stmts);
+
+                        let split_expr = Expr::PrimOp1Expr(*op, Box::new(a_split));
+                        let split_expr_name = ns.next();
+                        let split_stmt = Stmt::Node(split_expr_name.clone(), split_expr, Info::default());
+                        stmts.push(Box::new(split_stmt));
+
+                        let ref_expr = Expr::Reference(Reference::Ref(split_expr_name.clone()));
+                        return (ref_expr, stmts);
+                    }
+                _ => {
+                    return (expr.clone(), stmts);
+                }
             }
-            Expr::PrimOp2Expr(op, a, b) => {
-                let (a_split,  mut a_stmts) = split_nested_exprs_recursive(a, ns);
-                let (b_split,  mut b_stmts) = split_nested_exprs_recursive(b, ns);
-                stmts.append(&mut a_stmts);
-                stmts.append(&mut b_stmts);
+        }
+        Expr::PrimOp1Expr1Int(op, a, x) => {
+            let (a_split,  mut a_stmts) = split_nested_exprs_recursive(a, ns);
+            stmts.append(&mut a_stmts);
 
-                let split_expr = Expr::PrimOp2Expr(op.clone(), Box::new(a_split), Box::new(b_split));
-                let split_expr_name = ns.next();
-                let split_stmt = Stmt::Node(split_expr_name.clone(), split_expr, Info::default());
-                stmts.push(Box::new(split_stmt));
+            let split_expr = Expr::PrimOp1Expr1Int(*op, Box::new(a_split), x.clone());
+            let split_expr_name = ns.next();
+            let split_stmt = Stmt::Node(split_expr_name.clone(), split_expr, Info::default());
+            stmts.push(Box::new(split_stmt));
 
-                let ref_expr = Expr::Reference(Reference::Ref(split_expr_name.clone()));
+            let ref_expr = Expr::Reference(Reference::Ref(split_expr_name.clone()));
+            return (ref_expr, stmts);
+        }
+        Expr::PrimOp1Expr2Int(op, a, x, y) => {
+            let (a_split,  mut a_stmts) = split_nested_exprs_recursive(a, ns);
+            stmts.append(&mut a_stmts);
 
-                return (ref_expr, stmts);
-            }
-            _ => {
-                return (expr.clone(), stmts);
-            }
+            let split_expr = Expr::PrimOp1Expr2Int(*op, Box::new(a_split), x.clone(), y.clone());
+            let split_expr_name = ns.next();
+            let split_stmt = Stmt::Node(split_expr_name.clone(), split_expr, Info::default());
+            stmts.push(Box::new(split_stmt));
+
+            let ref_expr = Expr::Reference(Reference::Ref(split_expr_name.clone()));
+            return (ref_expr, stmts);
+        }
+        Expr::ValidIf(a, b) => {
+            let (a_split,  mut a_stmts) = split_nested_exprs_recursive(a, ns);
+            let (b_split,  mut b_stmts) = split_nested_exprs_recursive(b, ns);
+            stmts.append(&mut a_stmts);
+            stmts.append(&mut b_stmts);
+
+            let split_expr = Expr::ValidIf(Box::new(a_split), Box::new(b_split));
+            let split_expr_name = ns.next();
+            let split_stmt = Stmt::Node(split_expr_name.clone(), split_expr, Info::default());
+            stmts.push(Box::new(split_stmt));
+
+            let ref_expr = Expr::Reference(Reference::Ref(split_expr_name.clone()));
+            return (ref_expr, stmts);
+        }
+        Expr::Reference(_) |
+            Expr::UIntInit(..) |
+            Expr::SIntInit(..) |
+            Expr::UIntNoInit(..) |
+            Expr::SIntNoInit(..) => {
+            return (expr.clone(), stmts);
         }
     }
 }
@@ -248,8 +311,8 @@ fn firrtl3_replace_rename_nodes(module: &mut Module) {
     for stmt in module.stmts.iter() {
         match stmt.as_ref() {
             Stmt::Connect(lhs, rhs, info) => {
-                stmts.push(
-                    Box::new(Stmt::Connect(
+                stmts.push(Box::new(
+                    Stmt::Connect(
                         lhs.clone(),
                         replace_rename_node_expr(rhs, &rename_node_names),
                         info.clone())));
@@ -260,14 +323,30 @@ fn firrtl3_replace_rename_nodes(module: &mut Module) {
                         rename_node_names.insert(name, reference);
                     }
                     _ => {
-                        stmts.push(
-                            Box::new(Stmt::Node(
+                        stmts.push(Box::new(
+                            Stmt::Node(
                                 name.clone(),
                                 replace_rename_node_expr(expr, &rename_node_names),
                                 info.clone())
                             ));
                     }
                 }
+            }
+            Stmt::Reg(name, tpe, clk, info) => {
+                stmts.push(Box::new(
+                    Stmt::Reg(name.clone(), tpe.clone(),
+                    replace_rename_node_expr(clk, &rename_node_names),
+                    info.clone())));
+
+
+            }
+            Stmt::RegReset(name, tpe, clk, rst, init, info) => {
+                stmts.push(Box::new(
+                    Stmt::RegReset(name.clone(), tpe.clone(),
+                    replace_rename_node_expr(clk, &rename_node_names),
+                    replace_rename_node_expr(rst, &rename_node_names),
+                    replace_rename_node_expr(init, &rename_node_names),
+                    info.clone())));
             }
             _ => {
                 stmts.push(stmt.clone());
