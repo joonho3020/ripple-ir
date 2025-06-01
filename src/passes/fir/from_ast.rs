@@ -221,13 +221,19 @@ fn add_graph_node_from_stmt(ir: &mut FirGraph, stmt: &Stmt, nm: &mut NodeMap) {
                     let id = add_node(ir, None, Some(out_name.clone()), TypeDirection::Outgoing, FirNodeType::PrimOp1Expr2Int(*op, x.clone(), y.clone()));
                     nm.node_map.insert(Reference::Ref(out_name.clone()), id);
                 }
+                Expr::UIntInit(w, x) => {
+                    let id = add_node(ir, None, Some(out_name.clone()), TypeDirection::Outgoing, FirNodeType::UIntLiteral(w.clone(), x.clone()));
+                    nm.node_map.insert(Reference::Ref(out_name.clone()), id);
+                }
+                Expr::SIntInit(w, x) => {
+                    let id = add_node(ir, None, Some(out_name.clone()), TypeDirection::Outgoing, FirNodeType::SIntLiteral(w.clone(), x.clone()));
+                    nm.node_map.insert(Reference::Ref(out_name.clone()), id);
+                }
                 Expr::Reference(_)      |
                     Expr::UIntNoInit(_) |
-                    Expr::UIntInit(_, _) |
                     Expr::SIntNoInit(_) |
-                    Expr::SIntInit(_, _) |
                     Expr::ValidIf(_, _) => {
-                        assert!(false, "Unexpected node right hand side {:?}", expr);
+                        assert!(false, "Unexpected node right hand side {:?} of stmt {:?}", expr, stmt);
                     }
             }
         }
@@ -263,7 +269,7 @@ fn add_graph_node_from_stmt(ir: &mut FirGraph, stmt: &Stmt, nm: &mut NodeMap) {
             nm.assert_map.insert(stmt.clone(), id);
         }
         Stmt::Stop(..) => {
-            unimplemented!();
+// unimplemented!();
         }
         Stmt::Memory(name, _tpe, depth, rlat, wlat, ports, ruw, _info) => {
             // Construct proper typetree for memory ports
@@ -530,11 +536,12 @@ fn add_graph_edge_from_stmt(ir: &mut FirGraph, stmt: &Stmt, nm: &mut NodeMap) {
                     let op0_edge = FirEdge::new(a.as_ref().clone(), None, FirEdgeType::Operand0);
                     add_graph_edge_from_expr(ir, *dst_id, &a, op0_edge, nm);
                 }
+                Expr::UIntInit(_, _) |
+                    Expr::SIntInit(_, _) => {
+                }
                 Expr::Reference(_)      |
                     Expr::UIntNoInit(_) |
-                    Expr::UIntInit(_, _) |
                     Expr::SIntNoInit(_) |
-                    Expr::SIntInit(_, _) |
                     Expr::ValidIf(_, _) => {
                         assert!(false, "Node rhs {:?} unhandled type", expr);
                 }
@@ -598,7 +605,7 @@ fn add_graph_edge_from_stmt(ir: &mut FirGraph, stmt: &Stmt, nm: &mut NodeMap) {
             add_graph_edge_from_expr(ir, *assert_id, clk, clk_edge, nm);
         }
         Stmt::Stop(..) => {
-            unimplemented!();
+// unimplemented!();
         }
         Stmt::Memory(..) => {
         }

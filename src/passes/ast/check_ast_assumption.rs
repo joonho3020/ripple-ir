@@ -104,11 +104,12 @@ pub fn check_stmt_assumption(stmts: &Stmts) {
                     Expr::PrimOp1Expr2Int(op, a, _x, _y) => {
                         assert!(is_reference(a), "{:?} a {:?} is not a Reference", op, a);
                     }
+                    Expr::UIntInit(..) |
+                        Expr::SIntInit(..) => {
+                    }
                     Expr::Reference(_)      |
                         Expr::UIntNoInit(_) |
-                        Expr::UIntInit(_, _) |
                         Expr::SIntNoInit(_) |
-                        Expr::SIntInit(_, _) |
                         Expr::ValidIf(_, _) => {
                         assert!(false, "Unexpected node right hand side {:?}", expr);
                     }
@@ -147,10 +148,10 @@ pub fn check_stmt_assumption(stmts: &Stmts) {
                 continue;
             }
             Stmt::Stop(..) => {
-                unimplemented!();
+                continue;
             }
             Stmt::Memory(..) => {
-                unimplemented!();
+                continue;
             }
         }
     }
