@@ -79,6 +79,7 @@ fn topo_start_node(fg: &FirGraph, id: NodeIndex) -> bool {
         FirNodeType::Invalid  |
         FirNodeType::SMem(..) |
         FirNodeType::CMem     |
+        FirNodeType::Memory(..) |
         FirNodeType::Input    |
         FirNodeType::Output   |
         FirNodeType::UIntLiteral(..)  |

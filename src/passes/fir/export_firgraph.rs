@@ -1,26 +1,38 @@
 #[cfg(test)]
 mod test {
     use crate::common::RippleIRErr;
+    use crate::passes::ast::print::*;
+    use crate::passes::ast::firrtl3_print::FIRRTL3Printer;
+    use crate::passes::fir::to_ast::to_ast;
     use crate::passes::runner::run_passes_from_firrtl3_file;
 
-    fn run(filepath: &str, outdir: &str, pfx: &str) -> Result<(), RippleIRErr> {
-        let fir = run_passes_from_firrtl3_file(filepath)?;
+    fn run(name: &str, outdir: &str, pfx: &str) -> Result<(), RippleIRErr> {
+        let filepath = format!("./test-inputs-firrtl3/{}.fir", name);
+        let fir = run_passes_from_firrtl3_file(&filepath)?;
+
+        let circuit_reconstruct = to_ast(&fir);
+
+        let mut printer = FIRRTL3Printer::new();
+        let circuit_reconstruct_str = printer.print_circuit(&circuit_reconstruct);
+        let firrtl = format!("./{}/{}.{}.fir", outdir, name, pfx);
+        std::fs::write(&firrtl, circuit_reconstruct_str)?;
+
 // fir.export(outdir, pfx)?;
         Ok(())
     }
 
     #[test]
     fn queue_lo() -> Result<(), RippleIRErr> {
-        run("./test-inputs-firrtl3/Queue.lo.fir", "./test-outputs", "firrtl3")
+        run("Queue.lo", "./test-outputs", "firrtl3")
     }
 
     #[test]
     fn firesim_rocket() -> Result<(), RippleIRErr> {
-        run("./test-inputs-firrtl3/FireSimRocket.fir", "./test-outputs", "firrtl3")
+        run("FireSimRocket", "./test-outputs", "firrtl3")
     }
 
     #[test]
     fn firesim_boom() -> Result<(), RippleIRErr> {
-        run("./test-inputs-firrtl3/FireSimLargeBoom.fir", "./test-outputs", "firrtl3")
+        run("FireSimLargeBoom", "./test-outputs", "firrtl3")
     }
 }
