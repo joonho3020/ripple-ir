@@ -4,6 +4,7 @@ pub mod infer_typetree;
 pub mod remove_unnecessary_phi;
 pub mod check_mport_assumptions;
 pub mod to_ast;
+pub mod to_ast_firrtl3;
 pub mod modify_names;
 pub mod common_subgraph;
 pub mod jaspergold;

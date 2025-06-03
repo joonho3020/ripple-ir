@@ -10,8 +10,6 @@ use crate::timeit;
 use rusty_firrtl::Circuit;
 use chirrtl_parser::parse_circuit as parse_chirrtl;
 use firrtl3_parser::parse_circuit as parse_firrtl3;
-use crate::passes::ast::firrtl3_print::FIRRTL3Printer;
-use crate::passes::ast::print::*;
 use super::ast::check_ast_assumption::check_ast_assumption;
 use super::ast::firrtl3_split_exprs::firrtl3_split_exprs;
 
@@ -37,10 +35,12 @@ pub fn run_passes_from_firrtl3_file(name: &str) -> Result<FirIR, RippleIRErr> {
 
     firrtl3_split_exprs(&mut circuit);
 
-    let mut printer = FIRRTL3Printer::new();
-    let reconstructed_circuit_str = printer.print_circuit(&circuit);
-    let out_path = format!("./test-outputs/{}.firrtl3.split.fir", circuit.name);
-    std::fs::write(&out_path, reconstructed_circuit_str)?;
+// use crate::passes::ast::firrtl3_print::FIRRTL3Printer;
+// use crate::passes::ast::print::*;
+// let mut printer = FIRRTL3Printer::new();
+// let reconstructed_circuit_str = printer.print_circuit(&circuit);
+// let out_path = format!("./test-outputs/{}.firrtl3.split.fir", circuit.name);
+// std::fs::write(&out_path, reconstructed_circuit_str)?;
 
     run_fir_passes_from_circuit(&circuit)
 }

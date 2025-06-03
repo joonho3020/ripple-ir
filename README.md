@@ -17,6 +17,13 @@ Graph based intermediate representation for RTL design.
 
 ## Prerequisites
 
+### Necessary
+
+- [Rust](https://doc.rust-lang.org/cargo/getting-started/installation.html)
+- [just](https://github.com/casey/just): `cargo install just`
+- [nextest](https://nexte.st): `cargo install cargo-nextest --locked`
+- Python
+
 ### pdfium: for reading pdf files and processing it
 
 - [pdfium dylib binaries](https://github.com/bblanchon/pdfium-binaries/releases)
@@ -30,6 +37,8 @@ tar -xvzf <what you downloaded.tgz> -C pdfium
 ```
 
 ### [CIRCT](https://circt.llvm.org)
+
+This isn't necessary. But without this, some tests won't work..
 
 #### Option 1: Download precompiled firtool
 

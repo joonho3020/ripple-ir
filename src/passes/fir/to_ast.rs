@@ -32,7 +32,7 @@ fn to_circuitmodule(name: &Identifier, fg: &FirGraph) -> CircuitModule {
     }
 }
 
-fn to_extmodule(name: &Identifier, fg: &FirGraph) -> ExtModule {
+pub fn to_extmodule(name: &Identifier, fg: &FirGraph) -> ExtModule {
     let ext_info = &fg.ext_info.as_ref().unwrap();
     let defname = &ext_info.defname;
     let params = &ext_info.params;
@@ -40,7 +40,7 @@ fn to_extmodule(name: &Identifier, fg: &FirGraph) -> ExtModule {
     ExtModule::new(name.clone(), ports, defname.clone(), params.clone(), Info::default())
 }
 
-fn get_ports(fg: &FirGraph) -> Ports {
+pub fn get_ports(fg: &FirGraph) -> Ports {
     let mut ret = Ports::new();
     for id in fg.node_indices() {
         let node = fg.node_weight(id).unwrap();
@@ -140,7 +140,7 @@ fn find_array_addr_chain(fg: &FirGraph, id: NodeIndex, ref_expr: &Expr) -> Index
 /// 2. Finds all array accesses that must be evaluated first
 /// 3. Updates array_addr_edges to track dependencies between arrays
 /// 4. Maintains indeg counts for topological sorting
-fn find_array_addr_chain_in_ref(
+pub fn find_array_addr_chain_in_ref(
     fg: &FirGraph,
     src: NodeIndex,
     dst: NodeIndex,
@@ -202,14 +202,14 @@ fn find_array_addr_chain_in_ref(
 }
 
 #[derive(Debug, Default)]
-struct EmissionInfo {
+pub struct EmissionInfo {
     pub topdown: IndexMap<NodeIndex, CondPath>,
 
     /// Node must have at most PrioritizedConds (ceiling in stmt list)
     pub bottomup: IndexMap<NodeIndex, CondPath>,
 }
 
-fn reconstruct_whentree(fg: &FirGraph) -> WhenTree {
+pub fn reconstruct_whentree(fg: &FirGraph) -> WhenTree {
     let mut cond_priority_pair = vec![];
     for id in fg.graph.node_indices() {
         let node = fg.graph.node_weight(id).unwrap();
@@ -247,7 +247,7 @@ fn is_reginit(fg: &FirGraph, id: NodeIndex) -> bool {
     node.nt == FirNodeType::RegReset
 }
 
-fn reverse_adjacency_list(
+pub fn reverse_adjacency_list(
     graph: &IndexMap<NodeIndex, IndexSet<NodeIndex>>,
 ) -> IndexMap<NodeIndex, IndexSet<NodeIndex>> {
     let mut reversed = IndexMap::<NodeIndex, IndexSet<NodeIndex>>::new();
@@ -529,7 +529,7 @@ fn collect_stmts(fg: &FirGraph, stmts: &mut Stmts) {
 
 /// Looks at the parent nodes (drivers) and their places in the stmt hierarchy.
 /// This node must be located lower than any of its parent node
-fn find_highest_path(
+pub fn find_highest_path(
     fg: &FirGraph,
     id: NodeIndex,
     node_to_path: &IndexMap<NodeIndex, CondPath>,
@@ -585,7 +585,7 @@ fn insert_def_mem_stmts(
     highest_path
 }
 
-fn insert_def_topo_start_stmts(
+pub fn insert_def_topo_start_stmts(
     fg: &FirGraph,
     id: NodeIndex,
     emission_info: &EmissionInfo,
@@ -692,7 +692,7 @@ fn insert_def_topo_start_stmts(
 }
 
 /// Collect invalidate stmts
-fn insert_invalidate_stmts(
+pub fn insert_invalidate_stmts(
     fg: &FirGraph,
     id: NodeIndex,
     emission_info: &EmissionInfo,
@@ -801,7 +801,7 @@ fn insert_memport_stmts(
 }
 
 /// Collect the connect and mport stmts and insert them into the WhenTree
-fn insert_op_stmts(
+pub fn insert_op_stmts(
     fg: &FirGraph,
     id: NodeIndex,
     emission_info: &EmissionInfo,
@@ -960,7 +960,7 @@ fn fill_bottom_up_emission_info(
     }
 }
 
-fn insert_printf_assertion_stmts(fg: &FirGraph, whentree: &mut WhenTree) {
+pub fn insert_printf_assertion_stmts(fg: &FirGraph, whentree: &mut WhenTree) {
     for id in fg.graph.node_indices() {
         let node = fg.graph.node_weight(id).unwrap();
         match &node.nt {
@@ -978,7 +978,7 @@ fn insert_printf_assertion_stmts(fg: &FirGraph, whentree: &mut WhenTree) {
 }
 
 /// Insert connection stmts to the appropriate position in the whentree
-fn insert_conn_stmts(
+pub fn insert_conn_stmts(
     fg: &FirGraph,
     whentree: &mut WhenTree
 ) {
