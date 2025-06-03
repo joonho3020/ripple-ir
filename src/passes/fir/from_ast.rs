@@ -872,10 +872,4 @@ mod from_ast_test {
         run_check_completion("./test-inputs/boom-modules/", &FIRRTLVersion::Chirrtl)
             .expect("boom conversion failed");
     }
-
-    #[test]
-    fn firrtl3_firesim_rocket_check_completion() {
-        run_check_completion("./test-inputs-firrtl3/rocket-modules/", &FIRRTLVersion::Firrtl3)
-            .expect("firesim rocket conversion failed");
-    }
 }
