@@ -1,4 +1,6 @@
 use clap::Parser;
+use ripple_ir::common::read_annos;
+use ripple_ir::common::write_annos;
 use ripple_ir::passes::fir::to_ast_firrtl3::to_ast_firrtl3;
 use std::path::PathBuf;
 use chirrtl_parser::parse_circuit as parse_chirrtl;
@@ -23,6 +25,14 @@ struct Args {
     #[arg(short, long)]
     output: PathBuf,
 
+    /// Input annotation path
+    #[arg(long)]
+    annos_in: Option<PathBuf>,
+
+    /// Output file path
+    #[arg(long)]
+    annos_out: Option<PathBuf>,
+
     /// Version of the FIRRTL input file
     #[arg(long, value_enum)]
     firrtl_version: FIRRTLVersion,
@@ -43,10 +53,23 @@ fn main() -> Result<(), RippleIRErr> {
         }
         FIRRTLVersion::Firrtl3 => {
             let mut circuit = parse_firrtl3(&source).expect("firrtl3 parser");
+            let mut annos_opt = match args.annos_in {
+                Some(annos_in) => {
+                    Some(read_annos(annos_in.to_str().unwrap())?)
+                }
+                _ => None
+            };
 
-            firrtl3_split_exprs(&mut circuit);
+
+            firrtl3_split_exprs(&mut circuit, &mut annos_opt);
             let ir = run_fir_passes_from_circuit(&circuit)?;
             let circuit_reconstruct = to_ast_firrtl3(&ir);
+
+            if let Some(annos) = annos_opt {
+                assert!(args.annos_out.is_some(), "Annotations provided, but no output for annos");
+                let annos_out = args.annos_out.unwrap();
+                write_annos(&annos, annos_out.to_str().unwrap())?;
+            }
 
             let mut printer = FIRRTL3Printer::new();
             printer.print_circuit(&circuit_reconstruct)

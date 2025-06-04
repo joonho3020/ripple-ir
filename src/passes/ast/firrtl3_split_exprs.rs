@@ -1,17 +1,18 @@
 use rusty_firrtl::*;
 use indexmap::IndexSet;
 use indexmap::IndexMap;
+use serde_json::Value;
 use crate::ir::fir::NameSpace;
 
 /// Looks at the FIRRTL3 stmts and adds a node if there is a expr on the rhs that is not a
 /// reference
 /// - Assumes that the input FIRRTL expression is in lo form
-pub fn firrtl3_split_exprs(circuit: &mut Circuit) {
+pub fn firrtl3_split_exprs(circuit: &mut Circuit, annos: &mut Option<Annotations>) {
     for cm in circuit.modules.iter_mut() {
         match cm.as_mut() {
             CircuitModule::Module(module) => {
                 firrtl3_split_exprs_module(module);
-                firrtl3_replace_rename_nodes(module);
+                firrtl3_replace_rename_nodes(module, annos);
             }
             CircuitModule::ExtModule(..) => {
                 continue;
@@ -230,39 +231,57 @@ fn split_nested_exprs_recursive(expr: &Expr, ns: &mut NameSpace) -> (Expr, Vec<B
     }
 }
 
-fn replace_rename_node_reference(reference: &Reference, rename_map: &IndexMap<&Identifier, &Reference>) -> Reference {
+fn replace_rename_node_reference(reference: &Reference, rename_map: &IndexMap<&Identifier, ReferenceOrConst>) -> Expr {
     match reference {
         Reference::Ref(name) => {
             if rename_map.contains_key(name) {
-                let x = *rename_map.get(name).unwrap();
-                x.clone()
+                let x = rename_map.get(name).unwrap();
+                match x {
+                    &ReferenceOrConst::Ref(r) => {
+                        Expr::Reference(r.clone())  
+                    }
+                    &ReferenceOrConst::Const(c) => {
+                        c.clone()
+                    }
+                }
             } else {
-                reference.clone()
+                Expr::Reference(reference.clone())
             }
         }
         Reference::RefDot(parent, name) => {
-            Reference::RefDot(
-                Box::new(replace_rename_node_reference(parent.as_ref(), rename_map)),
-                name.clone())
+            if let Expr::Reference(parent_ref) = replace_rename_node_reference(parent.as_ref(), rename_map) {
+                Expr::Reference(Reference::RefDot(
+                        Box::new(parent_ref),
+                        name.clone()))
+            } else {
+                unreachable!()
+            }
         }
         Reference::RefIdxInt(parent, idx) => {
-            Reference::RefIdxInt(
-                Box::new(replace_rename_node_reference(parent.as_ref(), rename_map)),
-                idx.clone())
+            if let Expr::Reference(parent_ref) = replace_rename_node_reference(parent.as_ref(), rename_map) {
+                Expr::Reference(Reference::RefIdxInt(
+                    Box::new(parent_ref),
+                    idx.clone()))
+            } else {
+                unreachable!()
+            }
         }
         Reference::RefIdxExpr(parent, idx_expr) => {
-            Reference::RefIdxExpr(
-                Box::new(replace_rename_node_reference(parent.as_ref(), rename_map)),
-                Box::new(replace_rename_node_expr(idx_expr.as_ref(), rename_map)))
+            if let Expr::Reference(parent_ref) = replace_rename_node_reference(parent.as_ref(), rename_map) {
+                Expr::Reference(Reference::RefIdxExpr(
+                    Box::new(parent_ref),
+                    Box::new(replace_rename_node_expr(idx_expr.as_ref(), rename_map))))
+            } else {
+                unreachable!()
+            }
         }
     }
 }
 
-fn replace_rename_node_expr(expr: &Expr, rename_map: &IndexMap<&Identifier, &Reference>) -> Expr {
+fn replace_rename_node_expr(expr: &Expr, rename_map: &IndexMap<&Identifier, ReferenceOrConst>) -> Expr {
     match expr {
         Expr::Reference(reference) => {
-            let replaced_ref = replace_rename_node_reference(reference, rename_map);
-            Expr::Reference(replaced_ref)
+            replace_rename_node_reference(reference, rename_map)
         }
         Expr::Mux(cond, true_expr, false_expr) => {
             Expr::Mux(
@@ -305,8 +324,75 @@ fn replace_rename_node_expr(expr: &Expr, rename_map: &IndexMap<&Identifier, &Ref
     }
 }
 
-fn firrtl3_replace_rename_nodes(module: &mut Module) {
-    let mut rename_node_names: IndexMap<&Identifier, &Reference> = IndexMap::new();
+enum ReferenceOrConst<'a> {
+    Ref(&'a Reference),
+    Const(&'a Expr)
+}
+
+impl<'a> ReferenceOrConst<'a> {
+    fn from_ref(r: &'a Reference) -> ReferenceOrConst<'a> {
+        ReferenceOrConst::Ref(r)
+    }
+    fn from_const(c: &'a Expr) -> ReferenceOrConst<'a> {
+        ReferenceOrConst::Const(c)
+    }
+}
+
+
+fn replace_reference_in_annos(
+    cur_module: &Identifier,
+    rename_map: &IndexMap<&Identifier, ReferenceOrConst>,
+    annos_opt: &mut Option<Annotations>,
+) {
+    if let Some(annos) = annos_opt {
+        if let Some(annos_list) = annos.0.as_array_mut() {
+            let mut new_list = vec![];
+            for mut anno in annos_list.drain(..) {
+                if let Some(map) = anno.as_object_mut() {
+                    let keep = update_target_field(map, cur_module, rename_map);
+                    if keep {
+                        new_list.push(anno);
+                    }
+                } else {
+                    new_list.push(anno);
+                }
+            }
+            annos_list.extend(new_list);
+        }
+    }
+}
+
+fn update_target_field(
+    map: &mut serde_json::Map<String, Value>,
+    cur_module: &Identifier,
+    rename_map: &IndexMap<&Identifier, ReferenceOrConst>,
+) -> bool {
+    if let Some(Value::String(value_str)) = map.get("target") {
+        let parts: Vec<&str> = value_str.split(|c| c == '|' || c == '>').collect();
+        if parts.len() == 3
+            && cur_module.to_string() == parts[1]
+            && rename_map.contains_key(&Identifier::Name(parts[2].to_string()))
+        {
+            match &rename_map[&Identifier::Name(parts[2].to_string())] {
+                ReferenceOrConst::Ref(renamed_ref) => {
+                    let new_target = format!("{}|{}>{}", parts[0], parts[1], renamed_ref);
+                    map.insert("target".to_string(), Value::String(new_target));
+                    return true;
+                }
+                ReferenceOrConst::Const(_) => {
+                    return false;
+                }
+            }
+        }
+    }
+
+    true
+}
+
+
+
+fn firrtl3_replace_rename_nodes(module: &mut Module, annos_opt: &mut Option<Annotations>) {
+    let mut rename_node_names: IndexMap<&Identifier, ReferenceOrConst> = IndexMap::new();
     let mut stmts = vec![];
     for stmt in module.stmts.iter() {
         match stmt.as_ref() {
@@ -320,7 +406,11 @@ fn firrtl3_replace_rename_nodes(module: &mut Module) {
             Stmt::Node(name, expr, info) => {
                 match expr {
                     Expr::Reference(reference) => {
-                        rename_node_names.insert(name, reference);
+                        rename_node_names.insert(name, ReferenceOrConst::from_ref(reference));
+                    }
+                    Expr::UIntInit(..) |
+                        Expr::SIntInit(..) => {
+                            rename_node_names.insert(name, ReferenceOrConst::from_const(expr));
                     }
                     _ => {
                         stmts.push(Box::new(
@@ -348,10 +438,30 @@ fn firrtl3_replace_rename_nodes(module: &mut Module) {
                     replace_rename_node_expr(init, &rename_node_names),
                     info.clone())));
             }
+            Stmt::Printf(name_opt, clk, trig, msg, args_opt, info) => {
+                let new_args = if let Some(args) = args_opt {
+                    let mut ret = vec![];
+                    for arg in args {
+                        ret.push(Box::new(replace_rename_node_expr(arg.as_ref(), &rename_node_names)));
+                    }
+                    Some(ret)
+                } else {
+                    None
+                };
+
+                stmts.push(Box::new(
+                        Stmt::Printf(name_opt.clone(),
+                        replace_rename_node_expr(clk, &rename_node_names),
+                        replace_rename_node_expr(trig, &rename_node_names),
+                        msg.clone(),
+                        new_args,
+                        info.clone())));
+            }
             _ => {
                 stmts.push(stmt.clone());
             }
         }
     }
+    replace_reference_in_annos(&module.name, &rename_node_names, annos_opt);
     module.stmts = stmts;
 }

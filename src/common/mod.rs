@@ -6,11 +6,15 @@ use pdfium_render::prelude::PdfiumError;
 use thiserror::Error;
 use spinoff::{Spinner, spinners};
 use clap::ValueEnum;
+use rusty_firrtl::Annotations;
 
 #[derive(Debug, Error)]
 pub enum RippleIRErr {
     #[error("IO error: {0}")]
     IOError(#[from] std::io::Error),
+
+    #[error("SerDes error: {0}")]
+    SerDesJsonError(#[from] serde_json::Error),
 
     #[error("Failed to convert from utf8 to string: {0}")]
     FromUtf8Error(#[from] FromUtf8Error),
@@ -95,4 +99,17 @@ pub fn export_circuit(fir_file: &str, out_dir: &str) -> Result<(), RippleIRErr> 
             unreachable!()
         }
     }
+}
+
+pub fn read_annos(filepath: &str) -> Result<Annotations, RippleIRErr> {
+    let annos_str = std::fs::read_to_string(filepath)?;
+    let annos = Annotations{ 0: serde_json::from_str(&annos_str).unwrap() };
+    Ok(annos)
+}
+
+pub fn write_annos(annos: &Annotations, filepath: &str) -> Result<(), RippleIRErr> {
+    let file = std::fs::File::create(filepath)?;
+    let writer = std::io::BufWriter::new(file);
+    serde_json::to_writer_pretty(writer, &annos.0)?;
+    Ok(())
 }

@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0.139"
 num-bigint = "0.4.6"
 num-traits = "0.2.19"
@@ -26,7 +27,6 @@ test-case = "3.3.1"
 priority-queue = "2.3.1"
 lsh-rs = "=0.2.2"
 clap = { version = "4.5.30", features = ["derive"] }
-# chirrtl-parser = "0.1.8"
 chirrtl-parser = { git = "ssh://git@github.com/joonho3020/chirrtl-parser.git", branch = "main"}
 firrtl3-parser = { git = "ssh://git@github.com/joonho3020/firrtl3-parser.git", branch = "main"}
 rusty-firrtl   = { git = "ssh://git@github.com/joonho3020/rusty-firrtl.git",   branch = "main"}

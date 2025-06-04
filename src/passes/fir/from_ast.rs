@@ -271,7 +271,7 @@ fn add_graph_node_from_stmt(ir: &mut FirGraph, stmt: &Stmt, nm: &mut NodeMap) {
         Stmt::Stop(..) => {
 // unimplemented!();
         }
-        Stmt::Memory(name, _tpe, depth, rlat, wlat, ports, ruw, _info) => {
+        Stmt::Memory(name, tpe, depth, rlat, wlat, ports, ruw, _info) => {
             // Construct proper typetree for memory ports
             // r: data, flipped addr, flipped en, flipped clk
             // w: flipped addr, flipped en, flipped clk, flipped data, flipped mask (UInt <1>)
@@ -285,7 +285,7 @@ fn add_graph_node_from_stmt(ir: &mut FirGraph, stmt: &Stmt, nm: &mut NodeMap) {
                         // Read port: data, flipped addr, flipped en, flipped clk
                         let addr_width = Width(((*depth + 1) as f64).log2().ceil() as u32);
                         let fields = vec![
-                            Box::new(Field::Straight(Identifier::Name("data".to_string()), Box::new(Type::TypeGround(TypeGround::UInt(None))))),
+                            Box::new(Field::Straight(Identifier::Name("data".to_string()), Box::new(tpe.clone()))),
                             Box::new(Field::Flipped(Identifier::Name("addr".to_string()), Box::new(Type::TypeGround(TypeGround::UInt(Some(addr_width)))))),
                             Box::new(Field::Flipped(Identifier::Name("en".to_string()), Box::new(Type::TypeGround(TypeGround::UInt(Some(Width(1))))))),
                             Box::new(Field::Flipped(Identifier::Name("clk".to_string()), Box::new(Type::TypeGround(TypeGround::Clock)))),
@@ -299,7 +299,7 @@ fn add_graph_node_from_stmt(ir: &mut FirGraph, stmt: &Stmt, nm: &mut NodeMap) {
                             Box::new(Field::Flipped(Identifier::Name("addr".to_string()), Box::new(Type::TypeGround(TypeGround::UInt(Some(addr_width)))))),
                             Box::new(Field::Flipped(Identifier::Name("en".to_string()), Box::new(Type::TypeGround(TypeGround::UInt(Some(Width(1))))))),
                             Box::new(Field::Flipped(Identifier::Name("clk".to_string()), Box::new(Type::TypeGround(TypeGround::Clock)))),
-                            Box::new(Field::Flipped(Identifier::Name("data".to_string()), Box::new(Type::TypeGround(TypeGround::UInt(None))))),
+                            Box::new(Field::Flipped(Identifier::Name("data".to_string()), Box::new(tpe.clone()))),
                             Box::new(Field::Flipped(Identifier::Name("mask".to_string()), Box::new(Type::TypeGround(TypeGround::UInt(Some(Width(1))))))),
                         ];
                         Type::TypeAggregate(Box::new(TypeAggregate::Fields(Box::new(fields))))
@@ -308,12 +308,12 @@ fn add_graph_node_from_stmt(ir: &mut FirGraph, stmt: &Stmt, nm: &mut NodeMap) {
                         // ReadWrite port: rdata, flipped addr, flipped en, flipped clk, flipped wmode, flipped wdata, flipped wmask
                         let addr_width = Width((*depth as f64).log2().ceil() as u32);
                         let fields = vec![
-                            Box::new(Field::Straight(Identifier::Name("rdata".to_string()), Box::new(Type::TypeGround(TypeGround::UInt(None))))),
+                            Box::new(Field::Straight(Identifier::Name("rdata".to_string()), Box::new(tpe.clone()))),
                             Box::new(Field::Flipped(Identifier::Name("addr".to_string()), Box::new(Type::TypeGround(TypeGround::UInt(Some(addr_width)))))),
                             Box::new(Field::Flipped(Identifier::Name("en".to_string()), Box::new(Type::TypeGround(TypeGround::UInt(Some(Width(1))))))),
                             Box::new(Field::Flipped(Identifier::Name("clk".to_string()), Box::new(Type::TypeGround(TypeGround::Clock)))),
                             Box::new(Field::Flipped(Identifier::Name("wmode".to_string()), Box::new(Type::TypeGround(TypeGround::UInt(Some(Width(1))))))),
-                            Box::new(Field::Flipped(Identifier::Name("wdata".to_string()), Box::new(Type::TypeGround(TypeGround::UInt(None))))),
+                            Box::new(Field::Flipped(Identifier::Name("wdata".to_string()), Box::new(tpe.clone()))),
                             Box::new(Field::Flipped(Identifier::Name("wmask".to_string()), Box::new(Type::TypeGround(TypeGround::UInt(Some(Width(1))))))),
                         ];
                         Type::TypeAggregate(Box::new(TypeAggregate::Fields(Box::new(fields))))
