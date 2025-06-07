@@ -369,24 +369,51 @@ fn update_target_field(
 ) -> bool {
     if let Some(Value::String(value_str)) = map.get("target") {
         let parts: Vec<&str> = value_str.split(|c| c == '|' || c == '>').collect();
-        if parts.len() == 3
-            && cur_module.to_string() == parts[1]
-            && rename_map.contains_key(&Identifier::Name(parts[2].to_string()))
+        if parts.len() == 3 &&
+            rename_map.contains_key(&Identifier::Name(parts[2].to_string()))
         {
-            match &rename_map[&Identifier::Name(parts[2].to_string())] {
-                ReferenceOrConst::Ref(renamed_ref) => {
-                    let new_target = format!("{}|{}>{}", parts[0], parts[1], renamed_ref);
-                    map.insert("target".to_string(), Value::String(new_target));
-                    return true;
-                }
-                ReferenceOrConst::Const(_) => {
-                    return false;
+            let path = parse_path(parts[1]);
+            if path.last().unwrap().module == cur_module.to_string() {
+                match &rename_map[&Identifier::Name(parts[2].to_string())] {
+                    ReferenceOrConst::Ref(renamed_ref) => {
+                        let new_target = format!("{}|{}>{}", parts[0], parts[1], renamed_ref);
+                        map.insert("target".to_string(), Value::String(new_target));
+                        return true;
+                    }
+                    ReferenceOrConst::Const(_) => {
+                        return false;
+                    }
                 }
             }
         }
     }
 
     true
+}
+
+#[derive(Debug)]
+struct InstPath {
+    module: String,
+    _inst: Option<String>,
+}
+
+fn parse_path(path: &str) -> Vec<InstPath> {
+    path.split('/')
+        .map(|segment| {
+            let parts: Vec<&str> = segment.split(':').collect();
+            match parts.len() {
+                2 => InstPath {
+                    _inst: Some(parts[0].to_string()),
+                    module: parts[1].to_string(),
+                },
+                1 => InstPath {
+                    _inst: None,
+                    module: parts[0].to_string(),
+                },
+                _ => panic!("Invalid segment format: {}", segment),
+            }
+        })
+        .collect()
 }
 
 
