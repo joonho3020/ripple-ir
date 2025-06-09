@@ -3,16 +3,17 @@ use indexmap::IndexSet;
 use indexmap::IndexMap;
 use serde_json::Value;
 use crate::ir::fir::NameSpace;
+use crate::ir::hierarchy::*;
 
 /// Looks at the FIRRTL3 stmts and adds a node if there is a expr on the rhs that is not a
 /// reference
 /// - Assumes that the input FIRRTL expression is in lo form
-pub fn firrtl3_split_exprs(circuit: &mut Circuit, annos: &mut Option<Annotations>) {
+pub fn firrtl3_split_exprs(circuit: &mut Circuit) {
     for cm in circuit.modules.iter_mut() {
         match cm.as_mut() {
             CircuitModule::Module(module) => {
                 firrtl3_split_exprs_module(module);
-                firrtl3_replace_rename_nodes(module, annos);
+                firrtl3_replace_rename_nodes(module, &mut circuit.annos);
             }
             CircuitModule::ExtModule(..) => {
                 continue;
@@ -342,23 +343,21 @@ impl<'a> ReferenceOrConst<'a> {
 fn replace_reference_in_annos(
     cur_module: &Identifier,
     rename_map: &IndexMap<&Identifier, ReferenceOrConst>,
-    annos_opt: &mut Option<Annotations>,
+    annos: &mut Annotations,
 ) {
-    if let Some(annos) = annos_opt {
-        if let Some(annos_list) = annos.0.as_array_mut() {
-            let mut new_list = vec![];
-            for mut anno in annos_list.drain(..) {
-                if let Some(map) = anno.as_object_mut() {
-                    let keep = update_target_field(map, cur_module, rename_map);
-                    if keep {
-                        new_list.push(anno);
-                    }
-                } else {
+    if let Some(annos_list) = annos.0.as_array_mut() {
+        let mut new_list = vec![];
+        for mut anno in annos_list.drain(..) {
+            if let Some(map) = anno.as_object_mut() {
+                let keep = update_target_field(map, cur_module, rename_map);
+                if keep {
                     new_list.push(anno);
                 }
+            } else {
+                new_list.push(anno);
             }
-            annos_list.extend(new_list);
         }
+        annos_list.extend(new_list);
     }
 }
 
@@ -372,7 +371,7 @@ fn update_target_field(
         if parts.len() == 3 &&
             rename_map.contains_key(&Identifier::Name(parts[2].to_string()))
         {
-            let path = parse_path(parts[1]);
+            let path = InstPath::parse_inst_hierarchy_path(parts[1]);
             if path.last().unwrap().module == cur_module.to_string() {
                 match &rename_map[&Identifier::Name(parts[2].to_string())] {
                     ReferenceOrConst::Ref(renamed_ref) => {
@@ -391,34 +390,7 @@ fn update_target_field(
     true
 }
 
-#[derive(Debug)]
-struct InstPath {
-    module: String,
-    _inst: Option<String>,
-}
-
-fn parse_path(path: &str) -> Vec<InstPath> {
-    path.split('/')
-        .map(|segment| {
-            let parts: Vec<&str> = segment.split(':').collect();
-            match parts.len() {
-                2 => InstPath {
-                    _inst: Some(parts[0].to_string()),
-                    module: parts[1].to_string(),
-                },
-                1 => InstPath {
-                    _inst: None,
-                    module: parts[0].to_string(),
-                },
-                _ => panic!("Invalid segment format: {}", segment),
-            }
-        })
-        .collect()
-}
-
-
-
-fn firrtl3_replace_rename_nodes(module: &mut Module, annos_opt: &mut Option<Annotations>) {
+fn firrtl3_replace_rename_nodes(module: &mut Module, annos: &mut Annotations) {
     let mut rename_node_names: IndexMap<&Identifier, ReferenceOrConst> = IndexMap::new();
     let mut stmts = vec![];
     for stmt in module.stmts.iter() {
@@ -489,6 +461,6 @@ fn firrtl3_replace_rename_nodes(module: &mut Module, annos_opt: &mut Option<Anno
             }
         }
     }
-    replace_reference_in_annos(&module.name, &rename_node_names, annos_opt);
+    replace_reference_in_annos(&module.name, &rename_node_names, annos);
     module.stmts = stmts;
 }

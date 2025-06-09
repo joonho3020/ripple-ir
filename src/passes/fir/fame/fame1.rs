@@ -22,6 +22,7 @@ impl TypeTree {
         Self::build_from_type(&dcpld, dir)
     }
 }
+
 fn build_tree(signals: &[NodeIndex], fg: &mut FirGraph) -> NodeIndex {
     if signals.len() == 1 {
         return signals[0];

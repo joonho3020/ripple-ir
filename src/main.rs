@@ -53,22 +53,16 @@ fn main() -> Result<(), RippleIRErr> {
         }
         FIRRTLVersion::Firrtl3 => {
             let mut circuit = parse_firrtl3(&source).expect("firrtl3 parser");
-            let mut annos_opt = match args.annos_in {
-                Some(annos_in) => {
-                    Some(read_annos(annos_in.to_str().unwrap())?)
-                }
-                _ => None
-            };
+            if let Some(annos_in) = args.annos_in {
+                circuit.annos = read_annos(annos_in.to_str().unwrap())?;
+            }
 
-
-            firrtl3_split_exprs(&mut circuit, &mut annos_opt);
+            firrtl3_split_exprs(&mut circuit);
             let ir = run_fir_passes_from_circuit(&circuit)?;
             let circuit_reconstruct = to_ast_firrtl3(&ir);
 
-            if let Some(annos) = annos_opt {
-                assert!(args.annos_out.is_some(), "Annotations provided, but no output for annos");
-                let annos_out = args.annos_out.unwrap();
-                write_annos(&annos, annos_out.to_str().unwrap())?;
+            if let Some(annos_out) = args.annos_out {
+                write_annos(&circuit.annos, annos_out.to_str().unwrap())?;
             }
 
             let mut printer = FIRRTL3Printer::new();

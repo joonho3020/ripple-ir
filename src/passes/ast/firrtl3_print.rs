@@ -34,6 +34,22 @@ impl Printer for FIRRTL3Printer {
     fn stmt_str(&self, stmt: &rusty_firrtl::Stmt) -> String {
         format!("{}", stmt.to_firrtl_str())
     }
+
+    fn print_circuit(&mut self, circuit: &Circuit) -> String {
+        let mut ret = "".to_string();
+
+        if circuit.version != rusty_firrtl::Version::default() {
+            ret.push_str(&format!("FIRRTL {}\n", circuit.version));
+        }
+
+        ret.push_str(&format!("circuit {} :\n", circuit.name));
+        self.add_indent();
+
+        for module in circuit.modules.iter() {
+            self.print_circuit_module(&module, &mut ret);
+        }
+        return ret;
+    }
 }
 
 trait FIRRTL3Str {

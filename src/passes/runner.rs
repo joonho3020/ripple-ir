@@ -33,14 +33,14 @@ pub fn run_passes_from_firrtl3_file(name: &str) -> Result<FirIR, RippleIRErr> {
         parse_firrtl3(&source)
     }).expect("firrtl parser");
 
-    firrtl3_split_exprs(&mut circuit, &mut None);
+    firrtl3_split_exprs(&mut circuit);
 
-use crate::passes::ast::firrtl3_print::FIRRTL3Printer;
-use crate::passes::ast::print::*;
-let mut printer = FIRRTL3Printer::new();
-let reconstructed_circuit_str = printer.print_circuit(&circuit);
-let out_path = format!("./test-outputs/{}.firrtl3.split.fir", circuit.name);
-std::fs::write(&out_path, reconstructed_circuit_str)?;
+// use crate::passes::ast::firrtl3_print::FIRRTL3Printer;
+// use crate::passes::ast::print::*;
+// let mut printer = FIRRTL3Printer::new();
+// let reconstructed_circuit_str = printer.print_circuit(&circuit);
+// let out_path = format!("./test-outputs/{}.firrtl3.split.fir", circuit.name);
+// std::fs::write(&out_path, reconstructed_circuit_str)?;
 
     run_fir_passes_from_circuit(&circuit)
 }

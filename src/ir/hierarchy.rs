@@ -169,6 +169,33 @@ impl GraphViz for Hierarchy {
     }
 }
 
+#[derive(Debug)]
+pub struct InstPath {
+    pub module: String,
+    pub inst: Option<String>,
+}
+
+impl InstPath {
+    pub fn parse_inst_hierarchy_path(path: &str) -> Vec<InstPath> {
+        path.split('/')
+            .map(|segment| {
+                let parts: Vec<&str> = segment.split(':').collect();
+                match parts.len() {
+                    2 => InstPath {
+                        inst: Some(parts[0].to_string()),
+                        module: parts[1].to_string(),
+                    },
+                    1 => InstPath {
+                        inst: None,
+                        module: parts[0].to_string(),
+                    },
+                    _ => panic!("Invalid segment format: {}", segment),
+                }
+            })
+        .collect()
+    }
+}
+
 #[cfg(test)]
 mod test {
     use crate::common::RippleIRErr;
