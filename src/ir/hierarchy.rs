@@ -169,7 +169,7 @@ impl GraphViz for Hierarchy {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct InstPath {
     pub module: String,
     pub inst: Option<String>,
