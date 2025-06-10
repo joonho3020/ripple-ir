@@ -1,19 +1,20 @@
 use petgraph::visit::EdgeRef;
-use petgraph::Direction::Incoming;
-use rusty_firrtl::{Expr, Reference};
+use petgraph::Direction::{Incoming, Outgoing};
+use rusty_firrtl::{Expr, PrimOp2Expr, Reference, Width};
 use rusty_firrtl::{Annotations, Identifier};
+use rusty_firrtl::Int;
 use serde_json::Value;
-use indexmap::IndexMap;
+use indexmap::{IndexMap, IndexSet};
 use std::collections::HashMap;
 use std::collections::HashSet;
 use petgraph::graph::NodeIndex;
-use crate::common::graphviz::DefaultGraphVizCore;
+use crate::common::graphviz::{DefaultGraphVizCore, GraphViz};
 use crate::ir::{fir::*, hierarchy::InstPath};
 use crate::passes::fir::fame::log2_ceil;
 use crate::passes::fir::fame::uint_ttree;
 
-
 type InstModuleMap = IndexMap<Identifier, Identifier>;
+type ChannelMap = IndexMap<Identifier, Vec<(u32, NodeIndex)>>;
 
 pub fn fame5_transform(fir: &mut FirIR) {
     let inst_module_map = get_fame5_inst_to_module_map(&find_fame5_target_inst_paths(&fir.annos));
@@ -29,9 +30,15 @@ pub fn fame5_transform(fir: &mut FirIR) {
 
     let mod_to_fame5 = mod_to_fame5_opt.unwrap();
     let mod_to_fame5_hier_id = fir.hier.id(mod_to_fame5).unwrap();
-    let parents = fir.hier.graph.neighbors_directed(mod_to_fame5_hier_id, Incoming);
-    assert!(parents.clone().count() == 1, "Module to FAME5 has multiple parent modules");
 
+    let mut tops: IndexSet<&Identifier> = IndexSet::new();
+    for parent in fir.hier.graph.neighbors_directed(mod_to_fame5_hier_id, Incoming) {
+        let hier = fir.hier.graph.node_weight(parent).unwrap();
+        tops.insert(hier.name());
+    }
+    assert!(tops.len() == 1, "Module to FAME5 has multiple parent modules");
+
+    let parents = fir.hier.graph.neighbors_directed(mod_to_fame5_hier_id, Incoming);
     let parent_hier_id = parents.into_iter().next().unwrap();
     let parent_module = fir.hier.node_weight(parent_hier_id).unwrap().name();
     let parent_fg = fir.graphs.get_mut(parent_module).unwrap();
@@ -42,7 +49,17 @@ pub fn fame5_transform(fir: &mut FirIR) {
     let (top, hostreset) = find_hostreset(&fir.annos);
     assert!(&Identifier::Name(top.module) == parent_module);
 
-    update_fame5_top(parent_fg, &hostclock, &hostreset, mod_to_fame5);
+    let _ = parent_fg.export_graphviz(
+        &format!("./test-outputs/{}.fametop.pdf", fir.name),
+        None, None, false);
+
+
+// update_fame5_top(parent_fg, &hostclock, &hostreset, mod_to_fame5);
+
+    let fame5_fg = fir.graphs.get(mod_to_fame5).unwrap();
+    let _ = fame5_fg.export_graphviz(
+        &format!("./test-outputs/{}.tothread.pdf", fir.name),
+        None, None, false);
 
 }
 
@@ -186,6 +203,8 @@ fn update_fame5_top(
     let thread_idx_id = add_thread_idx_reg(top, nthreads);
     connect_to_host_clock_and_reset(top, host_clock, host_reset, thread_idx_id);
 
+    // TODO: Add thread_idx update logic
+
     let fame5_inst_name = Identifier::Name(format!("{}_fame5", module_to_fame5));
     let fame5_mod_name  = Identifier::Name(format!("{}_fame5", module_to_fame5));
     assert!(!top.namespace.contains(&fame5_inst_name));
@@ -197,19 +216,37 @@ fn update_fame5_top(
             None));
     connect_to_host_clock_and_reset(top, host_clock, host_reset, fame5_inst_id);
 
-    let mut input_channel_map: IndexMap<&Identifier, Vec<(u32, NodeIndex)>> = IndexMap::new();
+    let mut input_channel_map: ChannelMap = ChannelMap::new();
+    let mut output_channel_map: ChannelMap = ChannelMap::new();
     for (idx, &inst_id) in inst_ids.iter().enumerate() {
         for eid in top.graph.edges_directed(inst_id, Incoming) {
             let edge = top.graph.edge_weight(eid.id()).unwrap();
             let ep = top.graph.edge_endpoints(eid.id()).unwrap();
+            println!("edge {:?}", edge);
+            println!("edge.dst {:?}", edge.dst);
             let dst_ref = edge.dst.as_ref().expect("Channel destination reference");
             match dst_ref {
                 Reference::RefDot(_, input_channel_name) => {
                     if !input_channel_map.contains_key(input_channel_name) {
-                        input_channel_map.insert(input_channel_name, vec![]);
+                        input_channel_map.insert(input_channel_name.clone(), vec![]);
                     }
-                    input_channel_map.get_mut(input_channel_name).unwrap().push((idx as u32, ep.1));
+                    input_channel_map.get_mut(input_channel_name).unwrap().push((idx as u32, ep.0));
+                }
+                _ => {
+                    unreachable!();
+                }
+            }
+        }
 
+        for eid in top.graph.edges_directed(inst_id, Outgoing) {
+            let edge = top.graph.edge_weight(eid.id()).unwrap();
+            let ep = top.graph.edge_endpoints(eid.id()).unwrap();
+            match &edge.src {
+                Expr::Reference(Reference::RefDot(_inst, output_channel_name)) => {
+                    if !output_channel_map.contains_key(output_channel_name) {
+                        output_channel_map.insert(output_channel_name.clone(), vec![]);
+                    }
+                    output_channel_map.get_mut(output_channel_name).unwrap().push((idx as u32, ep.1));
                 }
                 _ => {
                     unreachable!();
@@ -217,6 +254,30 @@ fn update_fame5_top(
             }
         }
     }
+
+    connect_input_channels(
+        top,
+        &input_channel_map,
+        thread_idx_id,
+        fame5_inst_id,
+        log2_ceil(nthreads + 1),
+        Identifier::Name("valid".to_string()));
+
+    connect_input_channels(
+        top,
+        &input_channel_map,
+        thread_idx_id,
+        fame5_inst_id,
+        log2_ceil(nthreads + 1),
+        Identifier::Name("bits".to_string()));
+
+    connect_input_channels(
+        top,
+        &output_channel_map,
+        thread_idx_id,
+        fame5_inst_id,
+        log2_ceil(nthreads + 1),
+        Identifier::Name("ready".to_string()));
 
 }
 
@@ -246,6 +307,7 @@ fn add_thread_idx_reg(fg: &mut FirGraph, nthreads: u32) -> NodeIndex {
 
     thread_idx_id
 }
+
 fn connect_to_host_clock_and_reset(
     fg: &mut FirGraph,
     host_clock: &Identifier,
@@ -271,13 +333,128 @@ fn connect_to_host_clock_and_reset(
     fg.graph.add_edge(host_reset_id, dst_id, hr_edge);
 }
 
+fn create_thread_id_select_mux(
+    fg: &mut FirGraph,
+    cur_thread_idx: u32,
+    thread_idx_id: NodeIndex,
+    thread_idx_bits: u32,
+    channel_id: NodeIndex,
+    signal_name: Identifier
+) -> NodeIndex {
+    let node = fg.graph.node_weight(channel_id).unwrap();
+    let signal_ref = Expr::Reference(Reference::RefDot(
+            Box::new(Reference::Ref(node.name.as_ref().unwrap().clone())),
+            signal_name
+    ));
+
+    // Create eq node to compare thread_idx with current index
+    let eq_name = fg.namespace.next();
+    let eq_node = FirNode::new(
+        Some(eq_name.clone()),
+        FirNodeType::PrimOp2Expr(PrimOp2Expr::Eq),
+        None
+    );
+    let eq_id = fg.graph.add_node(eq_node);
+
+    // Connect thread_idx to eq node
+    let thread_idx_ref = Expr::Reference(Reference::Ref(Identifier::Name("threadIdx".to_string())));
+    let op0 = FirEdge::new(thread_idx_ref, None, FirEdgeType::Operand0);
+    fg.graph.add_edge(thread_idx_id, eq_id, op0);
+
+    // Connect constant index to eq node
+    let idx_const = FirNode::new(
+        None,
+        FirNodeType::UIntLiteral(Width(thread_idx_bits), Int::from(cur_thread_idx)),
+        None);
+    let idx_const_id = fg.graph.add_node(idx_const);
+    let op1 = FirEdge::new(
+        Expr::UIntInit(Width(thread_idx_bits), Int::from(cur_thread_idx)),
+        None,
+        FirEdgeType::Operand1);
+    fg.graph.add_edge(idx_const_id, eq_id, op1);
+
+    // Create mux node
+    let mux_name = fg.namespace.next();
+    let mux_node = FirNode::new(
+        Some(mux_name.clone()),
+        FirNodeType::Mux,
+        None
+    );
+    let mux_id = fg.graph.add_node(mux_node);
+
+    // Connect eq result to mux condition
+    let cond = FirEdge::new(
+        Expr::Reference(Reference::Ref(eq_name)),
+        None,
+        FirEdgeType::MuxCond
+    );
+    fg.graph.add_edge(eq_id, mux_id, cond);
+
+    // Connect input signal to mux true input
+    let true_in = FirEdge::new(signal_ref, None, FirEdgeType::MuxTrue);
+    fg.graph.add_edge(channel_id, mux_id, true_in);
+
+    mux_id
+}
+
+fn connect_input_channels(
+    fg: &mut FirGraph,
+    input_channel_map: &ChannelMap,
+    thread_idx_id: NodeIndex,
+    fame5_inst_id: NodeIndex,
+    thread_idx_bits: u32,
+    signal_name: Identifier
+)
+{
+    for (channel_name, inputs) in input_channel_map.iter() {
+        let mut prev_mux_false_id: Option<NodeIndex> = None;
+        let mut prev_mux_false_src: Option<Expr> = None;
+        let mut prev_mux_false_et = FirEdgeType::MuxFalse;
+
+        for (cur_idx, cur_channel_id) in inputs.iter() {
+            if *cur_idx == 0 {
+                let node = fg.graph.node_weight(*cur_channel_id).unwrap();
+                let signal_ref = Expr::Reference(Reference::RefDot(
+                        Box::new(Reference::Ref(node.name.as_ref().unwrap().clone())),
+                        signal_name.clone()
+                ));
+                prev_mux_false_id = Some(*cur_channel_id);
+                prev_mux_false_src = Some(signal_ref);
+                continue;
+            }
+
+            // Create a mux and connect it with the previous signal
+            let mux_id = create_thread_id_select_mux(fg, *cur_idx, thread_idx_id, thread_idx_bits, *cur_channel_id, signal_name.clone());
+            let edge = FirEdge::new(prev_mux_false_src.as_ref().unwrap().clone(), None, prev_mux_false_et.clone());
+            fg.graph.add_edge(prev_mux_false_id.unwrap(), mux_id, edge);
+
+            // Update prev_mux_false_*
+            let mux_name = fg.graph.node_weight(mux_id).unwrap().name.as_ref().unwrap();
+            prev_mux_false_id = Some(mux_id);
+            prev_mux_false_src = Some(Expr::Reference(Reference::Ref(mux_name.clone())));
+            prev_mux_false_et = FirEdgeType::Wire;
+
+            // If last mux, connect it to the threaded instance
+            if *cur_idx as usize == inputs.len() - 1 {
+                let fame5_inst_name = fg.graph.node_weight(fame5_inst_id).unwrap().name.as_ref().unwrap();
+                let dst_channel_ref = Reference::RefDot(Box::new(Reference::Ref(fame5_inst_name.clone())), channel_name.clone());
+                let dst_ref = Reference::RefDot(Box::new(dst_channel_ref), signal_name.clone());
+                let edge = FirEdge::new(prev_mux_false_src.as_ref().unwrap().clone(), Some(dst_ref), FirEdgeType::Wire);
+                fg.graph.add_edge(mux_id, fame5_inst_id, edge);
+            }
+        }
+    }
+}
+
+
 
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::{common::{read_annos, RippleIRErr}, passes::{ast::firrtl3_split_exprs::firrtl3_split_exprs, runner::run_fir_passes_from_circuit}};
+    use crate::{common::{read_annos, RippleIRErr}, passes::{ast::{firrtl3_print::FIRRTL3Printer, firrtl3_split_exprs::firrtl3_split_exprs}, fir::to_ast_firrtl3::to_ast_firrtl3, runner::run_fir_passes_from_circuit}};
     use test_case::test_case;
     use firrtl3_parser::parse_circuit as parse_firrtl3;
+    use crate::passes::ast::print::Printer;
 
     #[test_case("FireSimGCD"; "FireSimGCD")]
     fn fame5(name: &str) -> Result<(), RippleIRErr> {
@@ -289,6 +466,12 @@ mod test {
         let mut ir = run_fir_passes_from_circuit(&circuit)?;
 
         fame5_transform(&mut ir);
+
+        let fame5_ast = to_ast_firrtl3(&ir);
+        let mut printer = FIRRTL3Printer::new();
+        let fame5_firrtl_str = printer.print_circuit(&fame5_ast);
+        let out_path = format!("./test-outputs/{}.firrtl3.fame5.fir", circuit.name);
+        std::fs::write(&out_path, fame5_firrtl_str)?;
 
         Ok(())
     }
