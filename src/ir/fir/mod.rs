@@ -183,6 +183,10 @@ impl NameSpace {
             }
         }
     }
+
+    pub fn contains(&self, x: &Identifier) -> bool {
+        self.used.contains(x)
+    }
 }
 
 impl Default for NameSpace {

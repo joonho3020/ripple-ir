@@ -1,11 +1,16 @@
+use petgraph::visit::EdgeRef;
 use petgraph::Direction::Incoming;
+use rusty_firrtl::{Expr, Reference};
 use rusty_firrtl::{Annotations, Identifier};
 use serde_json::Value;
 use indexmap::IndexMap;
 use std::collections::HashMap;
 use std::collections::HashSet;
+use petgraph::graph::NodeIndex;
 use crate::common::graphviz::DefaultGraphVizCore;
 use crate::ir::{fir::*, hierarchy::InstPath};
+use crate::passes::fir::fame::log2_ceil;
+use crate::passes::fir::fame::uint_ttree;
 
 
 type InstModuleMap = IndexMap<Identifier, Identifier>;
@@ -132,8 +137,140 @@ fn module_to_fame5(inst_to_module: &InstModuleMap) -> (Vec<&Identifier>, Option<
     }
 }
 
-fn update_fame5_top(top: &mut FirGraph, host_clock: &Identifier, host_reset: &Identifier, module_to_fame5: &Identifier) {
+fn update_fame5_top(
+    top: &mut FirGraph,
+    host_clock: &Identifier,
+    host_reset: &Identifier,
+    module_to_fame5: &Identifier
+) {
+    let inst_ids: Vec<NodeIndex> = top.graph.node_indices().into_iter()
+        .map(|id| {
+            let node = top.graph.node_weight(id).unwrap();
+            if let FirNodeType::Inst(module) = &node.nt {
+                if module == module_to_fame5 {
+                    return (true, id);
+                }
+            }
+            return (false, id);
+        })
+        .filter(|x| x.0)
+        .map(|x| x.1).collect();
+
+    let host_clock_id = top.graph.node_indices().into_iter()
+        .map(|id| {
+            let node = top.graph.node_weight(id).unwrap();
+            if node.name.is_some() && node.name.as_ref().unwrap() == host_clock {
+                return (true, id);
+            }
+            return (false, id);
+        })
+        .filter(|x| x.0)
+        .map(|x| x.1)
+        .last()
+        .expect(&format!("No host clock node {:?} found", host_clock));
+
+    let host_reset_id = top.graph.node_indices().into_iter()
+        .map(|id| {
+            let node = top.graph.node_weight(id).unwrap();
+            if node.name.is_some() && node.name.as_ref().unwrap() == host_reset {
+                return (true, id);
+            }
+            return (false, id);
+        })
+        .filter(|x| x.0)
+        .map(|x| x.1)
+        .last()
+        .expect(&format!("No host reset node {:?} found", host_reset));
+
+    let nthreads = inst_ids.len() as u32;
+    let thread_idx_id = add_thread_idx_reg(top, nthreads);
+    connect_to_host_clock_and_reset(top, host_clock, host_reset, thread_idx_id);
+
+    let fame5_inst_name = Identifier::Name(format!("{}_fame5", module_to_fame5));
+    let fame5_mod_name  = Identifier::Name(format!("{}_fame5", module_to_fame5));
+    assert!(!top.namespace.contains(&fame5_inst_name));
+
+    let fame5_inst_id = top.graph.add_node(
+        FirNode::new(
+            Some(fame5_inst_name),
+            FirNodeType::Inst(fame5_mod_name),
+            None));
+    connect_to_host_clock_and_reset(top, host_clock, host_reset, fame5_inst_id);
+
+    let mut input_channel_map: IndexMap<&Identifier, Vec<(u32, NodeIndex)>> = IndexMap::new();
+    for (idx, &inst_id) in inst_ids.iter().enumerate() {
+        for eid in top.graph.edges_directed(inst_id, Incoming) {
+            let edge = top.graph.edge_weight(eid.id()).unwrap();
+            let ep = top.graph.edge_endpoints(eid.id()).unwrap();
+            let dst_ref = edge.dst.as_ref().expect("Channel destination reference");
+            match dst_ref {
+                Reference::RefDot(_, input_channel_name) => {
+                    if !input_channel_map.contains_key(input_channel_name) {
+                        input_channel_map.insert(input_channel_name, vec![]);
+                    }
+                    input_channel_map.get_mut(input_channel_name).unwrap().push((idx as u32, ep.1));
+
+                }
+                _ => {
+                    unreachable!();
+                }
+            }
+        }
+    }
+
 }
+
+fn find_host_clock_or_reset_id(fg: &FirGraph, host_node: &Identifier) -> NodeIndex {
+    fg.graph.node_indices().into_iter()
+        .map(|id| {
+            let node = fg.graph.node_weight(id).unwrap();
+            if node.name.is_some() && node.name.as_ref().unwrap() == host_node {
+                return (true, id);
+            }
+            return (false, id);
+        })
+        .filter(|x| x.0)
+        .map(|x| x.1)
+        .last()
+        .expect(&format!("No host node {:?} found", host_node))
+}
+
+fn add_thread_idx_reg(fg: &mut FirGraph, nthreads: u32) -> NodeIndex {
+    let thread_idx_bits = log2_ceil(nthreads + 1);
+    let thread_idx_name = Identifier::Name("threadIdx".to_string());
+    let thread_idx_id = fg.graph.add_node(FirNode::new(
+            Some(thread_idx_name.clone()),
+            FirNodeType::RegReset,
+            Some(uint_ttree(thread_idx_bits))));
+
+
+    thread_idx_id
+}
+fn connect_to_host_clock_and_reset(
+    fg: &mut FirGraph,
+    host_clock: &Identifier,
+    host_reset: &Identifier,
+    dst_id: NodeIndex
+)
+{
+    let host_clock_id = find_host_clock_or_reset_id(fg, host_clock);
+    let host_reset_id = find_host_clock_or_reset_id(fg, host_reset);
+    let dst = fg.graph.node_weight(dst_id).unwrap();
+    let name = dst.name.as_ref().unwrap().clone();
+
+    let hc_edge = FirEdge::new(
+        Expr::Reference(Reference::Ref(host_clock.clone())),
+        Some(Reference::Ref(name.clone())),
+        FirEdgeType::Clock);
+    fg.graph.add_edge(host_clock_id, dst_id, hc_edge);
+
+    let hr_edge = FirEdge::new(
+        Expr::Reference(Reference::Ref(host_reset.clone())),
+        Some(Reference::Ref(name.clone())),
+        FirEdgeType::Reset);
+    fg.graph.add_edge(host_reset_id, dst_id, hr_edge);
+}
+
 
 #[cfg(test)]
 mod test {

@@ -1,6 +1,7 @@
 use crate::ir::fir::{FirEdge, FirEdgeType, FirGraph, FirIR, FirNode, FirNodeType};
 use crate::ir::typetree::tnode::{GroundType, TypeDirection, TypeTreeNodeType};
 use crate::ir::typetree::typetree::TypeTree;
+use crate::passes::fir::fame::uint_ttree;
 use crate::passes::rir::combinational::combinational_analaysis;
 use crate::passes::rir::from_fir::from_fir;
 use rusty_firrtl::*;
@@ -54,7 +55,7 @@ fn dcpld_valid_reduction_tree(dcpld_inputs: &Vec<NodeIndex>, fg: &mut FirGraph) 
     if dcpld_inputs.is_empty() {
         let one = FirNode::new(None,
             FirNodeType::UIntLiteral(Width(1), Int::from(1)),
-            Some(TypeTree::build_from_ground_type(GroundType::UInt(Some(Width(1))))));
+            Some(uint_ttree(1)));
         let one_id = fg.graph.add_node(one);
         return Some(one_id);
     }
@@ -71,7 +72,7 @@ fn dcpld_valid_reduction_tree(dcpld_inputs: &Vec<NodeIndex>, fg: &mut FirGraph) 
         let valid_node = FirNode::new(
             Some(wire_name.clone()),
             FirNodeType::Wire,
-            Some(TypeTree::build_from_ground_type(GroundType::UInt(Some(Width(1)))))
+            Some(uint_ttree(1))
         );
         let valid_id = fg.graph.add_node(valid_node);
 
@@ -103,7 +104,7 @@ fn reduction_tree(inputs: &Vec<NodeIndex>, fg: &mut FirGraph) -> Option<NodeInde
         let valid_node = FirNode::new(
             Some(wire_name.clone()),
             FirNodeType::Wire,
-            Some(TypeTree::build_from_ground_type(GroundType::UInt(Some(Width(1)))))
+            Some(uint_ttree(1))
         );
         let valid_id = fg.graph.add_node(valid_node);
 
@@ -241,7 +242,7 @@ pub fn fame1_transform(fir: &mut FirIR) {
         let fired_node = FirNode::new(
             Some(fired_name.clone()),
             FirNodeType::Reg,
-            Some(TypeTree::build_from_ground_type(GroundType::UInt(Some(Width(1)))))
+            Some(uint_ttree(1))
         );
         let fired_id = fame_top.graph.add_node(fired_node);
 
