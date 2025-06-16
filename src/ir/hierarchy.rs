@@ -2,7 +2,6 @@ use rusty_firrtl::Identifier;
 use petgraph::graph::{Graph, NodeIndex};
 use petgraph::algo::toposort;
 use indexmap::IndexMap;
-use petgraph::Direction::Incoming;
 use petgraph::visit::Bfs;
 use super::fir::{FirIR, FirNodeType};
 use crate::common::graphviz::*;
@@ -50,6 +49,8 @@ pub struct Hierarchy {
     /// - Nodes: modules
     /// - Edges: instance name of the child node
     pub graph: DAG,
+
+    top: Option<NodeIndex>
 }
 
 impl Hierarchy {
@@ -77,19 +78,18 @@ impl Hierarchy {
                 }
             }
         }
+
+        for id in self.graph.node_indices() {
+            let name = self.graph.node_weight(id).unwrap().name();
+            if name == &fir.name {
+                self.top =  Some(id);
+            }
+        }
     }
 
     /// Returns the id of the top module
     pub fn top(&self) -> Option<NodeIndex> {
-        let mut ret = None;
-        for id in self.graph.node_indices() {
-            let incoming = self.graph.neighbors_directed(id, Incoming);
-            if incoming.count() == 0 {
-                assert!(ret == None, "Should only have one node in the hierarchy with no parent");
-                ret = Some(id);
-            }
-        }
-        return ret;
+        self.top
     }
 
     /// Returns the name of the top module

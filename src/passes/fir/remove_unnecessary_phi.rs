@@ -39,6 +39,36 @@ fn remove_unnecessary_phi_in_ripple_graph(fg: &mut FirGraph) {
     flip_bidirectional_edges_graph(fg);
 }
 
+pub fn remove_all_phi(ir: &mut FirIR) {
+    for (_id, rg) in ir.graphs.iter_mut() {
+        remove_all_phi_in_graph(rg);
+    }
+}
+
+fn remove_all_phi_in_graph(fg: &mut FirGraph) {
+    let mut remove_nodes: Vec<NodeIndex> = vec![];
+    for id in fg.graph.node_indices() {
+        let node = fg.graph.node_weight(id).unwrap();
+        match node.nt {
+            FirNodeType::Phi(..) => {
+                connect_phi_parent_to_child(fg, id);
+                remove_nodes.push(id);
+            }
+            _ => {
+                continue;
+            }
+        }
+    }
+
+    remove_nodes.sort();
+
+    for id in remove_nodes.iter().rev() {
+        fg.graph.remove_node(*id);
+    }
+
+    flip_bidirectional_edges_graph(fg);
+}
+
 /// Remove phi nodes when
 /// - There is no selection signal
 /// - The selection signal is always true
