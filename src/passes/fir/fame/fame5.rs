@@ -335,6 +335,32 @@ fn update_fame5_top(
         }
     }
 
+    // HACK: Flip the output channels as the edge directionality is currently flipped in FIR
+    let mut edges_to_flip: Vec<EdgeIndex> = vec![];
+    for id in top.graph.node_indices() {
+        let node = top.graph.node_weight(id).unwrap();
+        if node.nt == FirNodeType::Output {
+            for eid in top.graph.edges_directed(id, Outgoing) {
+                edges_to_flip.push(eid.id());
+            }
+        }
+    }
+
+    for &eid in edges_to_flip.iter() {
+        let w = top.graph.edge_weight(eid).unwrap().clone();
+        let dst_ref  = w.dst.unwrap();
+        if let Expr::Reference(src_ref) = w.src {
+            let edge = FirEdge::new(Expr::Reference(dst_ref), Some(src_ref), w.et);
+            let ep = top.graph.edge_endpoints(eid).unwrap();
+            top.graph.add_edge(ep.1, ep.0, edge);
+        }
+    }
+
+    edges_to_flip.sort();
+    for &eid in edges_to_flip.iter().rev() {
+        top.graph.remove_edge(eid);
+    }
+
     connect_libdn_input_signals(
         top,
         &input_channel_map,
@@ -375,12 +401,10 @@ fn update_fame5_top(
         log2_ceil(nthreads + 1),
         Identifier::Name("valid".to_string()));
 
-    connect_libdn_output_signals(
+    broadcase_libdn_output_signals(
         top,
         &output_channel_map,
-        thread_idx_id,
         fame5_inst_id,
-        log2_ceil(nthreads + 1),
         Identifier::Name("bits".to_string()));
 
     inst_ids.sort();
@@ -588,6 +612,41 @@ fn connect_libdn_input_signals(
     }
 }
 
+fn broadcase_libdn_output_signals(
+    fg: &mut FirGraph,
+    output_channel_map: &ChannelMap,
+    fame5_inst_id: NodeIndex,
+    signal_name: Identifier
+)
+{
+    for (channel_name, outputs) in output_channel_map.iter() {
+        for (_cur_idx, cur_channel_id) in outputs.iter() {
+            // Get signal from FAME5 instance
+            let fame5_inst_name = fg.graph.node_weight(fame5_inst_id).unwrap().name.as_ref().unwrap();
+            let fame5_signal_ref = Expr::Reference(Reference::RefDot(
+                Box::new(Reference::RefDot(
+                    Box::new(Reference::Ref(fame5_inst_name.clone())),
+                    channel_name.clone()
+                )),
+                signal_name.clone()
+            ));
+
+            // Connect AND result to ready signal of source node
+            let node = fg.graph.node_weight(*cur_channel_id).unwrap();
+            let dst = Reference::RefDot(
+                Box::new(Reference::Ref(node.name.as_ref().unwrap().clone())),
+                signal_name.clone());
+            let edge = FirEdge::new(
+                fame5_signal_ref,
+                Some(dst),
+                FirEdgeType::Wire
+            );
+            fg.graph.add_edge(fame5_inst_id, *cur_channel_id, edge);
+        }
+    }
+}
+
+
 fn connect_libdn_output_signals(
     fg: &mut FirGraph,
     output_channel_map: &ChannelMap,
@@ -665,8 +724,7 @@ fn connect_libdn_output_signals(
             let node = fg.graph.node_weight(*cur_channel_id).unwrap();
             let ready_dst = Reference::RefDot(
                 Box::new(Reference::Ref(node.name.as_ref().unwrap().clone())),
-                Identifier::Name("ready".to_string())
-            );
+                signal_name.clone());
             let ready_edge = FirEdge::new(
                 Expr::Reference(Reference::Ref(and_name)),
                 Some(ready_dst),
@@ -759,6 +817,25 @@ fn multithread_module(
             let ep = fg.graph.edge_endpoints(eid.id()).unwrap();
             fame5.graph.add_edge(reg_threaded_id, ep.1, edge);
         }
+    }
+
+    // TODO: handle printf and asserts properly
+    let mut print_assert_ids: Vec<NodeIndex> = fame5.graph.node_indices().filter(|id| {
+        let node = fame5.graph.node_weight(*id).unwrap();
+        match node.nt {
+            FirNodeType::Printf(..) |
+                FirNodeType::Assert(..) => {
+                true
+            }
+            _ => {
+                false
+            }
+        }
+    }).collect();
+
+    print_assert_ids.sort();
+    for &id in print_assert_ids.iter().rev() {
+        fame5.graph.remove_node(id);
     }
 
     fame5

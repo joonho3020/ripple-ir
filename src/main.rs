@@ -1,6 +1,8 @@
 use clap::Parser;
 use ripple_ir::common::read_annos;
 use ripple_ir::common::write_annos;
+use ripple_ir::passes::fir::fame::fame5::fame5_transform;
+use ripple_ir::passes::fir::remove_unnecessary_phi::remove_all_phi;
 use ripple_ir::passes::fir::to_ast_firrtl3::to_ast_firrtl3;
 use std::path::PathBuf;
 use chirrtl_parser::parse_circuit as parse_chirrtl;
@@ -36,6 +38,10 @@ struct Args {
     /// Version of the FIRRTL input file
     #[arg(long, value_enum)]
     firrtl_version: FIRRTLVersion,
+
+    /// Perform FAME5 transformation when set
+    #[arg(long)]
+    fame5: bool
 }
 
 fn main() -> Result<(), RippleIRErr> {
@@ -58,7 +64,13 @@ fn main() -> Result<(), RippleIRErr> {
             }
 
             firrtl3_split_exprs(&mut circuit);
-            let ir = run_fir_passes_from_circuit(&circuit)?;
+            let mut ir = run_fir_passes_from_circuit(&circuit)?;
+
+            if args.fame5 {
+                remove_all_phi(&mut ir);
+                fame5_transform(&mut ir);
+            }
+
             let circuit_reconstruct = to_ast_firrtl3(&ir);
 
             if let Some(annos_out) = args.annos_out {
