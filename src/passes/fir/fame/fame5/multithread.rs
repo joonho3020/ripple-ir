@@ -224,10 +224,5 @@ pub fn multithread_module(
         fame5.graph.remove_node(reg_id);
     }
 
-    // Printf and Assert nodes are no longer removed. Instead, their argument edges should be updated if their arguments are registers that have been replaced.
-    // TODO: Update PrintArg edges for Printf/Assert nodes if their arguments refer to registers that have been replaced by threaded memories.
-    // This requires traversing PrintArg edges and updating their destinations if needed.
-    // For now, Printf/Assert nodes are preserved.
-
     fame5
 }
