@@ -1,6 +1,6 @@
 use petgraph::visit::EdgeRef;
 use petgraph::Direction::{self, Incoming, Outgoing};
-use rusty_firrtl::{Expr, PrimOp2Expr, Reference, Type, TypeAggregate, Width};
+use rusty_firrtl::{ChirrtlMemoryReadUnderWrite, Expr, MemoryPort, PrimOp2Expr, Reference, Width};
 use rusty_firrtl::{Annotations, Identifier};
 use rusty_firrtl::Int;
 use serde_json::Value;
@@ -9,14 +9,18 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use petgraph::graph::{EdgeIndex, NodeIndex};
 use crate::common::graphviz::DefaultGraphVizCore;
-use crate::ir::typetree::typetree::TypeTree;
 use crate::ir::{fir::*, hierarchy::InstPath};
 use crate::passes::fir::fame::log2_ceil;
 use crate::passes::fir::fame::uint_ttree;
-use crate::ir::typetree::tnode::TypeDirection::Outgoing as TypeDirectionOutgoing;
+
+
+// Things that should in included in the inference pass
+// - unmarked edge sources
+// - constant edges
 
 type InstModuleMap = IndexMap<Identifier, Identifier>;
 type ChannelMap = IndexMap<Identifier, Vec<(u32, NodeIndex)>>;
+type ThreadIdxEqMap = IndexMap<u32, NodeIndex>;
 
 pub fn fame5_transform(fir: &mut FirIR) {
     let inst_module_map = get_fame5_inst_to_module_map(&find_fame5_target_inst_paths(&fir.annos));
@@ -290,7 +294,7 @@ fn update_fame5_top(
 
     let nthreads = inst_ids.len() as u32;
     let thread_idx_id = add_thread_idx_reg(top, nthreads, host_clock, host_reset);
-    add_thread_idx_update(top, thread_idx_id, nthreads, log2_ceil(nthreads + 1));
+    add_thread_idx_update(top, thread_idx_id, nthreads, log2_ceil(nthreads));
 
     let fame5_inst_name = Identifier::Name(fame5_name(module_to_fame5));
     let fame5_mod_name  = Identifier::Name(fame5_name(module_to_fame5));
@@ -361,44 +365,46 @@ fn update_fame5_top(
         top.graph.remove_edge(eid);
     }
 
+    let thread_idx_bits = log2_ceil(nthreads);
+    let mut eq_id_map: ThreadIdxEqMap = ThreadIdxEqMap::new();
+    for id in 0..nthreads {
+        let eq_id = create_thread_id_cmp(top, id, thread_idx_id, thread_idx_bits);
+        eq_id_map.insert(id, eq_id);
+    }
+
     connect_libdn_input_signals(
         top,
         &input_channel_map,
-        thread_idx_id,
+        &eq_id_map,
         fame5_inst_id,
-        log2_ceil(nthreads + 1),
         Identifier::Name("valid".to_string()));
 
     connect_libdn_input_signals(
         top,
         &input_channel_map,
-        thread_idx_id,
+        &eq_id_map,
         fame5_inst_id,
-        log2_ceil(nthreads + 1),
         Identifier::Name("bits".to_string()));
 
     connect_libdn_output_signals(
         top,
         &input_channel_map,
-        thread_idx_id,
+        &eq_id_map,
         fame5_inst_id,
-        log2_ceil(nthreads + 1),
         Identifier::Name("ready".to_string()));
 
     connect_libdn_input_signals(
         top,
         &output_channel_map,
-        thread_idx_id,
+        &eq_id_map,
         fame5_inst_id,
-        log2_ceil(nthreads + 1),
         Identifier::Name("ready".to_string()));
 
     connect_libdn_output_signals(
         top,
         &output_channel_map,
-        thread_idx_id,
+        &eq_id_map,
         fame5_inst_id,
-        log2_ceil(nthreads + 1),
         Identifier::Name("valid".to_string()));
 
     broadcase_libdn_output_signals(
@@ -436,7 +442,7 @@ fn add_thread_idx_reg(
     host_clock: &Identifier,
     host_reset: &Identifier
 ) -> NodeIndex {
-    let thread_idx_bits = log2_ceil(nthreads + 1);
+    let thread_idx_bits = log2_ceil(nthreads);
     let thread_idx_name = Identifier::Name("threadIdx".to_string());
     let thread_idx_id = fg.graph.add_node(FirNode::new(
             Some(thread_idx_name.clone()),
@@ -499,20 +505,12 @@ fn connect_to_host_clock_and_reset(
     fg.graph.add_edge(host_reset_id, dst_id, hr_edge);
 }
 
-fn create_thread_id_select_mux(
+fn create_thread_id_cmp(
     fg: &mut FirGraph,
     cur_thread_idx: u32,
     thread_idx_id: NodeIndex,
     thread_idx_bits: u32,
-    channel_id: NodeIndex,
-    signal_name: Identifier
 ) -> NodeIndex {
-    let node = fg.graph.node_weight(channel_id).unwrap();
-    let signal_ref = Expr::Reference(Reference::RefDot(
-            Box::new(Reference::Ref(node.name.as_ref().unwrap().clone())),
-            signal_name
-    ));
-
     // Create eq node to compare thread_idx with current index
     let eq_name = fg.namespace.next();
     let eq_node = FirNode::new(
@@ -538,6 +536,20 @@ fn create_thread_id_select_mux(
         None,
         FirEdgeType::Operand1);
     fg.graph.add_edge(idx_const_id, eq_id, op1);
+    eq_id
+}
+
+fn create_thread_id_select_mux(
+    fg: &mut FirGraph,
+    eq_id: NodeIndex,
+    channel_id: NodeIndex,
+    signal_name: Identifier
+) -> NodeIndex {
+    let node = fg.graph.node_weight(channel_id).unwrap();
+    let signal_ref = Expr::Reference(Reference::RefDot(
+            Box::new(Reference::Ref(node.name.as_ref().unwrap().clone())),
+            signal_name
+    ));
 
     // Create mux node
     let mux_name = fg.namespace.next();
@@ -549,6 +561,7 @@ fn create_thread_id_select_mux(
     let mux_id = fg.graph.add_node(mux_node);
 
     // Connect eq result to mux condition
+    let eq_name = fg.graph.node_weight(eq_id).unwrap().name.as_ref().unwrap().clone();
     let cond = FirEdge::new(
         Expr::Reference(Reference::Ref(eq_name)),
         None,
@@ -566,9 +579,8 @@ fn create_thread_id_select_mux(
 fn connect_libdn_input_signals(
     fg: &mut FirGraph,
     input_channel_map: &ChannelMap,
-    thread_idx_id: NodeIndex,
+    eq_node_map: &ThreadIdxEqMap,
     fame5_inst_id: NodeIndex,
-    thread_idx_bits: u32,
     signal_name: Identifier
 )
 {
@@ -589,8 +601,10 @@ fn connect_libdn_input_signals(
                 continue;
             }
 
+            let eq_id = eq_node_map.get(cur_idx).unwrap();
+
             // Create a mux and connect it with the previous signal
-            let mux_id = create_thread_id_select_mux(fg, *cur_idx, thread_idx_id, thread_idx_bits, *cur_channel_id, signal_name.clone());
+            let mux_id = create_thread_id_select_mux(fg, *eq_id, *cur_channel_id, signal_name.clone());
             let edge = FirEdge::new(prev_mux_false_src.as_ref().unwrap().clone(), None, prev_mux_false_et.clone());
             fg.graph.add_edge(prev_mux_false_id.unwrap(), mux_id, edge);
 
@@ -650,41 +664,13 @@ fn broadcase_libdn_output_signals(
 fn connect_libdn_output_signals(
     fg: &mut FirGraph,
     output_channel_map: &ChannelMap,
-    thread_idx_id: NodeIndex,
+    eq_node_map: &ThreadIdxEqMap,
     fame5_inst_id: NodeIndex,
-    thread_idx_bits: u32,
     signal_name: Identifier
 )
 {
     for (channel_name, outputs) in output_channel_map.iter() {
         for (cur_idx, cur_channel_id) in outputs.iter() {
-            // Create eq node to compare thread_idx with current index
-            let eq_name = fg.namespace.next();
-            let eq_node = FirNode::new(
-                Some(eq_name.clone()),
-                FirNodeType::PrimOp2Expr(PrimOp2Expr::Eq),
-                None
-            );
-            let eq_id = fg.graph.add_node(eq_node);
-
-            // Connect thread_idx to eq node
-            let thread_idx_name = fg.graph.node_weight(thread_idx_id).unwrap().name.as_ref().unwrap();
-            let thread_idx_ref = Expr::Reference(Reference::Ref(thread_idx_name.clone()));
-            let op0 = FirEdge::new(thread_idx_ref, None, FirEdgeType::Operand0);
-            fg.graph.add_edge(thread_idx_id, eq_id, op0);
-
-            // Connect constant index to eq node
-            let idx_const = FirNode::new(
-                None,
-                FirNodeType::UIntLiteral(Width(thread_idx_bits), Int::from(*cur_idx)),
-                None);
-            let idx_const_id = fg.graph.add_node(idx_const);
-            let op1 = FirEdge::new(
-                Expr::UIntInit(Width(thread_idx_bits), Int::from(*cur_idx)),
-                None,
-                FirEdgeType::Operand1);
-            fg.graph.add_edge(idx_const_id, eq_id, op1);
-
             // Get signal from FAME5 instance
             let fame5_inst_name = fg.graph.node_weight(fame5_inst_id).unwrap().name.as_ref().unwrap();
             let fame5_signal_ref = Expr::Reference(Reference::RefDot(
@@ -705,12 +691,15 @@ fn connect_libdn_output_signals(
             let and_id = fg.graph.add_node(and_node);
 
             // Connect eq result to AND node
+            let eq_id = eq_node_map.get(cur_idx).unwrap();
+            let eq_name = fg.graph.node_weight(*eq_id).unwrap().name.as_ref().unwrap().clone();
+
             let eq_edge = FirEdge::new(
                 Expr::Reference(Reference::Ref(eq_name)),
                 None,
                 FirEdgeType::Operand0
             );
-            fg.graph.add_edge(eq_id, and_id, eq_edge);
+            fg.graph.add_edge(*eq_id, and_id, eq_edge);
 
             // Connect FAME5 signal to AND node
             let fame5_edge = FirEdge::new(
@@ -755,7 +744,7 @@ fn multithread_module(
 
     let thread_idx_id = add_thread_idx_reg(&mut fame5, nthreads, host_clock, host_reset);
     let thread_idx_name = fame5.graph.node_weight(thread_idx_id).unwrap().name.as_ref().unwrap().clone();
-    add_thread_idx_update(&mut fame5, thread_idx_id, nthreads, log2_ceil(nthreads + 1));
+    add_thread_idx_update(&mut fame5, thread_idx_id, nthreads, log2_ceil(nthreads));
 
     let mut reg_ids: Vec<NodeIndex> = fg.graph.node_indices().filter(|id| {
         let node = fg.graph.node_weight(*id).unwrap();
@@ -767,35 +756,112 @@ fn multithread_module(
     for &reg_id in reg_ids.iter().rev() {
         fame5.graph.remove_node(reg_id);
 
-        let node = fg.graph.node_weight(reg_id).unwrap();
-        let tpe = node.ttree.as_ref().unwrap().to_type();
-        let tpe_arr = Type::TypeAggregate(Box::new(
-                TypeAggregate::Array(
-                    Box::new(tpe),
-                    Int::from(nthreads))));
+        let rport_name = Identifier::Name("rd".to_string());
+        let rport = MemoryPort::Read(rport_name.clone());
 
+        let wport_name = Identifier::Name("wr".to_string());
+        let wport = MemoryPort::Write(wport_name.clone());
+        let ports = vec![
+            Box::new(rport),
+            Box::new(wport),
+        ];
+
+
+        let node = fg.graph.node_weight(reg_id).unwrap();
         let reg_name = node.name.as_ref().unwrap();
+        let comb_mem = FirNodeType::Memory(nthreads, 0, 1, ports, ChirrtlMemoryReadUnderWrite::Undefined);
 
         // Make register into array
         let reg_threaded = FirNode::new(
             Some(reg_name.clone()),
-            FirNodeType::Reg,
-            Some(TypeTree::build_from_type(&tpe_arr, TypeDirectionOutgoing)));
+            comb_mem,
+            node.ttree.clone());
 
         let reg_threaded_id = fame5.graph.add_node(reg_threaded);
+        let rport_ref = Reference::RefDot(
+            Box::new(Reference::Ref(reg_name.clone())),
+            rport_name.clone());
 
-        // Add clock to threaded register
+        let wport_ref = Reference::RefDot(
+            Box::new(Reference::Ref(reg_name.clone())),
+            wport_name.clone());
+
+
+        let uint1 = FirNode::new(None, FirNodeType::UIntLiteral(Width(1), Int::from(1)), None);
+        let uint0 = FirNode::new(None, FirNodeType::UIntLiteral(Width(1), Int::from(0)), None);
+
+
         let clock_eid = find_edge_with_type(fg, reg_id, FirEdgeType::Clock, Incoming).unwrap();
         let clock_id = fg.graph.edge_endpoints(clock_eid).unwrap().0;
         let clock_edge = fg.graph.edge_weight(clock_eid).unwrap().clone();
-        fame5.graph.add_edge(clock_id, reg_threaded_id, clock_edge);
 
-        // Add reset to threaded register
-        if let Some(reset_eid) = find_edge_with_type(fg, reg_id, FirEdgeType::Reset, Incoming) {
-            let reset_id = fg.graph.edge_endpoints(reset_eid).unwrap().0;
-            let reset_edge = fg.graph.edge_weight(reset_eid).unwrap().clone();
-            fame5.graph.add_edge(reset_id, reg_threaded_id, reset_edge);
+        // Add clock to read port
+        let mut rport_clock_edge = clock_edge.clone();
+        rport_clock_edge.dst = Some(Reference::RefDot(Box::new(rport_ref.clone()), Identifier::Name("clock".to_string())));
+        fame5.graph.add_edge(clock_id, reg_threaded_id, rport_clock_edge);
+
+        // Add enable to read port
+        let rport_en_id = fame5.graph.add_node(uint1.clone());
+        let rport_en_edge = FirEdge::new(
+            Expr::UIntInit(Width(1), Int::from(1)),
+            Some(Reference::RefDot(Box::new(rport_ref.clone()), Identifier::Name("en".to_string()))),
+            FirEdgeType::Wire);
+        fame5.graph.add_edge(rport_en_id, reg_threaded_id, rport_en_edge);
+
+        // Add addr to read port
+        let rport_addr_edge = FirEdge::new(
+            Expr::Reference(Reference::Ref(thread_idx_name.clone())),
+            Some(Reference::RefDot(Box::new(rport_ref.clone()), Identifier::Name("addr".to_string()))),
+            FirEdgeType::Wire);
+        fame5.graph.add_edge(thread_idx_id, reg_threaded_id, rport_addr_edge);
+
+        // Add clock to write port
+        let mut wport_clock_edge = clock_edge.clone();
+        wport_clock_edge.dst = Some(Reference::RefDot(Box::new(wport_ref.clone()), Identifier::Name("clock".to_string())));
+        fame5.graph.add_edge(clock_id, reg_threaded_id, wport_clock_edge);
+
+        // Add mask to write port
+        let wport_mask_id = fame5.graph.add_node(uint1.clone());
+        let wport_mask_edge = FirEdge::new(
+            Expr::UIntInit(Width(1), Int::from(1)),
+            Some(Reference::RefDot(Box::new(wport_ref.clone()), Identifier::Name("en".to_string()))),
+            FirEdgeType::Wire);
+        fame5.graph.add_edge(wport_mask_id, reg_threaded_id, wport_mask_edge);
+
+        // Add addr to write port
+        let wport_addr_edge = FirEdge::new(
+            Expr::Reference(Reference::Ref(thread_idx_name.clone())),
+            Some(Reference::RefDot(Box::new(wport_ref.clone()), Identifier::Name("addr".to_string()))),
+            FirEdgeType::Wire);
+        fame5.graph.add_edge(thread_idx_id, reg_threaded_id, wport_addr_edge);
+
+        // Add register sink edges
+        for eid in fg.graph.edges_directed(reg_id, Outgoing) {
+            let mut edge = fg.graph.edge_weight(eid.id()).unwrap().clone();
+            edge.src = Expr::Reference(Reference::RefDot(
+                Box::new(rport_ref.clone()), Identifier::Name("data".to_string())));
+
+            let ep = fg.graph.edge_endpoints(eid.id()).unwrap();
+            fame5.graph.add_edge(reg_threaded_id, ep.1, edge);
         }
+        // wen
+        //         |   incoming edge          | x incoming edge      |
+        // reginit |   mux(hostreset, 1, 1)   | mux(hostreset, 1, 0) |
+        // reg     |   1                      | 0                    |
+
+
+        let drivers: Vec<EdgeIndex> = fg.graph.edges_directed(reg_id, Incoming).filter(|eid| {
+            let edge = fg.graph.edge_weight(eid.id()).unwrap();
+            edge.et == FirEdgeType::Wire
+        })
+        .map(|eid| eid.id())
+        .collect();
+
+        let non_hostreset_wen_ = if drivers.len() > 0 {
+            uint1.clone()
+        } else {
+            uint0.clone()
+        };
 
         // Add register driver edge
         if let Some(driver_eid) = find_edge_with_type(fg, reg_id, FirEdgeType::Wire, Incoming) {
@@ -807,16 +873,6 @@ fn multithread_module(
             fame5.graph.add_edge(driver_id, reg_threaded_id, driver_edge);
         }
 
-        // Add register sink edges
-        for eid in fg.graph.edges_directed(reg_id, Outgoing) {
-            let mut edge = fg.graph.edge_weight(eid.id()).unwrap().clone();
-            edge.src = Expr::Reference(Reference::RefIdxExpr(
-                    Box::new(Reference::Ref(reg_name.clone())),
-                    Box::new(Expr::Reference(Reference::Ref(thread_idx_name.clone())))));
-
-            let ep = fg.graph.edge_endpoints(eid.id()).unwrap();
-            fame5.graph.add_edge(reg_threaded_id, ep.1, edge);
-        }
     }
 
     // TODO: handle printf and asserts properly

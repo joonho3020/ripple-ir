@@ -12,3 +12,19 @@ pub fn log2_ceil(n: u32) -> u32 {
 pub fn uint_ttree(w: u32) -> TypeTree {
     TypeTree::build_from_ground_type(GroundType::UInt(Some(Width(w))))
 }
+
+
+#[cfg(test)]
+pub mod test {
+    use crate::passes::fir::fame::log2_ceil;
+
+    #[test]
+    fn log2_ceil_2() {
+        assert_eq!(log2_ceil(2), 1);
+    }
+
+    #[test]
+    fn log2_ceil_3() {
+        assert_eq!(log2_ceil(3), 2);
+    }
+}
