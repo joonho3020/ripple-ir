@@ -964,10 +964,78 @@ pub fn insert_printf_assertion_stmts(fg: &FirGraph, whentree: &mut WhenTree) {
     for id in fg.graph.node_indices() {
         let node = fg.graph.node_weight(id).unwrap();
         match &node.nt {
-            FirNodeType::Printf(stmt, pcond) |
-            FirNodeType::Assert(stmt, pcond) => {
+            FirNodeType::Printf(msg, pcond) => {
                 let leaf = whentree.get_node_mut(&pcond.path, None).unwrap();
-                let pstmt = StmtWithPrior::new(stmt.clone(), None);
+
+                let clk_edge_id = fg.parent_with_type(id, FirEdgeType::Clock).unwrap();
+                let clk_edge = fg.graph.edge_weight(clk_edge_id).unwrap();
+
+                let posedge_id = fg.parent_with_type(id, FirEdgeType::Wire).unwrap();
+                let posedge = fg.graph.edge_weight(posedge_id).unwrap();
+
+                let mut incoming_arg_eids: Vec<EdgeIndex> = fg.graph.edges_directed(id, Incoming)
+                    .filter(|eid| {
+                        let edge = fg.graph.edge_weight(eid.id()).unwrap();
+                        match edge.et {
+                            FirEdgeType::PrintArg(..) => true,
+                            _ => false
+                        }
+                    })
+                    .map(|eid| eid.id())
+                    .collect();
+
+                // Sort by PrintArg index
+                incoming_arg_eids.sort_by_key(|eid| {
+                    let edge = fg.graph.edge_weight(*eid).unwrap();
+                    match edge.et {
+                        FirEdgeType::PrintArg(idx) => idx,
+                        _ => unreachable!(),
+                    }
+                });
+
+                let args: Exprs = incoming_arg_eids.iter().map(|eid| {
+                    let edge = fg.graph.edge_weight(*eid).unwrap();
+                    Box::new(edge.src.clone())
+                }).collect();
+
+                let args_opt = if args.len() > 0 {
+                    Some(args)
+                } else {
+                    None
+                };
+
+                let stmt = Stmt::Printf(
+                    node.name.clone(),
+                    clk_edge.src.clone(),
+                    posedge.src.clone(),
+                    msg.clone(),
+                    args_opt,
+                    Info::default());
+
+                let pstmt = StmtWithPrior::new(stmt, None);
+                leaf.stmts.push(pstmt);
+            }
+            FirNodeType::Assert(msg, pcond) => {
+                let leaf = whentree.get_node_mut(&pcond.path, None).unwrap();
+
+                let clk_edge_id = fg.parent_with_type(id, FirEdgeType::Clock).unwrap();
+                let clk_edge = fg.graph.edge_weight(clk_edge_id).unwrap();
+
+                let cond_edge_id = fg.parent_with_type(id, FirEdgeType::AssertCond).unwrap();
+                let cond_edge = fg.graph.edge_weight(cond_edge_id).unwrap();
+
+                let value_edge_id = fg.parent_with_type(id, FirEdgeType::AssertCondValue).unwrap();
+                let value_edge = fg.graph.edge_weight(value_edge_id).unwrap();
+
+                let stmt = Stmt::Assert(
+                    node.name.clone(),
+                    clk_edge.src.clone(),
+                    cond_edge.src.clone(),
+                    value_edge.src.clone(),
+                    msg.clone(),
+                    Info::default());
+
+                let pstmt = StmtWithPrior::new(stmt, None);
                 leaf.stmts.push(pstmt);
             }
             _ => {

@@ -30,6 +30,10 @@ pub enum RippleEdgeType {
     MemPortEn,
 
     ArrayAddr,
+
+    PrintArg(u32),
+    AssertCond,
+    AssertCondValue,
 }
 
 impl From<&FirEdgeType> for RippleEdgeType {
@@ -53,7 +57,10 @@ impl From<&FirEdgeType> for RippleEdgeType {
             FirEdgeType::MemPortEdge => RippleEdgeType::MemPortEdge,
             FirEdgeType::MemPortAddr => RippleEdgeType::MemPortAddr,
             FirEdgeType::MemPortEn => RippleEdgeType::MemPortEn,
-            FirEdgeType::ArrayAddr => RippleEdgeType::ArrayAddr
+            FirEdgeType::ArrayAddr => RippleEdgeType::ArrayAddr,
+            FirEdgeType::PrintArg(x) => RippleEdgeType::PrintArg(*x),
+            FirEdgeType::AssertCond => RippleEdgeType::AssertCond,
+            FirEdgeType::AssertCondValue => RippleEdgeType::AssertCondValue,
         }
     }
 }

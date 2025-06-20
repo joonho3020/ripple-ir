@@ -188,17 +188,17 @@ pub fn multithread_module(
                     init_id,
                     init_expr,
                     driver_id,
-                    driver_expr,
-                );
+                    driver_expr);
 
                 // Connect data mux output to write port data
                 fame5.add_wire(
                     data_mux_id,
                     data_mux_expr,
                     reg_threaded_id,
-                    Some(Reference::RefDot(Box::new(wport_ref.clone()), Identifier::Name("data".to_string()))),
-                );
-            }
+                    Some(Reference::RefDot(
+                        Box::new(wport_ref.clone()),
+                        Identifier::Name("data".to_string()))));
+           }
 
         } else {
             fame5.add_wire(
@@ -224,24 +224,10 @@ pub fn multithread_module(
         fame5.graph.remove_node(reg_id);
     }
 
-    // TODO: handle printf and asserts properly
-    let mut print_assert_ids: Vec<NodeIndex> = fame5.graph.node_indices().filter(|id| {
-        let node = fame5.graph.node_weight(*id).unwrap();
-        match node.nt {
-            FirNodeType::Printf(..) |
-                FirNodeType::Assert(..) => {
-                true
-            }
-            _ => {
-                false
-            }
-        }
-    }).collect();
-
-    print_assert_ids.sort();
-    for &id in print_assert_ids.iter().rev() {
-        fame5.graph.remove_node(id);
-    }
+    // Printf and Assert nodes are no longer removed. Instead, their argument edges should be updated if their arguments are registers that have been replaced.
+    // TODO: Update PrintArg edges for Printf/Assert nodes if their arguments refer to registers that have been replaced by threaded memories.
+    // This requires traversing PrintArg edges and updating their destinations if needed.
+    // For now, Printf/Assert nodes are preserved.
 
     fame5
 }

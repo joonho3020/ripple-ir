@@ -82,8 +82,8 @@ pub enum FirNodeType {
     ReadMemPort(CondPathWithPrior),
     InferMemPort(CondPathWithPrior),
     Inst(Identifier),
-    Printf(Stmt, CondPathWithPrior),
-    Assert(Stmt, CondPathWithPrior),
+    Printf(String, CondPathWithPrior),
+    Assert(String, CondPathWithPrior),
     Memory(u32, u32, u32, MemoryPorts, ChirrtlMemoryReadUnderWrite),
 
     // Port
@@ -133,6 +133,10 @@ pub enum FirEdgeType {
     MemPortEn,
 
     ArrayAddr,
+
+    PrintArg(u32),
+    AssertCond,
+    AssertCondValue,
 }
 
 impl_clean_display!(FirEdge);

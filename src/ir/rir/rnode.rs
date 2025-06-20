@@ -39,8 +39,8 @@ pub enum RippleNodeType {
     Output,
     Phi(CondPathWithPrior),
 
-    Printf(Stmt, CondPathWithPrior),
-    Assert(Stmt, CondPathWithPrior),
+    Printf(String, CondPathWithPrior),
+    Assert(String, CondPathWithPrior),
 }
 
 impl_clean_display!(RippleNodeType);

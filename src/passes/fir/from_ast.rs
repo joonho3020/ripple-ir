@@ -258,14 +258,14 @@ fn add_graph_node_from_stmt(ir: &mut FirGraph, stmt: &Stmt, nm: &mut NodeMap) {
         }
         Stmt::Skip(..) => {
         }
-        Stmt::Printf(..) => {
-            let nt = FirNodeType::Printf(stmt.clone(), CondPathWithPrior::default());
-            let id = add_node(ir, None, None, TypeDirection::Outgoing, nt);
+        Stmt::Printf(name_opt, _clk, _posedge, msg, _fields_opt, _info) => {
+            let nt = FirNodeType::Printf(msg.clone(), CondPathWithPrior::default());
+            let id = add_node(ir, None, name_opt.clone(), TypeDirection::Outgoing, nt);
             nm.printf_map.insert(stmt.clone(), id);
         }
-        Stmt::Assert(..) => {
-            let nt = FirNodeType::Assert(stmt.clone(), CondPathWithPrior::default());
-            let id = add_node(ir, None, None, TypeDirection::Outgoing, nt);
+        Stmt::Assert(name_opt, _clk, _cond, _cond_val, msg, _info) => {
+            let nt = FirNodeType::Assert(msg.clone(), CondPathWithPrior::default());
+            let id = add_node(ir, None, name_opt.clone(), TypeDirection::Outgoing, nt);
             nm.assert_map.insert(stmt.clone(), id);
         }
         Stmt::Stop(..) => {
@@ -598,15 +598,33 @@ fn add_graph_edge_from_stmt(ir: &mut FirGraph, stmt: &Stmt, nm: &mut NodeMap) {
                 panic!("Invalidate expr {:?} is not a reference", expr);
             }
         }
-        Stmt::Printf(_, clk, _posedge, _msg, _exprs_opt, _info) => {
-            let print_id = nm.printf_map.get(stmt).unwrap();
+        Stmt::Printf(_name_opt, clk, posedge, _msg, fields_opt, _info) => {
+            let id = nm.printf_map.get(stmt).unwrap();
+
             let clk_edge = FirEdge::new(clk.clone(), None, FirEdgeType::Clock);
-            add_graph_edge_from_expr(ir, *print_id, clk, clk_edge, nm);
+            add_graph_edge_from_expr(ir, *id, clk, clk_edge, nm);
+
+            let posedge_edge = FirEdge::new(posedge.clone(), None, FirEdgeType::Wire);
+            add_graph_edge_from_expr(ir, *id, posedge, posedge_edge, nm);
+
+            if let Some(fields) = fields_opt {
+                for (i, arg) in fields.iter().enumerate() {
+                    let printarg_edge = FirEdge::new(arg.as_ref().clone(), None, FirEdgeType::PrintArg(i as u32));
+                    add_graph_edge_from_expr(ir, *id, arg, printarg_edge, nm);
+                }
+            }
         }
-        Stmt::Assert(_, clk, _pred, _cond, _msg, _info) => {
-            let assert_id = nm.assert_map.get(stmt).unwrap();
+        Stmt::Assert(_name_opt, clk, cond, cond_val, _msg, _info) => {
+            let id = nm.assert_map.get(stmt).unwrap();
+
             let clk_edge = FirEdge::new(clk.clone(), None, FirEdgeType::Clock);
-            add_graph_edge_from_expr(ir, *assert_id, clk, clk_edge, nm);
+            add_graph_edge_from_expr(ir, *id, clk, clk_edge, nm);
+
+            let cond_edge = FirEdge::new(cond.clone(), None, FirEdgeType::AssertCond);
+            add_graph_edge_from_expr(ir, *id, cond, cond_edge, nm);
+
+            let cond_val_edge = FirEdge::new(cond_val.clone(), None, FirEdgeType::AssertCondValue);
+            add_graph_edge_from_expr(ir, *id, cond_val, cond_val_edge, nm);
         }
         Stmt::Stop(..) => {
 // unimplemented!();
@@ -696,15 +714,15 @@ fn connect_phi_in_edges_from_stmts(ir: &mut FirGraph, stmts: &Stmts, nm: &mut No
                         }
                     };
                 }
-                Stmt::Printf(..) => {
+                Stmt::Printf(_name_opt, _clk, _posedge, msg, _fields_opt, _info) => {
                     let id = nm.printf_map.get(&pstmt.stmt).unwrap();
                     let x = ir.graph.node_weight_mut(*id).unwrap();
-                    x.nt = FirNodeType::Printf(pstmt.stmt.clone(), path_w_stmt_prior);
+                    x.nt = FirNodeType::Printf(msg.clone(), path_w_stmt_prior);
                 }
-                Stmt::Assert(..) => {
+                Stmt::Assert(_name_opt, _clk, _cond, _cond_val, msg, _info) => {
                     let id = nm.assert_map.get(&pstmt.stmt).unwrap();
                     let x = ir.graph.node_weight_mut(*id).unwrap();
-                    x.nt = FirNodeType::Assert(pstmt.stmt.clone(), path_w_stmt_prior);
+                    x.nt = FirNodeType::Assert(msg.clone(), path_w_stmt_prior);
                 }
                 _ => {}
             }
