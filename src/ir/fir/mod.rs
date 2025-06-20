@@ -251,7 +251,7 @@ impl FirGraph {
                 ret.push(eid.id());
             }
         }
-        return ret;
+        ret
     }
 
     /// Returns true if a edge contains bidirectional connections
@@ -268,6 +268,75 @@ impl FirGraph {
 
     pub fn build_namespace(&mut self) {
         self.namespace = NameSpace::new(self);
+    }
+
+    pub fn add_uint_literal(&mut self, value: u32, width: u32) -> (NodeIndex, Expr) {
+        let node = FirNode::new(
+            None,
+            FirNodeType::UIntLiteral(Width(width), Int::from(value)),
+            None,
+        );
+        let expr = Expr::UIntInit(Width(width), Int::from(value));
+        (self.graph.add_node(node), expr)
+    }
+
+    pub fn add_primop2(
+        &mut self,
+        op: PrimOp2Expr,
+        lhs_id: NodeIndex,
+        lhs_expr: Expr,
+        rhs_id: NodeIndex,
+        rhs_expr: Expr,
+    ) -> (NodeIndex, Expr) {
+        let name = self.namespace.next();
+        let node = FirNode::new(Some(name.clone()), FirNodeType::PrimOp2Expr(op), None);
+        let node_id = self.graph.add_node(node);
+
+        let op0_edge = FirEdge::new(lhs_expr, None, FirEdgeType::Operand0);
+        self.graph.add_edge(lhs_id, node_id, op0_edge);
+
+        let op1_edge = FirEdge::new(rhs_expr, None, FirEdgeType::Operand1);
+        self.graph.add_edge(rhs_id, node_id, op1_edge);
+
+        let expr = Expr::Reference(Reference::Ref(name));
+        (node_id, expr)
+    }
+
+    pub fn add_mux(
+        &mut self,
+        cond_id: NodeIndex,
+        cond_expr: Expr,
+        true_id: NodeIndex,
+        true_expr: Expr,
+        false_id: NodeIndex,
+        false_expr: Expr,
+    ) -> (NodeIndex, Expr) {
+        let name = self.namespace.next();
+        let node = FirNode::new(Some(name.clone()), FirNodeType::Mux, None);
+        let node_id = self.graph.add_node(node);
+
+        let cond_edge = FirEdge::new(cond_expr, None, FirEdgeType::MuxCond);
+        self.graph.add_edge(cond_id, node_id, cond_edge);
+
+        let true_edge = FirEdge::new(true_expr, None, FirEdgeType::MuxTrue);
+        self.graph.add_edge(true_id, node_id, true_edge);
+
+        let false_edge = FirEdge::new(false_expr, None, FirEdgeType::MuxFalse);
+        self.graph.add_edge(false_id, node_id, false_edge);
+
+        let expr = Expr::Reference(Reference::Ref(name));
+        (node_id, expr)
+    }
+
+    pub fn add_wire(
+        &mut self,
+        src_id: NodeIndex,
+        src_expr: Expr,
+        dst_id: NodeIndex,
+        dst_ref: Option<Reference>,
+    ) {
+        let edge = FirEdge::new(src_expr, dst_ref, FirEdgeType::Wire);
+        self.graph.add_edge(src_id, dst_id, edge);
     }
 }
 
