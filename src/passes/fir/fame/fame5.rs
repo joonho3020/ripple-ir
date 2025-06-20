@@ -9,9 +9,12 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use petgraph::graph::{EdgeIndex, NodeIndex};
 use crate::common::graphviz::DefaultGraphVizCore;
+use crate::ir::typetree::tnode::TypeDirection;
+use crate::ir::typetree::typetree::TypeTree;
 use crate::ir::{fir::*, hierarchy::InstPath};
 use crate::passes::fir::fame::log2_ceil;
 use crate::passes::fir::fame::uint_ttree;
+use crate::passes::fir::from_ast::memory_type_from_ports;
 
 
 // Things that should in included in the inference pass
@@ -752,10 +755,7 @@ fn multithread_module(
             node.nt == FirNodeType::RegReset
     }).collect();
 
-    reg_ids.sort();
-    for &reg_id in reg_ids.iter().rev() {
-        fame5.graph.remove_node(reg_id);
-
+    for &reg_id in reg_ids.iter() {
         let rport_name = Identifier::Name("rd".to_string());
         let rport = MemoryPort::Read(rport_name.clone());
 
@@ -769,13 +769,14 @@ fn multithread_module(
 
         let node = fg.graph.node_weight(reg_id).unwrap();
         let reg_name = node.name.as_ref().unwrap();
+        let comb_mem_type = memory_type_from_ports(&ports, nthreads, &node.ttree.as_ref().unwrap().to_type());
         let comb_mem = FirNodeType::Memory(nthreads, 0, 1, ports, ChirrtlMemoryReadUnderWrite::Undefined);
 
         // Make register into array
         let reg_threaded = FirNode::new(
             Some(reg_name.clone()),
             comb_mem,
-            node.ttree.clone());
+            Some(TypeTree::build_from_type(&comb_mem_type, TypeDirection::Outgoing)));
 
         let reg_threaded_id = fame5.graph.add_node(reg_threaded);
         let rport_ref = Reference::RefDot(
@@ -786,10 +787,7 @@ fn multithread_module(
             Box::new(Reference::Ref(reg_name.clone())),
             wport_name.clone());
 
-
         let uint1 = FirNode::new(None, FirNodeType::UIntLiteral(Width(1), Int::from(1)), None);
-        let uint0 = FirNode::new(None, FirNodeType::UIntLiteral(Width(1), Int::from(0)), None);
-
 
         let clock_eid = find_edge_with_type(fg, reg_id, FirEdgeType::Clock, Incoming).unwrap();
         let clock_id = fg.graph.edge_endpoints(clock_eid).unwrap().0;
@@ -824,7 +822,7 @@ fn multithread_module(
         let wport_mask_id = fame5.graph.add_node(uint1.clone());
         let wport_mask_edge = FirEdge::new(
             Expr::UIntInit(Width(1), Int::from(1)),
-            Some(Reference::RefDot(Box::new(wport_ref.clone()), Identifier::Name("en".to_string()))),
+            Some(Reference::RefDot(Box::new(wport_ref.clone()), Identifier::Name("mask".to_string()))),
             FirEdgeType::Wire);
         fame5.graph.add_edge(wport_mask_id, reg_threaded_id, wport_mask_edge);
 
@@ -844,12 +842,11 @@ fn multithread_module(
             let ep = fg.graph.edge_endpoints(eid.id()).unwrap();
             fame5.graph.add_edge(reg_threaded_id, ep.1, edge);
         }
+
         // wen
         //         |   incoming edge          | x incoming edge      |
         // reginit |   mux(hostreset, 1, 1)   | mux(hostreset, 1, 0) |
         // reg     |   1                      | 0                    |
-
-
         let drivers: Vec<EdgeIndex> = fg.graph.edges_directed(reg_id, Incoming).filter(|eid| {
             let edge = fg.graph.edge_weight(eid.id()).unwrap();
             edge.et == FirEdgeType::Wire
@@ -857,22 +854,138 @@ fn multithread_module(
         .map(|eid| eid.id())
         .collect();
 
-        let non_hostreset_wen_ = if drivers.len() > 0 {
-            uint1.clone()
+        let non_hostreset_wen = if drivers.len() > 0 {
+            1
         } else {
-            uint0.clone()
+            0
         };
+        let wen_value = FirNode::new(None, FirNodeType::UIntLiteral(Width(1), Int::from(non_hostreset_wen)), None);
+        let wen_id = fame5.graph.add_node(wen_value);
 
-        // Add register driver edge
-        if let Some(driver_eid) = find_edge_with_type(fg, reg_id, FirEdgeType::Wire, Incoming) {
-            let driver_id = fg.graph.edge_endpoints(driver_eid).unwrap().0;
-            let mut driver_edge = fg.graph.edge_weight(driver_eid).unwrap().clone();
-            driver_edge.dst = Some(Reference::RefIdxExpr(
-                        Box::new(Reference::Ref(reg_name.clone())),
-                        Box::new(Expr::Reference(Reference::Ref(thread_idx_name.clone())))));
-            fame5.graph.add_edge(driver_id, reg_threaded_id, driver_edge);
+        if node.nt == FirNodeType::RegReset {
+            let hostreset_edge = find_edge_with_type(fg, reg_id, FirEdgeType::Reset, Incoming).unwrap();
+            let hostreset_id = fg.graph.edge_endpoints(hostreset_edge).unwrap().0;
+            let hostreset_edge = fg.graph.edge_weight(hostreset_edge).unwrap().clone();
+
+            // Create mux node for RegInit write enable
+            let mux_name = fame5.namespace.next();
+            let mux_node = FirNode::new(
+                Some(mux_name.clone()),
+                FirNodeType::Mux,
+                None
+            );
+            let mux_id = fame5.graph.add_node(mux_node);
+
+            // Connect hostreset to mux condition
+            let cond_edge = FirEdge::new(
+                hostreset_edge.src.clone(),
+                None,
+                FirEdgeType::MuxCond
+            );
+            fame5.graph.add_edge(hostreset_id, mux_id, cond_edge);
+
+            // Connect constant 1 to mux true input (when hostreset is true)
+            let one_const = FirNode::new(
+                None,
+                FirNodeType::UIntLiteral(Width(1), Int::from(1)),
+                None
+            );
+            let one_const_id = fame5.graph.add_node(one_const);
+            let true_edge = FirEdge::new(
+                Expr::UIntInit(Width(1), Int::from(1)),
+                None,
+                FirEdgeType::MuxTrue
+            );
+            fame5.graph.add_edge(one_const_id, mux_id, true_edge);
+
+            // Connect non_hostreset_wen to mux false input (when hostreset is false)
+            let false_edge = FirEdge::new(
+                Expr::UIntInit(Width(1), Int::from(non_hostreset_wen)),
+                None,
+                FirEdgeType::MuxFalse
+            );
+            fame5.graph.add_edge(wen_id, mux_id, false_edge);
+
+            // Connect mux output to write port enable
+            let wen_edge = FirEdge::new(
+                Expr::Reference(Reference::Ref(mux_name)),
+                Some(Reference::RefDot(Box::new(wport_ref.clone()), Identifier::Name("en".to_string()))),
+                FirEdgeType::Wire
+            );
+            fame5.graph.add_edge(mux_id, reg_threaded_id, wen_edge);
+
+            // Find initial value for RegReset
+            let init_edge = find_edge_with_type(fg, reg_id, FirEdgeType::InitValue, Incoming).unwrap();
+            let init_id = fg.graph.edge_endpoints(init_edge).unwrap().0;
+            let init_edge = fg.graph.edge_weight(init_edge).unwrap().clone();
+
+            // Create mux node for data selection
+            let data_mux_name = fame5.namespace.next();
+            let data_mux_node = FirNode::new(
+                Some(data_mux_name.clone()),
+                FirNodeType::Mux,
+                None
+            );
+            let data_mux_id = fame5.graph.add_node(data_mux_node);
+
+            // Connect hostreset to data mux condition
+            let data_cond_edge = FirEdge::new(
+                hostreset_edge.src.clone(),
+                None,
+                FirEdgeType::MuxCond
+            );
+            fame5.graph.add_edge(hostreset_id, data_mux_id, data_cond_edge);
+
+            // Connect initial value to data mux true input (when hostreset is true)
+            let data_true_edge = FirEdge::new(
+                init_edge.src.clone(),
+                None,
+                FirEdgeType::MuxTrue
+            );
+            fame5.graph.add_edge(init_id, data_mux_id, data_true_edge);
+
+            // Connect drivers to data mux false input (when hostreset is false)
+            for eid in drivers.iter() {
+                let driver_id = fg.graph.edge_endpoints(*eid).unwrap().0;
+                let driver_edge = fg.graph.edge_weight(*eid).unwrap().clone();
+                let data_false_edge = FirEdge::new(
+                    driver_edge.src.clone(),
+                    None,
+                    FirEdgeType::MuxFalse
+                );
+                fame5.graph.add_edge(driver_id, data_mux_id, data_false_edge);
+            }
+
+            // Connect data mux output to write port data
+            let data_edge = FirEdge::new(
+                Expr::Reference(Reference::Ref(data_mux_name)),
+                Some(Reference::RefDot(Box::new(wport_ref.clone()), Identifier::Name("data".to_string()))),
+                FirEdgeType::Wire
+            );
+            fame5.graph.add_edge(data_mux_id, reg_threaded_id, data_edge);
+
+        } else {
+            let wen_edge = FirEdge::new(
+                Expr::UIntInit(Width(1), Int::from(non_hostreset_wen)),
+                Some(Reference::RefDot(Box::new(wport_ref.clone()), Identifier::Name("en".to_string()))),
+                FirEdgeType::Wire
+            );
+            fame5.graph.add_edge(wen_id, reg_threaded_id, wen_edge);
+
+            for eid in drivers.iter() {
+                let driver_id = fg.graph.edge_endpoints(*eid).unwrap().0;
+                let mut driver_edge = fg.graph.edge_weight(*eid).unwrap().clone();
+                driver_edge.dst = Some(Reference::RefDot(
+                        Box::new(wport_ref.clone()),
+                        Identifier::Name("data".to_string())));
+                fame5.graph.add_edge(driver_id, reg_threaded_id, driver_edge);
+            }
         }
+    }
 
+    reg_ids.sort();
+    for &reg_id in reg_ids.iter().rev() {
+        fame5.graph.remove_node(reg_id);
     }
 
     // TODO: handle printf and asserts properly
