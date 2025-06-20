@@ -1,4 +1,3 @@
-use crate::ir::fir::*;
 use crate::passes::fir::fame::fame5::*;
 use crate::passes::fir::from_ast::memory_type_from_ports;
 use crate::ir::typetree::typetree::TypeTree;

@@ -1,6 +1,3 @@
-pub mod top;
-pub mod multithread;
-
 use crate::passes::fir::fame::*;
 use crate::passes::fir::fame::fame5::top::*;
 use crate::ir::fir::*;
@@ -11,6 +8,9 @@ use indexmap::IndexMap;
 use indexmap::IndexSet;
 use petgraph::graph::NodeIndex;
 use petgraph::Direction::Incoming;
+
+mod top;
+mod multithread;
 
 pub type InstModuleMap = IndexMap<Identifier, Identifier>;
 pub type ChannelMap = IndexMap<Identifier, Vec<(u32, NodeIndex)>>;
@@ -176,3 +176,32 @@ pub fn find_host_clock_or_reset_id(fg: &FirGraph, host_node: &Identifier) -> Nod
         .expect(&format!("No host node {:?} found", host_node))
 }
 
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::{common::{read_annos, RippleIRErr}, passes::{ast::{firrtl3_print::FIRRTL3Printer, firrtl3_split_exprs::firrtl3_split_exprs}, fir::{remove_unnecessary_phi::remove_all_phi, to_ast_firrtl3::to_ast_firrtl3}, runner::run_fir_passes_from_circuit}};
+    use test_case::test_case;
+    use firrtl3_parser::parse_circuit as parse_firrtl3;
+    use crate::passes::ast::print::Printer;
+
+    #[test_case("FireSimGCD"; "FireSimGCD")]
+    fn fame5(name: &str) -> Result<(), RippleIRErr> {
+        let source = std::fs::read_to_string(format!("./test-inputs-firrtl3/{}.fir", name)).expect("to_exist");
+        let mut circuit = parse_firrtl3(&source).expect("firrtl parser");
+        circuit.annos = read_annos(&format!("./test-inputs-firrtl3/{}.json", name))?;
+
+        firrtl3_split_exprs(&mut circuit);
+        let mut ir = run_fir_passes_from_circuit(&circuit)?;
+        remove_all_phi(&mut ir);
+
+        fame5_transform(&mut ir);
+
+        let fame5_ast = to_ast_firrtl3(&ir);
+        let mut printer = FIRRTL3Printer::new();
+        let fame5_firrtl_str = printer.print_circuit(&fame5_ast);
+        let out_path = format!("./test-outputs/{}.firrtl3.fame5.fir", circuit.name);
+        std::fs::write(&out_path, fame5_firrtl_str)?;
+
+        Ok(())
+    }
+}

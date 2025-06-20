@@ -1,6 +1,5 @@
 use crate::passes::fir::fame::*;
 use crate::passes::fir::fame::fame5::*;
-use crate::ir::fir::*;
 use crate::ir::hierarchy::InstPath;
 use petgraph::Direction::{Incoming, Outgoing};
 use petgraph::visit::EdgeRef;
