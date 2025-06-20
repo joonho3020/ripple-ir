@@ -1,3 +1,9 @@
+//! FIRRTL Intermediate Representation (FIR) graph structures and utilities.
+//!
+//! This module defines the core data structures for representing FIRRTL circuits as graphs,
+//! including nodes for operations, registers, memories, and ports, as well as edges for dataflow and control.
+//! It also provides helper methods for graph construction and manipulation, and utilities for type inference and visualization.
+
 use petgraph::graph::EdgeIndex;
 use petgraph::visit::EdgeRef;
 use petgraph::Direction::Incoming;
@@ -15,22 +21,28 @@ use crate::impl_clean_display;
 use super::hierarchy::Hierarchy;
 use super::whentree::CondPathWithPrior;
 
+/// A node in the FIRRTL IR graph, representing an operation, register, memory, port, etc.
 #[derive(Derivative, Clone)]
 #[derivative(Debug)]
 pub struct FirNode {
+    /// Optional name of the node (signal, register, etc.)
     pub name: Option<Identifier>,
 
+    /// The type of node (operation, register, etc.)
     pub nt: FirNodeType,
 
+    /// Optional type tree for this node (signal type information)
     #[derivative(Debug="ignore")]
     pub ttree: Option<TypeTree>,
 }
 
 impl FirNode {
+    /// Create a new FIR node with the given name, type, and optional type tree.
     pub fn new(name: Option<Identifier>, nt: FirNodeType, ttree: Option<TypeTree>) -> Self {
         Self { name, nt, ttree }
     }
 
+    /// Returns true if this node is a phi node.
     pub fn is_phi(&self) -> bool {
         match self.nt {
             FirNodeType::Phi(..) => {
@@ -43,6 +55,7 @@ impl FirNode {
     }
 }
 
+/// The type of a node in the FIRRTL IR graph.
 #[derive(Debug, Default, Clone, PartialEq, Hash)]
 pub enum FirNodeType {
     #[default]
@@ -81,13 +94,18 @@ pub enum FirNodeType {
 
 impl_clean_display!(FirNode);
 
+/// An edge in the FIRRTL IR graph, representing dataflow or control between nodes.
 #[derive(Debug, Clone, PartialEq)]
 pub struct FirEdge {
+    /// The source expression for this edge.
     pub src: Expr,
+    /// The optional destination reference for this edge.
     pub dst: Option<Reference>,
+    /// The type of edge (data, clock, reset, etc.)
     pub et: FirEdgeType
 }
 
+/// The type of an edge in the FIRRTL IR graph.
 #[derive(Derivative, Clone, PartialEq, Hash)]
 #[derivative(Debug)]
 pub enum FirEdgeType {
@@ -199,16 +217,21 @@ impl Default for NameSpace {
     }
 }
 
-
+/// The main FIRRTL IR graph structure, containing nodes and edges.
 #[derive(Debug, Clone)]
 pub struct FirGraph {
+    /// The underlying petgraph graph structure.
     pub graph: IRGraph,
+    /// Optional external module information (for blackboxes).
     pub ext_info: Option<ExtModuleInfo>,
+    /// Whether this is a blackbox module.
     pub blackbox: bool,
+    /// Namespace for generating unique names within this graph.
     pub namespace: NameSpace
 }
 
 impl FirGraph {
+    /// Create a new, empty FIR graph.
     pub fn new(blackbox: bool) -> Self {
         Self {
             graph: IRGraph::new(),
@@ -218,8 +241,7 @@ impl FirGraph {
         }
     }
 
-    /// Returns a TypeTree of all its IO signals
-    /// Useful for handling instances
+    /// Returns a TypeTree of all its IO signals. Useful for handling instances.
     pub fn io_typetree(&self) -> TypeTree {
         let mut io_ttrees: IndexMap<&Identifier, &TypeTree> = IndexMap::new();
         for id in self.graph.node_indices() {
@@ -231,7 +253,7 @@ impl FirGraph {
         TypeTree::merge_trees(io_ttrees)
     }
 
-    /// Returns an `EdgeIndex` comming into the node that matches `et` if exists
+    /// Returns an `EdgeIndex` coming into the node that matches `et` if exists.
     pub fn parent_with_type(&self, id: NodeIndex, et: FirEdgeType) -> Option<EdgeIndex> {
         for eid in self.graph.edges_directed(id, Incoming) {
             let edge = self.graph.edge_weight(eid.id()).unwrap();
@@ -242,7 +264,7 @@ impl FirGraph {
         return None;
     }
 
-    /// Returns an `EdgeIndex` going out of node that matches `et` if exists
+    /// Returns an `EdgeIndex` going out of node that matches `et` if exists.
     pub fn childs_with_type(&self, id: NodeIndex, et: FirEdgeType) -> Vec<EdgeIndex> {
         let mut ret: Vec<EdgeIndex> = vec![];
         for eid in self.graph.edges_directed(id, Outgoing) {
@@ -254,7 +276,7 @@ impl FirGraph {
         ret
     }
 
-    /// Returns true if a edge contains bidirectional connections
+    /// Returns true if a edge contains bidirectional connections.
     pub fn bidirectional(&self, id: EdgeIndex) -> bool {
         let edge = self.graph.edge_weight(id).unwrap();
         let (src, _dst) = self.graph.edge_endpoints(id).unwrap();
@@ -266,10 +288,12 @@ impl FirGraph {
         subtree.is_bidirectional()
     }
 
+    /// Rebuilds the namespace for this graph.
     pub fn build_namespace(&mut self) {
         self.namespace = NameSpace::new(self);
     }
 
+    /// Adds a new unsigned integer literal node to the graph.
     pub fn add_uint_literal(&mut self, value: u32, width: u32) -> (NodeIndex, Expr) {
         let node = FirNode::new(
             None,
@@ -280,6 +304,7 @@ impl FirGraph {
         (self.graph.add_node(node), expr)
     }
 
+    /// Adds a new binary primitive operation node (e.g., Add, And, Eq) to the graph.
     pub fn add_primop2(
         &mut self,
         op: PrimOp2Expr,
@@ -302,6 +327,7 @@ impl FirGraph {
         (node_id, expr)
     }
 
+    /// Adds a new mux node to the graph.
     pub fn add_mux(
         &mut self,
         cond_id: NodeIndex,
@@ -328,6 +354,7 @@ impl FirGraph {
         (node_id, expr)
     }
 
+    /// Adds a new wire edge between two nodes in the graph.
     pub fn add_wire(
         &mut self,
         src_id: NodeIndex,
@@ -340,6 +367,7 @@ impl FirGraph {
     }
 }
 
+/// The top-level FIRRTL IR structure, containing all modules and hierarchy.
 #[derive(Debug, Clone)]
 pub struct FirIR {
     pub version: Version,
@@ -350,10 +378,12 @@ pub struct FirIR {
 }
 
 impl FirIR {
+    /// Create a new, empty FIRRTL IR.
     pub fn new(version: Version, name: Identifier, annos: Annotations) -> Self {
         Self { version, name, annos, graphs: IndexMap::new(), hier: Hierarchy::default() }
     }
 
+    /// Export all module graphs as GraphViz PDFs to the given directory.
     pub fn export(&self, outdir: &str, pfx: &str) -> Result<(), RippleIRErr> {
         for (module, fg) in self.graphs.iter() {
             fg.export_graphviz(
@@ -365,7 +395,7 @@ impl FirIR {
         Ok(())
     }
 
-    /// Adds a new module to the IR
+    /// Adds a new module to the IR and updates the hierarchy.
     pub fn add_module(&mut self, name: Identifier, fg: FirGraph) {
         self.graphs.insert(name, fg);
 
