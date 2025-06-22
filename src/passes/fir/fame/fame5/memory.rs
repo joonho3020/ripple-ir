@@ -18,23 +18,22 @@ pub fn duplicate_memory(
     let node = fame5.graph.node_weight(mem_id).unwrap().clone();
     if let FirNodeType::Memory(depth, rlat, wlat, ports, ruw) = &node.nt {
         let mem_name = node.name.as_ref().unwrap().clone();
-        let mem_type = node.ttree.as_ref().unwrap().to_type();
+        let mem_ttree = node.ttree.as_ref().unwrap().clone();
 
         // Create new memory with capacity multiplied by nthreads
         let new_depth = depth * nthreads;
-        let new_mem_type = memory_type_from_ports(ports, new_depth, &mem_type);
         let new_mem = FirNode::new(
             Some(mem_name.clone()),
             FirNodeType::Memory(new_depth, *rlat, *wlat, ports.clone(), ruw.clone()),
-            Some(TypeTree::build_from_type(&new_mem_type, TypeDirection::Outgoing))
+            Some(mem_ttree)
         );
 
         let new_mem_id = fame5.graph.add_node(new_mem);
 
         for port in ports {
             match port.as_ref() {
-                MemoryPort::Read(name) => {
-                    let mport = MemPortInfo::new(mem_id, new_mem_id, &mem_name, name);
+                MemoryPort::Read(port_name) => {
+                    let mport = MemPortInfo::new(mem_id, new_mem_id, &mem_name, port_name);
                     rport_connections(fame5, &mport, thread_idx_id, nthreads);
                 },
                 MemoryPort::Write(port_name) => {
@@ -139,10 +138,10 @@ fn add_input_addr_edge<'a>(
         // Create concatenation node (thread_idx concatenated with original address)
         let (cat_id, cat_expr) = fg.add_primop2(
             PrimOp2Expr::Cat,
-            thread_idx_id,
-            thread_idx_expr,
             addr_driver_id,
             addr_driver_expr,
+            thread_idx_id,
+            thread_idx_expr,
         );
 
         // Connect concatenated address to the new memory port

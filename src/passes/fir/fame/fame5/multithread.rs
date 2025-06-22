@@ -45,10 +45,8 @@ pub fn multithread_module(
                 }
             FirNodeType::Memory(_, rlat, wlat, _, _) => {
                 assert!(rlat <= 1);
-                assert!(wlat == 0);
-                if rlat > 0 {
-                    duplicate_memory(&mut fame5, nthreads, thread_idx_id, id);
-                }
+                assert!(wlat == 1);
+                duplicate_memory(&mut fame5, nthreads, thread_idx_id, id);
             }
             _ => {
                 unreachable!()

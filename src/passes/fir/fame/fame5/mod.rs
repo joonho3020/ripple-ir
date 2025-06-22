@@ -228,6 +228,7 @@ mod test {
 
     #[test_case("FireSimGCD"; "FireSimGCD")]
     #[test_case("FireSimNestedModels"; "FireSimNestedModels")]
+    #[test_case("FireSimTwoAdders"; "FireSimTwoAdders")]
     fn fame5(name: &str) -> Result<(), RippleIRErr> {
         let source = std::fs::read_to_string(format!("./test-inputs-firrtl3/{}.fir", name)).expect("to_exist");
         let mut circuit = parse_firrtl3(&source).expect("firrtl parser");
