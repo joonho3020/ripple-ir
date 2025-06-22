@@ -1,6 +1,8 @@
+use crate::ir::hierarchy::Hierarchy;
 use crate::passes::fir::fame::*;
 use crate::passes::fir::fame::fame5::top::*;
 use crate::ir::fir::*;
+use multithread::multithread_module;
 use rusty_firrtl::{Expr, PrimOp2Expr, Reference, Width};
 use rusty_firrtl::Int;
 use rusty_firrtl::Identifier;
@@ -8,6 +10,7 @@ use indexmap::IndexMap;
 use indexmap::IndexSet;
 use petgraph::graph::NodeIndex;
 use petgraph::Direction::Incoming;
+use std::collections::HashSet;
 
 mod top;
 mod multithread;
@@ -52,11 +55,34 @@ pub fn fame5_transform(fir: &mut FirIR) {
 
     let nthreads = update_fame5_top(parent_fg, &hostclock, &hostreset, mod_to_fame5);
 
-    let mod_to_fame5_graph = fir.graphs.get(mod_to_fame5).unwrap();
-    let fame5_module = crate::passes::fir::fame::fame5::multithread::multithread_module(mod_to_fame5_graph, nthreads, &hostclock, &hostreset);
+    let modules_to_fame5: HashSet<Identifier> = fir.hier.all_childs(mod_to_fame5)
+        .iter()
+        .filter(|hid| {
+            let name = fir.hier.graph.node_weight(**hid).unwrap().name();
+            !fir.graphs.get(name).unwrap().blackbox
+        })
+        .map(|id| {
+            fir.hier.graph.node_weight(*id).unwrap().name().clone()
+        })
+        .collect();
 
-    fir.graphs.swap_remove(mod_to_fame5);
-    fir.add_module(Identifier::Name(fame5_name(mod_to_fame5)), fame5_module);
+    let blackboxes: HashSet<Identifier> = fir.graphs
+        .iter()
+        .filter(|(_name, fg)| {
+            fg.blackbox
+        }).map(|(name, _fg)| name.clone())
+        .collect();
+
+    for mod_name in modules_to_fame5.iter() {
+        let mod_to_fame5_graph = fir.graphs.get(mod_name).unwrap();
+        let fame5_module = multithread_module(mod_to_fame5_graph, nthreads, &hostclock, &hostreset, &blackboxes);
+        fir.graphs.insert(Identifier::Name(fame5_name(mod_name)), fame5_module);
+    }
+    for mod_name in modules_to_fame5.iter() {
+        fir.graphs.swap_remove(mod_name);
+    }
+    let hier_new = Hierarchy::new(fir);
+    fir.hier = hier_new;
 }
 
 pub fn add_thread_idx_update(
@@ -161,6 +187,7 @@ pub fn add_thread_idx_reg(
     thread_idx_id
 }
 
+/// Find the node ID for host clock or reset by name
 pub fn find_host_clock_or_reset_id(fg: &FirGraph, host_node: &Identifier) -> NodeIndex {
     fg.graph.node_indices().into_iter()
         .map(|id| {
@@ -185,6 +212,7 @@ mod test {
     use crate::passes::ast::print::Printer;
 
     #[test_case("FireSimGCD"; "FireSimGCD")]
+    #[test_case("FireSimNestedModels"; "FireSimNestedModels")]
     fn fame5(name: &str) -> Result<(), RippleIRErr> {
         let source = std::fs::read_to_string(format!("./test-inputs-firrtl3/{}.fir", name)).expect("to_exist");
         let mut circuit = parse_firrtl3(&source).expect("firrtl parser");
@@ -199,7 +227,7 @@ mod test {
         let fame5_ast = to_ast_firrtl3(&ir);
         let mut printer = FIRRTL3Printer::new();
         let fame5_firrtl_str = printer.print_circuit(&fame5_ast);
-        let out_path = format!("./test-outputs/{}.firrtl3.fame5.fir", circuit.name);
+        let out_path = format!("./test-outputs/{}.{}.firrtl3.fame5.fir", name, circuit.name);
         std::fs::write(&out_path, fame5_firrtl_str)?;
 
         Ok(())
