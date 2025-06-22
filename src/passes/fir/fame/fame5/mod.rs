@@ -9,11 +9,16 @@ use rusty_firrtl::Identifier;
 use indexmap::IndexMap;
 use indexmap::IndexSet;
 use petgraph::graph::NodeIndex;
+use petgraph::graph::EdgeIndex;
 use petgraph::Direction::Incoming;
+use petgraph::Direction;
+use petgraph::visit::EdgeRef;
 use std::collections::HashSet;
 
 mod top;
 mod multithread;
+mod register;
+mod memory;
 
 pub type InstModuleMap = IndexMap<Identifier, Identifier>;
 pub type ChannelMap = IndexMap<Identifier, Vec<(u32, NodeIndex)>>;
@@ -201,6 +206,16 @@ pub fn find_host_clock_or_reset_id(fg: &FirGraph, host_node: &Identifier) -> Nod
         .map(|x| x.1)
         .last()
         .expect(&format!("No host node {:?} found", host_node))
+}
+
+pub fn find_edge_with_type(fg: &FirGraph, id: NodeIndex, et: FirEdgeType, dir: Direction) -> Option<EdgeIndex> {
+    for eid in fg.graph.edges_directed(id, dir) {
+        let edge = fg.graph.edge_weight(eid.id()).unwrap();
+        if edge.et == et {
+            return Some(eid.id());
+        }
+    }
+    None
 }
 
 #[cfg(test)]

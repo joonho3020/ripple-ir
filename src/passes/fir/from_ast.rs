@@ -282,9 +282,9 @@ fn add_graph_node_from_stmt(ir: &mut FirGraph, stmt: &Stmt, nm: &mut NodeMap) {
 }
 
 /// Construct proper typetree for memory ports
-/// r: data, flipped addr, flipped en, flipped clk
-/// w: flipped addr, flipped en, flipped clk, flipped data, flipped mask (UInt <1>)
-/// rw: rdata, flipped addr, flipped en, flipped clk, flipped wmode, flipped wdata, flipped wmask
+/// - r: data, flipped addr, flipped en, flipped clk
+/// - w: flipped addr, flipped en, flipped clk, flipped data, flipped mask (UInt <1>)
+/// - rw: rdata, flipped addr, flipped en, flipped clk, flipped wmode, flipped wdata, flipped wmask
 pub fn memory_type_from_ports(ports: &MemoryPorts, depth: u32, base_type: &Type) -> Type {
     let mut memory_fields = Vec::new();
 

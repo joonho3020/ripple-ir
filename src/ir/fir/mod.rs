@@ -21,6 +21,14 @@ use crate::impl_clean_display;
 use super::hierarchy::Hierarchy;
 use super::whentree::CondPathWithPrior;
 
+/// Holds metadata that has to be passed between compiler passes
+#[derive(Derivative, Clone)]
+#[derivative(Debug, Default)]
+pub struct FirNodeMetadata {
+    /// Node has been added during FAME5
+    pub fame5: bool,
+}
+
 /// A node in the FIRRTL IR graph, representing an operation, register, memory, port, etc.
 #[derive(Derivative, Clone)]
 #[derivative(Debug)]
@@ -34,12 +42,16 @@ pub struct FirNode {
     /// Optional type tree for this node (signal type information)
     #[derivative(Debug="ignore")]
     pub ttree: Option<TypeTree>,
+
+    /// Metadata added during passes
+    #[derivative(Debug="ignore")]
+    pub metadata: FirNodeMetadata
 }
 
 impl FirNode {
     /// Create a new FIR node with the given name, type, and optional type tree.
     pub fn new(name: Option<Identifier>, nt: FirNodeType, ttree: Option<TypeTree>) -> Self {
-        Self { name, nt, ttree }
+        Self { name, nt, ttree, metadata: FirNodeMetadata::default() }
     }
 
     /// Returns true if this node is a phi node.
