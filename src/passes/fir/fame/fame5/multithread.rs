@@ -1,3 +1,5 @@
+use std::mem;
+
 use crate::passes::fir::fame::fame5::*;
 use crate::passes::fir::from_ast::memory_type_from_ports;
 use crate::ir::typetree::typetree::TypeTree;
@@ -228,7 +230,6 @@ pub fn multithread_module(
 
             // Create mux node for RegInit write enable
             let (one_const_id, one_const_expr) = fame5.add_uint_literal(1, 1);
-
             let (mux_id, mux_expr) = fame5.add_mux(
                 hostreset_id,
                 hostreset_expr.clone(),
@@ -248,7 +249,6 @@ pub fn multithread_module(
 
 
             for eid in drivers.iter() {
-
                 // Find initial value for RegReset
                 let init_edge = find_edge_with_type(&fame5, reg_id, FirEdgeType::InitValue, Incoming).unwrap();
                 let init_id = fame5.graph.edge_endpoints(init_edge).unwrap().0;
@@ -276,7 +276,6 @@ pub fn multithread_module(
                         Box::new(wport_ref.clone()),
                         Identifier::Name("data".to_string()))));
            }
-
         } else {
             fame5.add_wire(
                 wen_id,
@@ -319,4 +318,133 @@ pub fn multithread_module(
         }
     }
     fame5
+}
+
+struct MemPortInfo<'a> {
+    orig_id: NodeIndex,
+    new_id: NodeIndex,
+    mem: &'a Identifier,
+    port: &'a Identifier
+}
+
+impl <'a> MemPortInfo<'a> {
+    fn field_ref(&self, field: &Identifier) -> Reference {
+        let port_ref = Reference::RefDot(Box::new(
+                Reference::RefDot(
+                    Box::new(Reference::Ref(self.mem.clone())),
+                    self.port.clone())),
+                    field.clone());
+        port_ref
+    }
+}
+
+fn find_memport_edge<'a>(
+    fg: &FirGraph,
+    memport: &'a MemPortInfo,
+    field: &Identifier,
+    dir: Direction
+) -> Option<EdgeIndex> {
+    let field_ref = memport.field_ref(field);
+    for eid in fg.graph.edges_directed(memport.orig_id, dir) {
+        let edge = fg.graph.edge_weight(eid.id()).unwrap();
+        if let Some(dst_ref) = edge.dst.as_ref() {
+            if dst_ref == &field_ref {
+                return Some(eid.id());
+            }
+        }
+    }
+    None
+}
+
+fn add_edge_input_mem_edge<'a>(
+    fg: &mut FirGraph,
+    field: Identifier,
+    memport: &'a MemPortInfo
+)
+{
+    if let Some(eid) = find_memport_edge(fg, memport, &field, Incoming) {
+        let ep = fg.graph.edge_endpoints(eid).unwrap();
+        let mut edge = fg.graph.edge_weight(eid).unwrap().clone();
+        edge.dst = Some(memport.field_ref(&field));
+        fg.graph.add_edge(ep.0, memport.new_id, edge);
+    }
+}
+
+fn wport_connections<'a>(
+    fg: &mut FirGraph,
+    memport: &'a MemPortInfo,
+    thread_idx_id: NodeIndex,
+)
+{
+    let addr_driver = find_memport_edge(fg, memport, &Identifier::Name("addr".to_string()), Incoming);
+
+    add_edge_input_mem_edge(fg, Identifier::Name("en".to_string()), memport);
+    add_edge_input_mem_edge(fg, Identifier::Name("mask".to_string()), memport);
+    add_edge_input_mem_edge(fg, Identifier::Name("data".to_string()), memport);
+
+}
+
+pub fn pipeline_memories(
+    fg: &FirGraph,
+    nthreads: u32,
+    thread_idx_name: &Identifier,
+    thread_idx_id: NodeIndex,
+) -> FirGraph {
+    let mut pipelined = fg.clone();
+
+    // Find all memory nodes with read latency > 0
+    let mut mem_ids: Vec<NodeIndex> = pipelined.graph.node_indices().filter(|id| {
+        let node = pipelined.graph.node_weight(*id).unwrap();
+        if let FirNodeType::Memory(_, rlat, wlat, _, _) = node.nt {
+            assert!(rlat <= 1);
+            assert!(wlat == 0);
+            rlat > 0
+        } else {
+            false
+        }
+    }).collect();
+
+    mem_ids.sort();
+
+    for &mem_id in mem_ids.iter().rev() {
+        let node = pipelined.graph.node_weight(mem_id).unwrap().clone();
+        if let FirNodeType::Memory(depth, rlat, wlat, ports, ruw) = &node.nt {
+            let mem_name = node.name.as_ref().unwrap().clone();
+
+            // Create new memory with capacity multiplied by nthreads
+            let new_depth = depth * nthreads;
+            let new_mem_type = memory_type_from_ports(ports, new_depth, &node.ttree.as_ref().unwrap().to_type());
+            let new_mem = FirNode::new(
+                Some(mem_name.clone()),
+                FirNodeType::Memory(new_depth, *rlat, *wlat, ports.clone(), ruw.clone()),
+                Some(TypeTree::build_from_type(&new_mem_type, TypeDirection::Outgoing))
+            );
+
+            let new_mem_id = pipelined.graph.add_node(new_mem);
+
+            for port in ports {
+                match port.as_ref() {
+                    MemoryPort::Read(name) => {
+                    },
+                    MemoryPort::Write(p) => {
+// let addr_driver = find_memport_edge(fg, &mem_id, &mem_name, p, &Identifier::Name("addr".to_string()), Incoming);
+// if let Some(en_eid) = find_memport_edge(fg, &mem_id, &mem_name, p, &Identifier::Name("en".to_string()), Incoming) {
+// }
+
+
+// let data_driver = ;
+// let mask_driver = ;
+                    },
+                    MemoryPort::ReadWrite(name) => {
+                    },
+                }
+            }
+
+
+            // Remove the original memory node
+            pipelined.graph.remove_node(mem_id);
+        }
+    }
+
+    pipelined
 }
