@@ -309,6 +309,35 @@ impl FirGraph {
         self.namespace = NameSpace::new(self);
     }
 
+    /// Returns the base type of a memory node
+    pub fn memory_base_type(&self, id: NodeIndex) -> Type {
+        let node = self.node_weight(id).unwrap();
+        let mem_name = node.name.as_ref().unwrap().clone();
+        match &node.nt {
+            FirNodeType::Memory(_, _, _, ports, _) => {
+                let ttree = node.ttree.as_ref().unwrap();
+                let first_port = ports.first().unwrap();
+                let tpe = match first_port.as_ref() {
+                    MemoryPort::Read(name) |
+                        MemoryPort::Write(name) => {
+                            let port_ref = Reference::RefDot(Box::new(Reference::Ref(mem_name)), name.clone());
+                            let reference = Reference::RefDot(Box::new(port_ref), Identifier::Name("data".to_string()));
+                            ttree.view().unwrap().subtree_from_ref(&reference).unwrap().clone_ttree().to_type()
+                        }
+                    MemoryPort::ReadWrite(name) => {
+                        let port_ref = Reference::RefDot(Box::new(Reference::Ref(mem_name)), name.clone());
+                        let reference = Reference::RefDot(Box::new(port_ref), Identifier::Name("wdata".to_string()));
+                        ttree.view().unwrap().subtree_from_ref(&reference).unwrap().clone_ttree().to_type()
+                    }
+                };
+                return tpe;
+            }
+            _ => {
+                unreachable!();
+            }
+        }
+    }
+
     /// Adds a new unsigned integer literal node to the graph.
     pub fn add_uint_literal(&mut self, value: u32, width: u32) -> (NodeIndex, Expr) {
         let node = FirNode::new(

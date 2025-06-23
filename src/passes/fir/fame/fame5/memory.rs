@@ -50,9 +50,16 @@ pub fn duplicate_memory(
 }
 
 struct MemPortInfo<'a> {
+    /// Original memory node index
     orig_id: NodeIndex,
+
+    /// New memory node index
     new_id: NodeIndex,
+
+    /// Name of the memory
     mem: &'a Identifier,
+
+    /// Name of the port that we are currently handling
     port: &'a Identifier
 }
 
@@ -154,6 +161,7 @@ fn add_input_addr_edge<'a>(
     }
 }
 
+/// - rdata: Name of the read data port
 fn add_output_rdata_edge<'a>(
     fg: &mut FirGraph,
     rdata: Identifier,
@@ -164,13 +172,13 @@ fn add_output_rdata_edge<'a>(
 {
     // Get the original memory node to check read latency
     let orig_mem_node = fg.graph.node_weight(memport.orig_id).unwrap();
-    let read_latency = if let FirNodeType::Memory(_, rlat, _, _, _) = orig_mem_node.nt {
+    let read_latency = if let FirNodeType::Memory(_, rlat, ..) = &orig_mem_node.nt {
         rlat
     } else {
         panic!("Expected memory node");
     };
 
-    if read_latency == 0 {
+    if *read_latency == 0 {
         // If read latency is zero, just connect the rdata port to the sinks
         for eid in find_memport_outgoing_edges(fg, memport, &rdata) {
             let ep = fg.graph.edge_endpoints(eid).unwrap();
@@ -179,9 +187,6 @@ fn add_output_rdata_edge<'a>(
             fg.graph.add_edge(memport.new_id, ep.1, edge);
         }
     } else {
-        // If read latency is one, create a combinational memory
-        let rdata = Identifier::Name("data".to_string());
-
         // Create combinational memory with depth nthreads
         let rport_name = Identifier::Name("rd".to_string());
         let wport_name = Identifier::Name("wr".to_string());
@@ -191,26 +196,24 @@ fn add_output_rdata_edge<'a>(
         ];
 
         // Get the data type from the original memory
-        let mem_type = orig_mem_node.ttree.as_ref().unwrap().to_type();
+        let mem_type = fg.memory_base_type(memport.orig_id);
         let comb_mem_type = memory_type_from_ports(&ports, nthreads, &mem_type);
-        let comb_mem_name = Identifier::Name(format!("{}_fame5_pipeline", memport.mem));
+        let comb_mem_name = Identifier::Name(format!("{}_{}_fame5_pipeline", memport.mem, memport.port));
         let comb_mem = FirNode::new(
             Some(comb_mem_name.clone()),
             FirNodeType::Memory(nthreads, 0, 1, ports, ChirrtlMemoryReadUnderWrite::Undefined),
-            Some(TypeTree::build_from_type(&comb_mem_type, TypeDirection::Outgoing))
-        );
+            Some(TypeTree::build_from_type(&comb_mem_type, TypeDirection::Outgoing)));
 
         let comb_mem_id = fg.graph.add_node(comb_mem);
 
         // Create references for the combinational memory ports
         let rport_ref = Reference::RefDot(
             Box::new(Reference::Ref(comb_mem_name.clone())),
-            rport_name.clone()
-        );
+            rport_name.clone());
+
         let wport_ref = Reference::RefDot(
             Box::new(Reference::Ref(comb_mem_name.clone())),
-            wport_name.clone()
-        );
+            wport_name.clone());
 
         // Connect read port enable to 1
         let (one_const_id, one_expr) = fg.add_uint_literal(1, 1);
@@ -255,8 +258,7 @@ fn add_output_rdata_edge<'a>(
             mask_one_id,
             mask_one_expr,
             comb_mem_id,
-            Some(Reference::RefDot(Box::new(wport_ref.clone()), Identifier::Name("mask".to_string()))),
-        );
+            Some(Reference::RefDot(Box::new(wport_ref.clone()), Identifier::Name("mask".to_string()))));
 
         // Connect write port clock (same as original read port clock)
         if let Some(clk_eid) = find_memport_incoming_edge(fg, memport, &Identifier::Name("clk".to_string())) {
@@ -312,18 +314,19 @@ fn add_output_rdata_edge<'a>(
         );
 
         // Connect write port data from original memory rdata
-        if let Some(rdata_eid) = find_memport_incoming_edge(fg, memport, &rdata) {
-            let rdata_edge = fg.graph.edge_weight(rdata_eid).unwrap().clone();
-            let mut new_rdata_edge = rdata_edge.clone();
-            new_rdata_edge.dst = Some(Reference::RefDot(Box::new(wport_ref.clone()), Identifier::Name("data".to_string())));
-            fg.graph.add_edge(memport.new_id, comb_mem_id, new_rdata_edge);
-        }
+        let write_src = Expr::Reference(memport.field_ref(&rdata));
+        let write_dst = Reference::RefDot(Box::new(wport_ref.clone()), Identifier::Name("data".to_string()));
+        let write_edge = FirEdge::new(write_src, Some(write_dst), FirEdgeType::Wire);
+        fg.graph.add_edge(memport.new_id, comb_mem_id, write_edge);
 
         // Connect combinational memory read data to original sinks
-        if let Some(eid) = find_memport_incoming_edge(fg, memport, &rdata) {
+        for eid in find_memport_outgoing_edges(fg, memport, &rdata) {
             let ep = fg.graph.edge_endpoints(eid).unwrap();
             let mut edge = fg.graph.edge_weight(eid).unwrap().clone();
-            edge.src = Expr::Reference(Reference::RefDot(Box::new(rport_ref), Identifier::Name("data".to_string())));
+            edge.src = Expr::Reference(
+                Reference::RefDot(
+                    Box::new(rport_ref.clone()),
+                    Identifier::Name("data".to_string())));
             fg.graph.add_edge(comb_mem_id, ep.1, edge);
         }
     }
