@@ -5,7 +5,7 @@ mod test {
 
     fn run(filepath: &str, outdir: &str, pfx: &str) -> Result<(), RippleIRErr> {
         let fir = run_passes_from_firrtl3_file(filepath)?;
-// fir.export(outdir, pfx)?;
+fir.export(outdir, pfx)?;
         Ok(())
     }
 
@@ -22,5 +22,25 @@ mod test {
     #[test]
     fn firesim_boom() -> Result<(), RippleIRErr> {
         run("./test-inputs-firrtl3/FireSimLargeBoom.fir", "./test-outputs", "firrtl3")
+    }
+
+    #[test]
+    fn lcs1() -> Result<(), RippleIRErr> {
+        run("./test-inputs-firrtl3/LCS1.fir", "./test-outputs", "firrtl3")
+    }
+
+    #[test]
+    fn lcs4() -> Result<(), RippleIRErr> {
+        run("./test-inputs-firrtl3/LCS4.fir", "./test-outputs", "firrtl3")
+    }
+
+    #[test]
+    fn lcs8() -> Result<(), RippleIRErr> {
+        run("./test-inputs-firrtl3/LCS8.fir", "./test-outputs", "firrtl3")
+    }
+
+    #[test]
+    fn adder() -> Result<(), RippleIRErr> {
+        run("./test-inputs-firrtl3/Adder.fir", "./test-outputs", "firrtl3")
     }
 }

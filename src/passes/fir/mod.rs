@@ -9,3 +9,5 @@ pub mod common_subgraph;
 pub mod jaspergold;
 pub mod fame;
 pub mod export_firgraph;
+pub mod sim_test;
+pub mod fir_simulator;
