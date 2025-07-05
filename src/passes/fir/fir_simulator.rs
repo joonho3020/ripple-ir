@@ -2,9 +2,10 @@ use crate::ir::fir::{FirGraph, FirNodeType};
 use num_traits::ToPrimitive;
 use petgraph::graph::NodeIndex;
 use petgraph::visit::EdgeRef;
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use rusty_firrtl::Int;
 
+/// Value stored in the simulator for each node
 #[derive(Debug, Clone, PartialEq)]
 pub enum FirValue {
     X,
@@ -13,141 +14,430 @@ pub enum FirValue {
 
 impl FirValue {
     pub fn to_int(&self) -> Option<Int> {
-        match self {
-            FirValue::Int(i) => Some(i.clone()),
-            _ => None,
-        }
+        if let FirValue::Int(i) = self { Some(i.clone()) } else { None }
     }
 }
 
+/// Main FIRRTL simulator
 pub struct FirSimulator {
     pub graph: FirGraph,
     pub values: HashMap<NodeIndex, FirValue>,
+    pub next_values: HashMap<NodeIndex, FirValue>,
 }
 
 impl FirSimulator {
+    /// Create a new simulator and split bundles
     pub fn new(graph: FirGraph) -> Self {
-        Self {
-            graph,
-            values: HashMap::new(),
-        }
+        let mut sim = Self { 
+            graph, 
+            values: HashMap::new(), 
+            next_values: HashMap::new() 
+        };
+        sim.split_bundles();
+        sim
     }
 
-    pub fn set_input(&mut self, name: &str, value: Int) {
-        for node_idx in self.graph.graph.node_indices() {
-            let node = &self.graph.graph[node_idx];
-            if let Some(n) = &node.name {
-                if n.to_string() == name {
-                    self.values.insert(node_idx, FirValue::Int(value.clone()));
-                }
-            }
-        }
-    }
-
+    /// Run one simulation cycle (level by level)
     pub fn run(&mut self) {
-        let mut queue: VecDeque<NodeIndex> = VecDeque::new();
-        let mut in_degree = HashMap::new();
-        // Initialize in-degree
-        for node_idx in self.graph.graph.node_indices() {
-            let indeg = self.graph.graph.edges_directed(node_idx, petgraph::Direction::Incoming).count();
-            in_degree.insert(node_idx, indeg);
-            if indeg == 0 {
-                queue.push_back(node_idx);
+        self.next_values.clear();
+        
+        // Process nodes level by level
+        for level in self.levels() {
+            for &idx in &level {
+                let node = &self.graph.graph[idx];
+                let value = self.compute_node_value(idx, node);
+                
+                // Skip registers during combinational phase
+                if let FirNodeType::Reg = node.nt { continue; }
+                
+                // Store value and update register next values
+                self.values.insert(idx, value.clone());
+                for e in self.graph.graph.edges_directed(idx, petgraph::Direction::Outgoing) {
+                    let tgt = e.target();
+                    if let FirNodeType::Reg = self.graph.graph[tgt].nt {
+                        self.next_values.insert(tgt, value.clone());
+                    }
+                }
             }
         }
-        // Topological order simulation
-        while let Some(node_idx) = queue.pop_front() {
-            let node = &self.graph.graph[node_idx];
-            let value = match &node.nt {
-                FirNodeType::UIntLiteral(_, val) => FirValue::Int(val.clone()),
-                FirNodeType::Input => self.values.get(&node_idx).cloned().unwrap_or(FirValue::X),
-                FirNodeType::Reg => {
-                    // For this example, treat reg as 0-initialized if not specified
-                    self.values.get(&node_idx).cloned().unwrap_or(FirValue::Int(Int::from(0u32)))
-                }
-                FirNodeType::PrimOp2Expr(op) => {
-                    let mut operands = vec![];
-                    for edge in self.graph.graph.edges_directed(node_idx, petgraph::Direction::Incoming) {
-                        let src = edge.source();
-                        if let Some(FirValue::Int(val)) = self.values.get(&src) {
-                            operands.push(val.clone());
-                        } else {
-                            operands.push(Int::from(0u32));
-                        }
-                    }
-                    if operands.len() == 2 {
-                        let a = operands[0].0.to_i64().unwrap();
-                        let b = operands[1].0.to_i64().unwrap();
-                        match op {
-                            rusty_firrtl::PrimOp2Expr::And => FirValue::Int(Int::from((a & b) as u32)),
-                            rusty_firrtl::PrimOp2Expr::Or => FirValue::Int(Int::from((a | b) as u32)),
-                            rusty_firrtl::PrimOp2Expr::Eq => FirValue::Int(Int::from((a == b) as u32)),
-                            rusty_firrtl::PrimOp2Expr::Neq => FirValue::Int(Int::from((a != b) as u32)),
-                            rusty_firrtl::PrimOp2Expr::Lt => FirValue::Int(Int::from((a < b) as u32)),
-                            rusty_firrtl::PrimOp2Expr::Leq => FirValue::Int(Int::from((a <= b) as u32)),
-                            rusty_firrtl::PrimOp2Expr::Gt => FirValue::Int(Int::from((a > b) as u32)),
-                            rusty_firrtl::PrimOp2Expr::Geq => FirValue::Int(Int::from((a >= b) as u32)),
-                            rusty_firrtl::PrimOp2Expr::Add => FirValue::Int(Int::from((a + b) as u32)),
-                            rusty_firrtl::PrimOp2Expr::Sub => FirValue::Int(Int::from((a - b) as u32)),
-                            _ => FirValue::X,
-                        }
-                    } else {
-                        FirValue::X
-                    }
-                }
-                FirNodeType::Output => {
-                    // Output just forwards its input
-                    let mut val = FirValue::X;
-                    for edge in self.graph.graph.edges_directed(node_idx, petgraph::Direction::Incoming) {
-                        let src = edge.source();
-                        if let Some(v) = self.values.get(&src) {
-                            val = v.clone();
-                            break;
-                        }
-                    }
-                    val
-                }
-                FirNodeType::SMem(_) | FirNodeType::CMem => {
-                    // For demo, treat as X
-                    FirValue::X
-                }
-                _ => FirValue::X,
-            };
-            self.values.insert(node_idx, value);
-            // Decrement in-degree of neighbors
-            for edge in self.graph.graph.edges_directed(node_idx, petgraph::Direction::Outgoing) {
-                let tgt = edge.target();
-                if let Some(e) = in_degree.get_mut(&tgt) {
-                    *e -= 1;
-                    if *e == 0 {
-                        queue.push_back(tgt);
-                    }
+        
+        // Update registers after combinational logic
+        for idx in self.graph.graph.node_indices() {
+            if let FirNodeType::Reg = self.graph.graph[idx].nt {
+                if let Some(val) = self.next_values.get(&idx) {
+                    self.values.insert(idx, val.clone());
                 }
             }
         }
     }
 
+    /// Set input value for a bundle field (e.g., "io.a", "io.b")
+    pub fn set_bundle_input(&mut self, bundle_name: &str, field_name: &str, value: Int) {
+        let field_node_name = format!("{}.{}", bundle_name, field_name);
+        
+        // Check if field node already exists
+        if let Some(idx) = self.find_node_by_name(&field_node_name) {
+            self.values.insert(idx, FirValue::Int(value));
+            return;
+        }
+        
+        // Create new field node with correct type from TypeTree
+        let node_type = self.get_field_type(bundle_name, field_name);
+        let field_node = crate::ir::fir::FirNode::new(
+            Some(rusty_firrtl::Identifier::Name(field_node_name)),
+            node_type,
+            None
+        );
+        let idx = self.graph.graph.add_node(field_node);
+        self.values.insert(idx, FirValue::Int(value));
+    }
+
+    /// Set input value for a node by name
+    pub fn set_input(&mut self, name: &str, value: Int) {
+        if let Some(idx) = self.find_node_by_name(name) {
+            self.values.insert(idx, FirValue::Int(value));
+        }
+    }
+
+    /// Get the output value for a node by name
     pub fn get_output(&self, name: &str) -> Option<FirValue> {
-        for node_idx in self.graph.graph.node_indices() {
-            let node = &self.graph.graph[node_idx];
-            if let Some(n) = &node.name {
-                if n.to_string() == name {
-                    return self.values.get(&node_idx).cloned();
-                }
-            }
-        }
-        None
+        self.find_node_by_name(name).and_then(|idx| self.values.get(&idx).cloned())
     }
 
+    /// Display the adjacency list of the FIR graph
     pub fn display(&self) {
         println!("\nFIR Graph Adjacency List:");
-        for node_idx in self.graph.graph.node_indices() {
-            let node = &self.graph.graph[node_idx];
-            let neighbors: Vec<String> = self.graph.graph.edges_directed(node_idx, petgraph::Direction::Outgoing)
-                .map(|edge| self.graph.graph[edge.target()].name.as_ref().map(|n| n.to_string()).unwrap_or("<unnamed>".to_string()))
+        for idx in self.graph.graph.node_indices() {
+            let node = &self.graph.graph[idx];
+            let neighbors: Vec<_> = self.graph.graph.edges_directed(idx, petgraph::Direction::Outgoing)
+                .map(|e| self.graph.graph[e.target()].name.as_ref().map(|n| n.to_string()).unwrap_or("<unnamed>".to_string()))
                 .collect();
-            let node_info = format!("{:?}", node.nt);
-            println!("{} ({}): -> {:?}", node.name.as_ref().map(|n| n.to_string()).unwrap_or("<unnamed>".to_string()), node_info, neighbors);
+            let name = node.name.as_ref().map(|n| n.to_string()).unwrap_or("<unnamed>".to_string());
+            println!("{} ({:?}): -> {:?}", name, node.nt, neighbors);
+        }
+    }
+
+    /// Display the levelization (topological levels) of the FIR graph
+    pub fn display_levelization(&self) {
+        println!("\nFIR Graph Levelization:");
+        for (i, level) in self.levels().iter().enumerate() {
+            println!("Level {}: [", i);
+            for &idx in level {
+                let node = &self.graph.graph[idx];
+                let name = node.name.as_ref().map(|n| n.to_string()).unwrap_or_else(|| format!("<unnamed_{}>", idx.index()));
+                println!("  {} ({:?})", name, node.nt);
+            }
+            println!("]");
+        }
+    }
+
+    // --- Internal helper methods ---
+
+    /// Find node by name (including bundle fields)
+    fn find_node_by_name(&self, name: &str) -> Option<NodeIndex> {
+        self.graph.graph.node_indices().find(|&idx| {
+            self.graph.graph[idx].name.as_ref().map(|n| n.to_string()) == Some(name.to_string())
+        })
+    }
+
+    /// Get field type from TypeTree
+    fn get_field_type(&self, bundle_name: &str, field_name: &str) -> FirNodeType {
+        for idx in self.graph.graph.node_indices() {
+            let node = &self.graph.graph[idx];
+            if node.name.as_ref().map(|n| n.to_string()) == Some(bundle_name.to_string()) {
+                if let Some(typetree) = &node.ttree {
+                    if let Some(view) = typetree.view() {
+                        let field_ref = rusty_firrtl::Reference::RefDot(
+                            Box::new(rusty_firrtl::Reference::Ref(rusty_firrtl::Identifier::Name(bundle_name.to_string()))),
+                            rusty_firrtl::Identifier::Name(field_name.to_string())
+                        );
+                        
+                        if let Some(field_id) = view.subtree_root(&field_ref) {
+                            if let Some(field_node_info) = view.get_node(field_id) {
+                                return match field_node_info.dir {
+                                    crate::ir::typetree::tnode::TypeDirection::Outgoing => FirNodeType::Input,
+                                    crate::ir::typetree::tnode::TypeDirection::Incoming => FirNodeType::Output,
+                                };
+                            }
+                        }
+                    }
+                }
+                break;
+            }
+        }
+        FirNodeType::Input // Default fallback
+    }
+
+    /// Calculate topological levels for simulation
+    fn levels(&self) -> Vec<Vec<NodeIndex>> {
+        let mut in_deg = HashMap::new();
+        
+        // Initialize in-degrees
+        for idx in self.graph.graph.node_indices() {
+            let node = &self.graph.graph[idx];
+            let deg = if let FirNodeType::Reg = node.nt {
+                0 // Registers are always level 0
+            } else {
+                self.graph.graph.edges_directed(idx, petgraph::Direction::Incoming)
+                    .filter(|e| !matches!(e.weight().et, crate::ir::fir::FirEdgeType::Clock | crate::ir::fir::FirEdgeType::Reset))
+                    .count()
+            };
+            in_deg.insert(idx, deg);
+        }
+        
+        // Build levels
+        let mut levels = Vec::new();
+        let mut remaining: Vec<_> = self.graph.graph.node_indices().collect();
+        
+        while !remaining.is_empty() {
+            let mut this_level = Vec::new();
+            let mut next = Vec::new();
+            
+            for &idx in &remaining {
+                if in_deg[&idx] == 0 {
+                    this_level.push(idx);
+                } else {
+                    next.push(idx);
+                }
+            }
+            
+            if this_level.is_empty() { break; }
+            
+            // Update in-degrees for next level
+            for &idx in &this_level {
+                for e in self.graph.graph.edges_directed(idx, petgraph::Direction::Outgoing) {
+                    let tgt = e.target();
+                    let tgt_node = &self.graph.graph[tgt];
+                    if !matches!(e.weight().et, crate::ir::fir::FirEdgeType::Clock | crate::ir::fir::FirEdgeType::Reset)
+                        && !matches!(tgt_node.nt, FirNodeType::Reg) {
+                        *in_deg.get_mut(&tgt).unwrap() -= 1;
+                    }
+                }
+            }
+            
+            levels.push(this_level);
+            remaining = next;
+        }
+        
+        levels
+    }
+
+    /// Compute the value for a node based on its type and inputs
+    fn compute_node_value(&self, idx: NodeIndex, node: &crate::ir::fir::FirNode) -> FirValue {
+        use FirNodeType::*;
+        match &node.nt {
+            UIntLiteral(_, val) => FirValue::Int(val.clone()),
+            Input => self.values.get(&idx).cloned().unwrap_or(FirValue::X),
+            Reg => self.values.get(&idx).cloned().unwrap_or(FirValue::X),
+            PrimOp2Expr(op) => self.compute_primop2_expr(idx, op),
+            Output => self.get_input_value(idx),
+            PrimOp1Expr1Int(op, param) => self.compute_primop1_expr1_int(idx, op, param),
+            SMem(_) | CMem => FirValue::X,
+            _ => FirValue::X,
+        }
+    }
+
+    /// Get input value for a node
+    fn get_input_value(&self, idx: NodeIndex) -> FirValue {
+        self.graph.graph.edges_directed(idx, petgraph::Direction::Incoming)
+            .find_map(|e| self.values.get(&e.source()).cloned())
+            .unwrap_or(FirValue::X)
+    }
+
+    /// Compute two-operand primitive operations
+    fn compute_primop2_expr(&self, idx: NodeIndex, op: &rusty_firrtl::PrimOp2Expr) -> FirValue {
+        let operands: Vec<_> = self.graph.graph.edges_directed(idx, petgraph::Direction::Incoming)
+            .filter_map(|e| {
+                self.values.get(&e.source()).and_then(|v| {
+                    if let FirValue::Int(i) = v { Some(i.clone()) } else { None }
+                })
+            })
+            .collect();
+        
+        if operands.len() != 2 { return FirValue::X; }
+        
+        let a = operands[0].0.to_i64().unwrap();
+        let b = operands[1].0.to_i64().unwrap();
+        
+        use rusty_firrtl::PrimOp2Expr::*;
+        let result = match op {
+            And => a & b,
+            Or => a | b,
+            Eq => (a == b) as i64,
+            Neq => (a != b) as i64,
+            Lt => (a < b) as i64,
+            Leq => (a <= b) as i64,
+            Gt => (a > b) as i64,
+            Geq => (a >= b) as i64,
+            Add => a + b,
+            Sub => a - b,
+            _ => return FirValue::X,
+        };
+        
+        FirValue::Int(Int::from(result as u32))
+    }
+
+    /// Compute one-operand primitive operations with one integer parameter
+    fn compute_primop1_expr1_int(&self, idx: NodeIndex, op: &rusty_firrtl::PrimOp1Expr1Int, param: &Int) -> FirValue {
+        let operand = self.graph.graph.edges_directed(idx, petgraph::Direction::Incoming)
+            .filter_map(|e| {
+                self.values.get(&e.source()).and_then(|v| {
+                    if let FirValue::Int(i) = v { Some(i.clone()) } else { None }
+                })
+            })
+            .next()
+            .unwrap_or(Int::from(0u32));
+        
+        match op {
+            rusty_firrtl::PrimOp1Expr1Int::Tail => {
+                let bits = param.0.to_u32().unwrap_or(0);
+                if bits == 0 {
+                    FirValue::Int(operand)
+                } else {
+                    let val = operand.0.to_u64().unwrap_or(0);
+                    let mask = (1u64 << (32 - bits)) - 1;
+                    FirValue::Int(Int::from((val & mask) as u32))
+                }
+            }
+            _ => FirValue::X,
+        }
+    }
+
+    /// Detect and split all bundle nodes based on their TypeTree
+    fn split_bundles(&mut self) {
+        let bundle_nodes: Vec<_> = self.graph.graph.node_indices()
+            .filter(|&idx| {
+                let node = &self.graph.graph[idx];
+                if let Some(typetree) = &node.ttree {
+                    if let Some(view) = typetree.view() {
+                        if let Some(root_node) = view.root_node() {
+                            matches!(root_node.tpe, crate::ir::typetree::tnode::TypeTreeNodeType::Fields)
+                        } else { false }
+                    } else { false }
+                } else { false }
+            })
+            .collect();
+        
+        for bundle_idx in bundle_nodes {
+            let bundle_name = self.graph.graph[bundle_idx].name.as_ref()
+                .map(|n| n.to_string())
+                .unwrap_or_else(|| format!("bundle_{}", bundle_idx.index()));
+            self.split_bundle(&bundle_name);
+        }
+    }
+
+    /// Split a bundle node into individual field nodes
+    fn split_bundle(&mut self, bundle_name: &str) {
+        use rusty_firrtl::Identifier;
+        use crate::ir::fir::FirNode;
+
+        // Find bundle nodes
+        let bundle_nodes: Vec<_> = self.graph.graph.node_indices()
+            .filter(|&idx| self.graph.graph[idx].name.as_ref().map(|n| n.to_string()) == Some(bundle_name.to_string()))
+            .collect();
+        
+        if bundle_nodes.is_empty() { return; }
+        
+        // Get first bundle node with TypeTree
+        let bundle_idx = bundle_nodes.iter()
+            .find(|&&idx| self.graph.graph[idx].ttree.is_some())
+            .copied()
+            .unwrap_or(bundle_nodes[0]);
+        
+        // Extract field information from TypeTree
+        let mut field_nodes = HashMap::new();
+        if let Some(typetree) = &self.graph.graph[bundle_idx].ttree {
+            if let Some(view) = typetree.view() {
+                let all_refs = view.all_possible_references(self.graph.graph[bundle_idx].name.as_ref().unwrap().clone());
+                
+                for reference in all_refs {
+                    if let rusty_firrtl::Reference::RefDot(parent, field_name) = &reference {
+                        if parent.to_string() == bundle_name {
+                            let field_node_name = format!("{}.{}", bundle_name, field_name.to_string());
+                            let node_type = if let Some(field_id) = view.subtree_root(&reference) {
+                                if let Some(field_node_info) = view.get_node(field_id) {
+                                    match field_node_info.dir {
+                                        crate::ir::typetree::tnode::TypeDirection::Outgoing => FirNodeType::Input,
+                                        crate::ir::typetree::tnode::TypeDirection::Incoming => FirNodeType::Output,
+                                    }
+                                } else { FirNodeType::Input }
+                            } else { FirNodeType::Input };
+                            
+                            field_nodes.insert(field_name.to_string(), (field_node_name, node_type));
+                        }
+                    }
+                }
+            }
+        }
+
+        // Create field nodes
+        let mut field_indices = HashMap::new();
+        for (field_name, (field_node_name, node_type)) in field_nodes.iter() {
+            let existing = self.graph.graph.node_indices().find(|&idx| {
+                self.graph.graph[idx].name.as_ref().map(|n| n.to_string()) == Some(field_node_name.clone())
+            });
+            
+            let field_idx = if let Some(idx) = existing {
+                idx
+            } else {
+                let node = FirNode::new(Some(Identifier::Name(field_node_name.clone())), node_type.clone(), None);
+                self.graph.graph.add_node(node)
+            };
+            
+            field_indices.insert(field_name.clone(), field_idx);
+        }
+
+        // Rewire edges
+        let mut edges_to_add = vec![];
+        let mut edges_to_remove = vec![];
+        
+        for edge in self.graph.graph.edge_references() {
+            let (src, dst) = (edge.source(), edge.target());
+            let edge_weight = edge.weight();
+            
+            let mut should_rewire = false;
+            let mut new_src = src;
+            let mut new_dst = dst;
+            
+            // Check if src references a bundle field
+            if let rusty_firrtl::Expr::Reference(reference) = &edge_weight.src {
+                if let rusty_firrtl::Reference::RefDot(parent, field) = reference {
+                    if parent.to_string() == bundle_name {
+                        if let Some(field_idx) = field_indices.get(&field.to_string()) {
+                            new_src = *field_idx;
+                            should_rewire = true;
+                        }
+                    }
+                }
+            }
+            
+            // Check if dst references a bundle field
+            if let Some(rusty_firrtl::Reference::RefDot(parent, field)) = &edge_weight.dst {
+                if parent.to_string() == bundle_name {
+                    if let Some(field_idx) = field_indices.get(&field.to_string()) {
+                        new_dst = *field_idx;
+                        should_rewire = true;
+                    }
+                }
+            }
+            
+            if should_rewire {
+                edges_to_add.push((new_src, new_dst, edge_weight.clone()));
+                edges_to_remove.push(edge.id());
+            }
+        }
+        
+        // Apply edge changes
+        for edge_id in edges_to_remove {
+            self.graph.graph.remove_edge(edge_id);
+        }
+        for (src, dst, weight) in edges_to_add {
+            self.graph.graph.add_edge(src, dst, weight);
+        }
+        
+        // Remove original bundle nodes
+        for bundle_idx in bundle_nodes {
+            self.graph.graph.remove_node(bundle_idx);
         }
     }
 }
