@@ -299,16 +299,28 @@ impl FirSimulator {
         let b = op1.0.to_i64().unwrap();
         
         let result = match op {
-            rusty_firrtl::PrimOp2Expr::Gt => {
-                let val = if a > b { Int::from(1u32) } else { Int::from(0u32) };
-                val
-            }
-            rusty_firrtl::PrimOp2Expr::Sub => Int::from((a - b) as u32),
+            rusty_firrtl::PrimOp2Expr::And => Int::from((a & b) as u32),
+            rusty_firrtl::PrimOp2Expr::Or => Int::from((a | b) as u32),
             rusty_firrtl::PrimOp2Expr::Eq => {
-                let val = if a == b { Int::from(1u32) } else { Int::from(0u32) };
-                val
+                if a == b { Int::from(1u32) } else { Int::from(0u32) }
+            }
+            rusty_firrtl::PrimOp2Expr::Neq => {
+                if a != b { Int::from(1u32) } else { Int::from(0u32) }
+            }
+            rusty_firrtl::PrimOp2Expr::Lt => {
+                if a < b { Int::from(1u32) } else { Int::from(0u32) }
+            }
+            rusty_firrtl::PrimOp2Expr::Leq => {
+                if a <= b { Int::from(1u32) } else { Int::from(0u32) }
+            }
+            rusty_firrtl::PrimOp2Expr::Gt => {
+                if a > b { Int::from(1u32) } else { Int::from(0u32) }
+            }
+            rusty_firrtl::PrimOp2Expr::Geq => {
+                if a >= b { Int::from(1u32) } else { Int::from(0u32) }
             }
             rusty_firrtl::PrimOp2Expr::Add => Int::from((a + b) as u32),
+            rusty_firrtl::PrimOp2Expr::Sub => Int::from((a - b) as u32),
             _ => return FirValue::X,
         };
         
