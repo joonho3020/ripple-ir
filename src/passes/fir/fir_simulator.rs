@@ -47,21 +47,31 @@ impl FirSimulator {
                 let node = &self.graph.graph[idx];
                 let value = self.compute_node_value(idx, node);
                 
-                // Skip registers during combinational phase
-                if let FirNodeType::Reg = node.nt { continue; }
-                
-                // Store value and update register next values
+                // Store value for this node
                 self.values.insert(idx, value.clone());
+                
+                // Handle edges to registers - store values for next cycle
                 for e in self.graph.graph.edges_directed(idx, petgraph::Direction::Outgoing) {
                     let tgt = e.target();
-                    if let FirNodeType::Reg = self.graph.graph[tgt].nt {
-                        self.next_values.insert(tgt, value.clone());
+                    let edge_type = &e.weight().et;
+                    
+                    match edge_type {
+                        crate::ir::fir::FirEdgeType::PhiOut => {
+                            // Phi node output - update the target register for next cycle
+                            self.next_values.insert(tgt, value.clone());
+                        }
+                        _ => {
+                            // Regular edge - if target is a register, store for next cycle
+                            if let FirNodeType::Reg = self.graph.graph[tgt].nt {
+                                self.next_values.insert(tgt, value.clone());
+                            }
+                        }
                     }
                 }
             }
         }
         
-        // Update registers after combinational logic
+        // Update registers with their next values for the next cycle
         for idx in self.graph.graph.node_indices() {
             if let FirNodeType::Reg = self.graph.graph[idx].nt {
                 if let Some(val) = self.next_values.get(&idx) {
@@ -133,11 +143,23 @@ impl FirSimulator {
 
     // --- Internal helper methods ---
 
-    /// Find node by name (including bundle fields)
-    fn find_node_by_name(&self, name: &str) -> Option<NodeIndex> {
-        self.graph.graph.node_indices().find(|&idx| {
-            self.graph.graph[idx].name.as_ref().map(|n| n.to_string()) == Some(name.to_string())
-        })
+    /// Find node by name, preferring Phi node if multiple exist
+    pub fn find_node_by_name(&self, name: &str) -> Option<NodeIndex> {
+        let matches = self.graph.graph.node_indices()
+            .filter(|&idx| {
+                self.graph.graph[idx].name.as_ref()
+                    .map(|n| n.to_string() == name)
+                    .unwrap_or(false)
+            })
+            .collect::<Vec<_>>();
+        if matches.is_empty() {
+            None
+        } else if matches.len() == 1 {
+            Some(matches[0])
+        } else {
+            // Prefer Phi node if present
+            matches.iter().find(|&&idx| matches!(self.graph.graph[idx].nt, crate::ir::fir::FirNodeType::Phi(_))).copied().or_else(|| Some(matches[0]))
+        }
     }
 
     /// Get field type from TypeTree
@@ -175,14 +197,16 @@ impl FirSimulator {
         // Initialize in-degrees
         for idx in self.graph.graph.node_indices() {
             let node = &self.graph.graph[idx];
-            let deg = if let FirNodeType::Reg = node.nt {
-                0 // Registers are always level 0
+            // For registers, set in-degree to 0 (they're always available)
+            if let FirNodeType::Reg = node.nt {
+                in_deg.insert(idx, 0);
             } else {
-                self.graph.graph.edges_directed(idx, petgraph::Direction::Incoming)
+                // Count incoming edges, excluding clock and reset
+                let deg = self.graph.graph.edges_directed(idx, petgraph::Direction::Incoming)
                     .filter(|e| !matches!(e.weight().et, crate::ir::fir::FirEdgeType::Clock | crate::ir::fir::FirEdgeType::Reset))
-                    .count()
-            };
-            in_deg.insert(idx, deg);
+                    .count();
+                in_deg.insert(idx, deg);
+            }
         }
         
         // Build levels
@@ -207,10 +231,12 @@ impl FirSimulator {
             for &idx in &this_level {
                 for e in self.graph.graph.edges_directed(idx, petgraph::Direction::Outgoing) {
                     let tgt = e.target();
-                    let tgt_node = &self.graph.graph[tgt];
-                    if !matches!(e.weight().et, crate::ir::fir::FirEdgeType::Clock | crate::ir::fir::FirEdgeType::Reset)
-                        && !matches!(tgt_node.nt, FirNodeType::Reg) {
-                        *in_deg.get_mut(&tgt).unwrap() -= 1;
+                    if !matches!(e.weight().et, crate::ir::fir::FirEdgeType::Clock | crate::ir::fir::FirEdgeType::Reset) {
+                        if let Some(deg) = in_deg.get_mut(&tgt) {
+                            if *deg > 0 {
+                                *deg -= 1;
+                            }
+                        }
                     }
                 }
             }
@@ -232,6 +258,7 @@ impl FirSimulator {
             PrimOp2Expr(op) => self.compute_primop2_expr(idx, op),
             Output => self.get_input_value(idx),
             PrimOp1Expr1Int(op, param) => self.compute_primop1_expr1_int(idx, op, param),
+            Phi(cond_path) => self.compute_phi_value(idx, cond_path),
             SMem(_) | CMem => FirValue::X,
             _ => FirValue::X,
         }
@@ -246,35 +273,46 @@ impl FirSimulator {
 
     /// Compute two-operand primitive operations
     fn compute_primop2_expr(&self, idx: NodeIndex, op: &rusty_firrtl::PrimOp2Expr) -> FirValue {
-        let operands: Vec<_> = self.graph.graph.edges_directed(idx, petgraph::Direction::Incoming)
-            .filter_map(|e| {
-                self.values.get(&e.source()).and_then(|v| {
-                    if let FirValue::Int(i) = v { Some(i.clone()) } else { None }
-                })
-            })
-            .collect();
+        // Collect operands in the correct order based on edge labels
+        let mut operand0 = None;
+        let mut operand1 = None;
         
-        if operands.len() != 2 { return FirValue::X; }
+        for e in self.graph.graph.edges_directed(idx, petgraph::Direction::Incoming) {
+            if let Some(value) = self.values.get(&e.source()) {
+                if let FirValue::Int(int_val) = value {
+                    match e.weight().et {
+                        crate::ir::fir::FirEdgeType::Operand0 => operand0 = Some(int_val.clone()),
+                        crate::ir::fir::FirEdgeType::Operand1 => operand1 = Some(int_val.clone()),
+                        _ => {}
+                    }
+                }
+            }
+        }
         
-        let a = operands[0].0.to_i64().unwrap();
-        let b = operands[1].0.to_i64().unwrap();
+        if operand0.is_none() || operand1.is_none() {
+            return FirValue::X;
+        }
         
-        use rusty_firrtl::PrimOp2Expr::*;
+        let op0 = operand0.unwrap();
+        let op1 = operand1.unwrap();
+        let a = op0.0.to_i64().unwrap();
+        let b = op1.0.to_i64().unwrap();
+        
         let result = match op {
-            And => a & b,
-            Or => a | b,
-            Eq => (a == b) as i64,
-            Neq => (a != b) as i64,
-            Lt => (a < b) as i64,
-            Leq => (a <= b) as i64,
-            Gt => (a > b) as i64,
-            Geq => (a >= b) as i64,
-            Add => a + b,
-            Sub => a - b,
+            rusty_firrtl::PrimOp2Expr::Gt => {
+                let val = if a > b { Int::from(1u32) } else { Int::from(0u32) };
+                val
+            }
+            rusty_firrtl::PrimOp2Expr::Sub => Int::from((a - b) as u32),
+            rusty_firrtl::PrimOp2Expr::Eq => {
+                let val = if a == b { Int::from(1u32) } else { Int::from(0u32) };
+                val
+            }
+            rusty_firrtl::PrimOp2Expr::Add => Int::from((a + b) as u32),
             _ => return FirValue::X,
         };
         
-        FirValue::Int(Int::from(result as u32))
+        FirValue::Int(result)
     }
 
     /// Compute one-operand primitive operations with one integer parameter
@@ -300,6 +338,105 @@ impl FirSimulator {
                 }
             }
             _ => FirValue::X,
+        }
+    }
+
+    /// Compute phi node value as a chain of muxes based on condition paths
+    fn compute_phi_value(&self, idx: NodeIndex, _cond_path: &crate::ir::whentree::CondPathWithPrior) -> FirValue {
+        // Get all phi input edges with their condition paths
+        let mut phi_inputs: Vec<_> = self.graph.graph.edges_directed(idx, petgraph::Direction::Incoming)
+            .filter_map(|e| {
+                if let crate::ir::fir::FirEdgeType::PhiInput(input_cond_path, _flipped) = &e.weight().et {
+                    let value = self.values.get(&e.source()).cloned();
+                    let src_idx = e.source();
+                    let src_name = self.graph.graph[src_idx].name.as_ref().map(|n| n.to_string()).unwrap_or_else(|| format!("node_{}", src_idx.index()));
+                    Some((input_cond_path.clone(), value, src_idx, src_name, e.weight().et.clone()))
+                } else {
+                    None
+                }
+            })
+            .collect();
+        // Sort by priority (lower priority = higher precedence), then by source node index for determinism
+        phi_inputs.sort_by(|(a, _, src_a, _, _), (b, _, src_b, _, _)| {
+            let ord = a.cmp(b);
+            if ord == std::cmp::Ordering::Equal {
+                src_a.index().cmp(&src_b.index())
+            } else {
+                ord
+            }
+        });
+        
+        // Evaluate conditions and select the appropriate value
+        for (input_cond_path, value, src_idx, src_name, edge_type) in &phi_inputs {
+            let condition_met = self.evaluate_condition_path(input_cond_path);
+            if condition_met {
+                return value.clone().unwrap_or(FirValue::X);
+            }
+        }
+        // If no conditions are met, return the current value of the register this phi node feeds
+        let mut reg_val = None;
+        for e in self.graph.graph.edges_directed(idx, petgraph::Direction::Outgoing) {
+            if let crate::ir::fir::FirEdgeType::PhiOut = e.weight().et {
+                let reg_idx = e.target();
+                reg_val = self.values.get(&reg_idx).cloned();
+                break;
+            }
+        }
+        reg_val.unwrap_or(FirValue::X)
+    }
+
+    /// Evaluate a condition path to determine if it's true
+    fn evaluate_condition_path(&self, cond_path: &crate::ir::whentree::CondPathWithPrior) -> bool {
+        for cond_with_prior in cond_path.iter() {
+            if !self.evaluate_condition(&cond_with_prior.cond) {
+                return false;
+            }
+        }
+        true
+    }
+
+    /// Evaluate a single condition
+    fn evaluate_condition(&self, condition: &crate::ir::whentree::Condition) -> bool {
+        use crate::ir::whentree::Condition;
+        match condition {
+            Condition::Root => true,
+            Condition::When(expr) => self.evaluate_expr(expr),
+            Condition::Else(expr) => !self.evaluate_expr(expr),
+        }
+    }
+
+    /// Evaluate an expression to a boolean value
+    fn evaluate_expr(&self, expr: &rusty_firrtl::Expr) -> bool {
+        match expr {
+            rusty_firrtl::Expr::Reference(reference) => {
+                // Find the node by reference and get its value
+                if let Some(idx) = self.find_node_by_reference(reference) {
+                    if let Some(value) = self.values.get(&idx) {
+                        if let FirValue::Int(int_val) = value {
+                            return int_val.0.to_u64().unwrap_or(0) != 0;
+                        }
+                    }
+                }
+                false
+            }
+            rusty_firrtl::Expr::UIntInit(_, val) => val.0.to_u64().unwrap_or(0) != 0,
+            rusty_firrtl::Expr::SIntInit(_, val) => val.0.to_i64().unwrap_or(0) != 0,
+            _ => false, // For now, only handle simple expressions
+        }
+    }
+
+    /// Find node by reference
+    fn find_node_by_reference(&self, reference: &rusty_firrtl::Reference) -> Option<NodeIndex> {
+        match reference {
+            rusty_firrtl::Reference::Ref(identifier) => {
+                self.find_node_by_name(&identifier.to_string())
+            }
+            rusty_firrtl::Reference::RefDot(parent, field) => {
+                let field_name = format!("{}.{}", parent.to_string(), field.to_string());
+                self.find_node_by_name(&field_name)
+            }
+            rusty_firrtl::Reference::RefIdxInt(_, _) => None, // Handle array indexing later if needed
+            rusty_firrtl::Reference::RefIdxExpr(_, _) => None, // Handle array indexing later if needed
         }
     }
 
@@ -372,7 +509,10 @@ impl FirSimulator {
 
         // Create field nodes
         let mut field_indices = HashMap::new();
-        for (field_name, (field_node_name, node_type)) in field_nodes.iter() {
+        let mut field_names: Vec<_> = field_nodes.keys().collect();
+        field_names.sort();
+        for field_name in field_names {
+            let (field_node_name, node_type) = &field_nodes[field_name];
             let existing = self.graph.graph.node_indices().find(|&idx| {
                 self.graph.graph[idx].name.as_ref().map(|n| n.to_string()) == Some(field_node_name.clone())
             });
@@ -390,16 +530,18 @@ impl FirSimulator {
         // Rewire edges
         let mut edges_to_add = vec![];
         let mut edges_to_remove = vec![];
-        
         for edge in self.graph.graph.edge_references() {
             let (src, dst) = (edge.source(), edge.target());
+            // Only consider edges where src or dst is the current bundle node
+            if src != bundle_idx && dst != bundle_idx {
+                continue; // skip edges not involving the bundle being split
+            }
             let edge_weight = edge.weight();
-            
             let mut should_rewire = false;
             let mut new_src = src;
             let mut new_dst = dst;
             
-            // Check if src references a bundle field
+            // Check if edge metadata src references a bundle field
             if let rusty_firrtl::Expr::Reference(reference) = &edge_weight.src {
                 if let rusty_firrtl::Reference::RefDot(parent, field) = reference {
                     if parent.to_string() == bundle_name {
@@ -410,8 +552,7 @@ impl FirSimulator {
                     }
                 }
             }
-            
-            // Check if dst references a bundle field
+            // Check if edge metadata dst references a bundle field
             if let Some(rusty_firrtl::Reference::RefDot(parent, field)) = &edge_weight.dst {
                 if parent.to_string() == bundle_name {
                     if let Some(field_idx) = field_indices.get(&field.to_string()) {
@@ -420,7 +561,6 @@ impl FirSimulator {
                     }
                 }
             }
-            
             if should_rewire {
                 edges_to_add.push((new_src, new_dst, edge_weight.clone()));
                 edges_to_remove.push(edge.id());
@@ -435,9 +575,16 @@ impl FirSimulator {
             self.graph.graph.add_edge(src, dst, weight);
         }
         
-        // Remove original bundle nodes
-        for bundle_idx in bundle_nodes {
-            self.graph.graph.remove_node(bundle_idx);
+        // Remove the bundle node and its edges
+        // Only remove edges that are still attached to the bundle node
+        let mut edges_to_remove = vec![];
+        for edge in self.graph.graph.edges(bundle_idx).collect::<Vec<_>>() {
+            edges_to_remove.push((edge.source(), edge.target()));
         }
+        for (src, dst) in edges_to_remove {
+            self.graph.graph.remove_edge(self.graph.graph.find_edge(src, dst).unwrap());
+        }
+        self.graph.graph.remove_node(bundle_idx);
+
     }
 }
