@@ -5,7 +5,7 @@ use petgraph::visit::EdgeRef;
 use std::collections::HashMap;
 use rusty_firrtl::Int;
 
-/// Value stored in the simulator for each node
+/// Simulator value for each node
 #[derive(Debug, Clone, PartialEq)]
 pub enum FirValue {
     X,
@@ -18,20 +18,21 @@ impl FirValue {
     }
 }
 
-/// Main FIRRTL simulator
 pub struct FirSimulator {
     pub graph: FirGraph,
     pub values: HashMap<NodeIndex, FirValue>,
     pub next_values: HashMap<NodeIndex, FirValue>,
+    pub out_values: HashMap<NodeIndex, FirValue>,
 }
 
 impl FirSimulator {
-    /// Create a new simulator and split bundles
+    /// Create simulator and split bundles
     pub fn new(graph: FirGraph) -> Self {
         let mut sim = Self { 
             graph, 
             values: HashMap::new(), 
-            next_values: HashMap::new() 
+            next_values: HashMap::new(),
+            out_values: HashMap::new(),
         };
         sim.split_bundles();
         sim
@@ -40,48 +41,43 @@ impl FirSimulator {
     /// Run one simulation cycle (level by level)
     pub fn run(&mut self) {
         self.next_values.clear();
-        
         // Process nodes level by level
         for level in self.levels() {
             for &idx in &level {
                 let node = &self.graph.graph[idx];
                 let value = self.compute_node_value(idx, node);
                 
-                // Store value for this node
-                self.values.insert(idx, value.clone());
+                // Update values for non-register nodes immediately
+                if !matches!(node.nt, FirNodeType::Reg) {
+                    self.values.insert(idx, value.clone());
+                }
                 
-                // Handle edges to registers - store values for next cycle
+                // Store values for register inputs (next cycle)
                 for e in self.graph.graph.edges_directed(idx, petgraph::Direction::Outgoing) {
                     let tgt = e.target();
-                    let edge_type = &e.weight().et;
-                    
-                    match edge_type {
-                        crate::ir::fir::FirEdgeType::PhiOut => {
-                            // Phi node output - update the target register for next cycle
-                            self.next_values.insert(tgt, value.clone());
-                        }
-                        _ => {
-                            // Regular edge - if target is a register, store for next cycle
-                            if let FirNodeType::Reg = self.graph.graph[tgt].nt {
-                                self.next_values.insert(tgt, value.clone());
-                            }
-                        }
+                    if let FirNodeType::Reg = self.graph.graph[tgt].nt {
+                        self.next_values.insert(tgt, value.clone());
                     }
                 }
             }
         }
         
-        // Update registers with their next values for the next cycle
+        // Update registers: current output becomes previous, next value becomes current
         for idx in self.graph.graph.node_indices() {
             if let FirNodeType::Reg = self.graph.graph[idx].nt {
-                if let Some(val) = self.next_values.get(&idx) {
-                    self.values.insert(idx, val.clone());
+                // Store current output for this cycle
+                let current_output = self.values.get(&idx).cloned().unwrap_or(FirValue::X);
+                self.out_values.insert(idx, current_output);
+                
+                // Load next cycle's value
+                if let Some(next_val) = self.next_values.get(&idx) {
+                    self.values.insert(idx, next_val.clone());
                 }
             }
         }
     }
 
-    /// Set input value for a bundle field (e.g., "io.a", "io.b")
+    /// Set input value for bundle field (e.g., "io.a", "io.b")
     pub fn set_bundle_input(&mut self, bundle_name: &str, field_name: &str, value: Int) {
         let field_node_name = format!("{}.{}", bundle_name, field_name);
         
@@ -111,10 +107,15 @@ impl FirSimulator {
 
     /// Get the output value for a node by name
     pub fn get_output(&self, name: &str) -> Option<FirValue> {
-        self.find_node_by_name(name).and_then(|idx| self.values.get(&idx).cloned())
+        self.find_node_by_name(name).and_then(|idx| {
+            match self.graph.graph[idx].nt {
+                FirNodeType::Reg => self.out_values.get(&idx).cloned(),
+                _ => self.values.get(&idx).cloned(),
+            }
+        })
     }
 
-    /// Display the adjacency list of the FIR graph
+    /// Display graph adjacency list
     pub fn display(&self) {
         println!("\nFIR Graph Adjacency List:");
         for idx in self.graph.graph.node_indices() {
@@ -127,7 +128,7 @@ impl FirSimulator {
         }
     }
 
-    /// Display the levelization (topological levels) of the FIR graph
+    /// Display topological levels
     pub fn display_levelization(&self) {
         println!("\nFIR Graph Levelization:");
         for (i, level) in self.levels().iter().enumerate() {
@@ -141,9 +142,9 @@ impl FirSimulator {
         }
     }
 
-    // --- Internal helper methods ---
-
-    /// Find node by name, preferring Phi node if multiple exist
+    // --- Internal methods ---
+    
+    /// Find node by name, preferring Reg over Phi
     pub fn find_node_by_name(&self, name: &str) -> Option<NodeIndex> {
         let matches = self.graph.graph.node_indices()
             .filter(|&idx| {
@@ -152,13 +153,16 @@ impl FirSimulator {
                     .unwrap_or(false)
             })
             .collect::<Vec<_>>();
+        
         if matches.is_empty() {
             None
         } else if matches.len() == 1 {
             Some(matches[0])
         } else {
-            // Prefer Phi node if present
-            matches.iter().find(|&&idx| matches!(self.graph.graph[idx].nt, crate::ir::fir::FirNodeType::Phi(_))).copied().or_else(|| Some(matches[0]))
+            // Prefer Reg node, then Phi node
+            matches.iter().find(|&&idx| matches!(self.graph.graph[idx].nt, crate::ir::fir::FirNodeType::Reg)).copied()
+                .or_else(|| matches.iter().find(|&&idx| matches!(self.graph.graph[idx].nt, crate::ir::fir::FirNodeType::Phi(_))).copied())
+                .or_else(|| Some(matches[0]))
         }
     }
 
@@ -187,7 +191,7 @@ impl FirSimulator {
                 break;
             }
         }
-        FirNodeType::Input // Default fallback
+        FirNodeType::Input
     }
 
     /// Calculate topological levels for simulation
@@ -197,9 +201,8 @@ impl FirSimulator {
         // Initialize in-degrees
         for idx in self.graph.graph.node_indices() {
             let node = &self.graph.graph[idx];
-            // For registers, set in-degree to 0 (they're always available)
             if let FirNodeType::Reg = node.nt {
-                in_deg.insert(idx, 0);
+                in_deg.insert(idx, 0); // Registers always available
             } else {
                 // Count incoming edges, excluding clock and reset
                 let deg = self.graph.graph.edges_directed(idx, petgraph::Direction::Incoming)
@@ -248,13 +251,13 @@ impl FirSimulator {
         levels
     }
 
-    /// Compute the value for a node based on its type and inputs
+    /// Compute node value based on type and inputs
     fn compute_node_value(&self, idx: NodeIndex, node: &crate::ir::fir::FirNode) -> FirValue {
         use FirNodeType::*;
         match &node.nt {
             UIntLiteral(_, val) => FirValue::Int(val.clone()),
             Input => self.values.get(&idx).cloned().unwrap_or(FirValue::X),
-            Reg => self.values.get(&idx).cloned().unwrap_or(FirValue::X),
+            Reg => self.out_values.get(&idx).cloned().unwrap_or(FirValue::X),
             PrimOp2Expr(op) => self.compute_primop2_expr(idx, op),
             Output => self.get_input_value(idx),
             PrimOp1Expr1Int(op, param) => self.compute_primop1_expr1_int(idx, op, param),
@@ -264,7 +267,7 @@ impl FirSimulator {
         }
     }
 
-    /// Get input value for a node
+    /// Get input value for node
     fn get_input_value(&self, idx: NodeIndex) -> FirValue {
         self.graph.graph.edges_directed(idx, petgraph::Direction::Incoming)
             .find_map(|e| self.values.get(&e.source()).cloned())
@@ -273,10 +276,10 @@ impl FirSimulator {
 
     /// Compute two-operand primitive operations
     fn compute_primop2_expr(&self, idx: NodeIndex, op: &rusty_firrtl::PrimOp2Expr) -> FirValue {
-        // Collect operands in the correct order based on edge labels
         let mut operand0 = None;
         let mut operand1 = None;
         
+        // Collect operands by edge labels
         for e in self.graph.graph.edges_directed(idx, petgraph::Direction::Incoming) {
             if let Some(value) = self.values.get(&e.source()) {
                 if let FirValue::Int(int_val) = value {
@@ -327,7 +330,7 @@ impl FirSimulator {
         FirValue::Int(result)
     }
 
-    /// Compute one-operand primitive operations with one integer parameter
+    /// Compute one-operand primitive operations with integer parameter
     fn compute_primop1_expr1_int(&self, idx: NodeIndex, op: &rusty_firrtl::PrimOp1Expr1Int, param: &Int) -> FirValue {
         let operand = self.graph.graph.edges_directed(idx, petgraph::Direction::Incoming)
             .filter_map(|e| {
@@ -353,23 +356,23 @@ impl FirSimulator {
         }
     }
 
-    /// Compute phi node value as a chain of muxes based on condition paths
+    /// Compute phi node value based on condition paths
     fn compute_phi_value(&self, idx: NodeIndex, _cond_path: &crate::ir::whentree::CondPathWithPrior) -> FirValue {
-        // Get all phi input edges with their condition paths
+        // Get phi input edges with condition paths
         let mut phi_inputs: Vec<_> = self.graph.graph.edges_directed(idx, petgraph::Direction::Incoming)
             .filter_map(|e| {
                 if let crate::ir::fir::FirEdgeType::PhiInput(input_cond_path, _flipped) = &e.weight().et {
                     let value = self.values.get(&e.source()).cloned();
                     let src_idx = e.source();
-                    let src_name = self.graph.graph[src_idx].name.as_ref().map(|n| n.to_string()).unwrap_or_else(|| format!("node_{}", src_idx.index()));
-                    Some((input_cond_path.clone(), value, src_idx, src_name, e.weight().et.clone()))
+                    Some((input_cond_path.clone(), value, src_idx))
                 } else {
                     None
                 }
             })
             .collect();
-        // Sort by priority (lower priority = higher precedence), then by source node index for determinism
-        phi_inputs.sort_by(|(a, _, src_a, _, _), (b, _, src_b, _, _)| {
+        
+        // Sort by priority, then by source index for determinism
+        phi_inputs.sort_by(|(a, _, src_a), (b, _, src_b)| {
             let ord = a.cmp(b);
             if ord == std::cmp::Ordering::Equal {
                 src_a.index().cmp(&src_b.index())
@@ -378,26 +381,25 @@ impl FirSimulator {
             }
         });
         
-        // Evaluate conditions and select the appropriate value
-        for (input_cond_path, value, src_idx, src_name, edge_type) in &phi_inputs {
+        // Evaluate conditions and select value
+        for (input_cond_path, value, _src_idx) in &phi_inputs {
             let condition_met = self.evaluate_condition_path(input_cond_path);
             if condition_met {
                 return value.clone().unwrap_or(FirValue::X);
             }
         }
-        // If no conditions are met, return the current value of the register this phi node feeds
-        let mut reg_val = None;
+        
+        // If no conditions met, return current register value
         for e in self.graph.graph.edges_directed(idx, petgraph::Direction::Outgoing) {
             if let crate::ir::fir::FirEdgeType::PhiOut = e.weight().et {
                 let reg_idx = e.target();
-                reg_val = self.values.get(&reg_idx).cloned();
-                break;
+                return self.values.get(&reg_idx).cloned().unwrap_or(FirValue::X);
             }
         }
-        reg_val.unwrap_or(FirValue::X)
+        FirValue::X
     }
 
-    /// Evaluate a condition path to determine if it's true
+    /// Evaluate condition path
     fn evaluate_condition_path(&self, cond_path: &crate::ir::whentree::CondPathWithPrior) -> bool {
         for cond_with_prior in cond_path.iter() {
             if !self.evaluate_condition(&cond_with_prior.cond) {
@@ -407,7 +409,7 @@ impl FirSimulator {
         true
     }
 
-    /// Evaluate a single condition
+    /// Evaluate single condition
     fn evaluate_condition(&self, condition: &crate::ir::whentree::Condition) -> bool {
         use crate::ir::whentree::Condition;
         match condition {
@@ -417,11 +419,10 @@ impl FirSimulator {
         }
     }
 
-    /// Evaluate an expression to a boolean value
+    /// Evaluate expression to boolean
     fn evaluate_expr(&self, expr: &rusty_firrtl::Expr) -> bool {
         match expr {
             rusty_firrtl::Expr::Reference(reference) => {
-                // Find the node by reference and get its value
                 if let Some(idx) = self.find_node_by_reference(reference) {
                     if let Some(value) = self.values.get(&idx) {
                         if let FirValue::Int(int_val) = value {
@@ -433,7 +434,7 @@ impl FirSimulator {
             }
             rusty_firrtl::Expr::UIntInit(_, val) => val.0.to_u64().unwrap_or(0) != 0,
             rusty_firrtl::Expr::SIntInit(_, val) => val.0.to_i64().unwrap_or(0) != 0,
-            _ => false, // For now, only handle simple expressions
+            _ => false,
         }
     }
 
@@ -447,8 +448,7 @@ impl FirSimulator {
                 let field_name = format!("{}.{}", parent.to_string(), field.to_string());
                 self.find_node_by_name(&field_name)
             }
-            rusty_firrtl::Reference::RefIdxInt(_, _) => None, // Handle array indexing later if needed
-            rusty_firrtl::Reference::RefIdxExpr(_, _) => None, // Handle array indexing later if needed
+            rusty_firrtl::Reference::RefIdxInt(_, _) | rusty_firrtl::Reference::RefIdxExpr(_, _) => None,
         }
     }
 
@@ -475,7 +475,7 @@ impl FirSimulator {
         }
     }
 
-    /// Split a bundle node into individual field nodes
+    /// Split bundle node into field nodes
     fn split_bundle(&mut self, bundle_name: &str) {
         use rusty_firrtl::Identifier;
         use crate::ir::fir::FirNode;
@@ -544,16 +544,16 @@ impl FirSimulator {
         let mut edges_to_remove = vec![];
         for edge in self.graph.graph.edge_references() {
             let (src, dst) = (edge.source(), edge.target());
-            // Only consider edges where src or dst is the current bundle node
             if src != bundle_idx && dst != bundle_idx {
-                continue; // skip edges not involving the bundle being split
+                continue;
             }
+            
             let edge_weight = edge.weight();
             let mut should_rewire = false;
             let mut new_src = src;
             let mut new_dst = dst;
             
-            // Check if edge metadata src references a bundle field
+            // Check edge metadata for bundle field references
             if let rusty_firrtl::Expr::Reference(reference) = &edge_weight.src {
                 if let rusty_firrtl::Reference::RefDot(parent, field) = reference {
                     if parent.to_string() == bundle_name {
@@ -564,7 +564,6 @@ impl FirSimulator {
                     }
                 }
             }
-            // Check if edge metadata dst references a bundle field
             if let Some(rusty_firrtl::Reference::RefDot(parent, field)) = &edge_weight.dst {
                 if parent.to_string() == bundle_name {
                     if let Some(field_idx) = field_indices.get(&field.to_string()) {
@@ -573,6 +572,7 @@ impl FirSimulator {
                     }
                 }
             }
+            
             if should_rewire {
                 edges_to_add.push((new_src, new_dst, edge_weight.clone()));
                 edges_to_remove.push(edge.id());
@@ -587,8 +587,7 @@ impl FirSimulator {
             self.graph.graph.add_edge(src, dst, weight);
         }
         
-        // Remove the bundle node and its edges
-        // Only remove edges that are still attached to the bundle node
+        // Remove bundle node
         let mut edges_to_remove = vec![];
         for edge in self.graph.graph.edges(bundle_idx).collect::<Vec<_>>() {
             edges_to_remove.push((edge.source(), edge.target()));
@@ -597,6 +596,5 @@ impl FirSimulator {
             self.graph.graph.remove_edge(self.graph.graph.find_edge(src, dst).unwrap());
         }
         self.graph.graph.remove_node(bundle_idx);
-
     }
 }

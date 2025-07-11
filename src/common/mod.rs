@@ -58,7 +58,7 @@ pub fn run_firtool(firrtl_filename: &str, outdir: &str) -> Result<String, Ripple
         .arg("firtool")
         .output().expect("to succeed");
 
-    let cmd_out = Command::new("firtool")
+    let cmd_out = Command::new("firtool-1.75.0/bin/firtool")
         .arg("--format=fir")
         .arg("--export-module-hierarchy")
         .arg("--verify-each=true")
