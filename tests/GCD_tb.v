@@ -1,3 +1,6 @@
+//iverilog -o gcd_sim GCD_tb.v GCD.sv/GCD.sv
+//vvp gcd_sim
+
 `timescale 1ns/1ps
 
 module GCD_tb;
@@ -25,17 +28,18 @@ module GCD_tb;
 
   initial begin
     $display("Starting GCD testbench");
+    
+    // Set input values before first clock edge
+    value1 = 60;
+    value2 = 48;
+    loadingValues = 1;
+    
     // Initial reset
     reset = 1;
     #10;
     reset = 0;
-
-    // Apply initial values
-    value1 = 60;
-    value2 = 48;
-    loadingValues = 1;
-    #10; // 1 clock
-
+    #5; // Wait for first clock edge
+    
     loadingValues = 0; // Deassert after first cycle
   end
 
