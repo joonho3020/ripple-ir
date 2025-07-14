@@ -261,6 +261,8 @@ impl FirSimulator {
             PrimOp2Expr(op) => self.compute_primop2_expr(idx, op),
             Output => self.get_input_value(idx),
             PrimOp1Expr1Int(op, param) => self.compute_primop1_expr1_int(idx, op, param),
+            PrimOp1Expr2Int(op, hi, lo) => self.compute_primop1_expr2_int(idx, op, hi, lo),
+            PrimOp1Expr(op) => self.compute_primop1_expr(idx, op),
             Phi(cond_path) => self.compute_phi_value(idx, cond_path),
             SMem(_) | CMem => FirValue::X,
             _ => FirValue::X,
@@ -302,13 +304,16 @@ impl FirSimulator {
         let b = op1.0.to_i64().unwrap();
         
         let result = match op {
-            rusty_firrtl::PrimOp2Expr::And => Int::from((a & b) as u32),
-            rusty_firrtl::PrimOp2Expr::Or => Int::from((a | b) as u32),
-            rusty_firrtl::PrimOp2Expr::Eq => {
-                if a == b { Int::from(1u32) } else { Int::from(0u32) }
+            rusty_firrtl::PrimOp2Expr::Add => Int::from((a + b) as u32),
+            rusty_firrtl::PrimOp2Expr::Sub => Int::from((a - b) as u32),
+            rusty_firrtl::PrimOp2Expr::Mul => Int::from((a * b) as u32),
+            rusty_firrtl::PrimOp2Expr::Div => {
+                if b == 0 { return FirValue::X; } // Division by zero
+                Int::from((a / b) as u32)
             }
-            rusty_firrtl::PrimOp2Expr::Neq => {
-                if a != b { Int::from(1u32) } else { Int::from(0u32) }
+            rusty_firrtl::PrimOp2Expr::Rem => {
+                if b == 0 { return FirValue::X; } // Modulus by zero
+                Int::from((a % b) as u32)
             }
             rusty_firrtl::PrimOp2Expr::Lt => {
                 if a < b { Int::from(1u32) } else { Int::from(0u32) }
@@ -322,15 +327,46 @@ impl FirSimulator {
             rusty_firrtl::PrimOp2Expr::Geq => {
                 if a >= b { Int::from(1u32) } else { Int::from(0u32) }
             }
-            rusty_firrtl::PrimOp2Expr::Add => Int::from((a + b) as u32),
-            rusty_firrtl::PrimOp2Expr::Sub => Int::from((a - b) as u32),
+            rusty_firrtl::PrimOp2Expr::Eq => {
+                if a == b { Int::from(1u32) } else { Int::from(0u32) }
+            }
+            rusty_firrtl::PrimOp2Expr::Neq => {
+                if a != b { Int::from(1u32) } else { Int::from(0u32) }
+            }
+            rusty_firrtl::PrimOp2Expr::Dshl => {
+                let shift_amount = b as u32;
+                if shift_amount >= 32 {
+                    Int::from(0u32)
+                } else {
+                    Int::from((a << shift_amount) as u32)
+                }
+            }
+            rusty_firrtl::PrimOp2Expr::Dshr => {
+                let shift_amount = b as u32;
+                if shift_amount >= 32 {
+                    Int::from(0u32)
+                } else {
+                    Int::from((a >> shift_amount) as u32)
+                }
+            }
+            rusty_firrtl::PrimOp2Expr::And => Int::from((a & b) as u32),
+            rusty_firrtl::PrimOp2Expr::Or => Int::from((a | b) as u32),
+            rusty_firrtl::PrimOp2Expr::Xor => Int::from((a ^ b) as u32),
+            rusty_firrtl::PrimOp2Expr::Cat => {
+                let width_b = 32;
+                let a_u64 = op0.0.to_u64().unwrap_or(0);
+                let b_u64 = op1.0.to_u64().unwrap_or(0);
+                let concat = ((a_u64 << width_b) | b_u64) & 0xFFFFFFFF;
+                Int::from(concat as u32)
+            },
+            
             _ => return FirValue::X,
         };
         
         FirValue::Int(result)
     }
 
-    /// Compute one-operand primitive operations with integer parameter
+    /// Compute one-operand primitive operations with parameter
     fn compute_primop1_expr1_int(&self, idx: NodeIndex, op: &rusty_firrtl::PrimOp1Expr1Int, param: &Int) -> FirValue {
         let operand = self.graph.graph.edges_directed(idx, petgraph::Direction::Incoming)
             .filter_map(|e| {
@@ -342,6 +378,51 @@ impl FirSimulator {
             .unwrap_or(Int::from(0u32));
         
         match op {
+            rusty_firrtl::PrimOp1Expr1Int::Pad => {
+                FirValue::Int(operand)
+            }
+            rusty_firrtl::PrimOp1Expr1Int::Shl => {
+                let shift_amount = param.0.to_u32().unwrap_or(0);
+                if shift_amount == 0 {
+                    return FirValue::Int(operand);
+                }
+                
+                let current_val = operand.0.to_u64().unwrap_or(0);
+                let shifted_val = if shift_amount >= 32 {
+                    0u64
+                } else {
+                    current_val << shift_amount
+                };
+                
+                let result = shifted_val & 0xFFFFFFFF;
+                FirValue::Int(Int::from(result as u32))
+            }
+            rusty_firrtl::PrimOp1Expr1Int::Shr => {
+                let shift_amount = param.0.to_u32().unwrap_or(0);
+                if shift_amount == 0 {
+                    return FirValue::Int(operand);
+                }
+                
+                let current_val = operand.0.to_u64().unwrap_or(0);
+                let shifted_val = if shift_amount >= 32 {
+                    0u64
+                } else {
+                    current_val >> shift_amount
+                };
+                
+                let result = shifted_val & 0xFFFFFFFF;
+                FirValue::Int(Int::from(result as u32))
+            }
+            rusty_firrtl::PrimOp1Expr1Int::Head => {
+                let n = param.0.to_u32().unwrap_or(0);
+                if n == 0 || n > 32 {
+                    return FirValue::X;
+                }
+                let val = operand.0.to_u64().unwrap_or(0);
+                let shift = 32 - n;
+                let head_bits = (val >> shift) & ((1u64 << n) - 1);
+                FirValue::Int(Int::from(head_bits as u32))
+            }
             rusty_firrtl::PrimOp1Expr1Int::Tail => {
                 let bits = param.0.to_u32().unwrap_or(0);
                 if bits == 0 {
@@ -351,6 +432,106 @@ impl FirSimulator {
                     let mask = (1u64 << (32 - bits)) - 1;
                     FirValue::Int(Int::from((val & mask) as u32))
                 }
+            }
+
+            _ => FirValue::X,
+        }
+    }
+
+    /// Compute one-operand primitive operations with two integer parameters
+    fn compute_primop1_expr2_int(&self, idx: NodeIndex, op: &rusty_firrtl::PrimOp1Expr2Int, hi: &Int, lo: &Int) -> FirValue {
+        let operand = self.graph.graph.edges_directed(idx, petgraph::Direction::Incoming)
+            .filter_map(|e| {
+                self.values.get(&e.source()).and_then(|v| {
+                    if let FirValue::Int(i) = v { Some(i.clone()) } else { None }
+                })
+            })
+            .next()
+            .unwrap_or(Int::from(0u32));
+        match op {
+            rusty_firrtl::PrimOp1Expr2Int::BitSelRange => {
+                let hi = hi.0.to_u32().unwrap_or(0);
+                let lo = lo.0.to_u32().unwrap_or(0);
+                if hi < lo || hi >= 32 || lo >= 32 {
+                    return FirValue::X;
+                }
+                let val = operand.0.to_u64().unwrap_or(0);
+                let width = hi - lo + 1;
+                let mask = if width >= 32 { 0xFFFFFFFF } else { (1u64 << width) - 1 };
+                let extracted = (val >> lo) & mask;
+                FirValue::Int(Int::from(extracted as u32))
+            }
+            _ => FirValue::X,
+        }
+    }
+
+    /// Compute one-operand primitive operations with no parameters
+    fn compute_primop1_expr(&self, idx: NodeIndex, op: &rusty_firrtl::PrimOp1Expr) -> FirValue {
+        let operand = self.graph.graph.edges_directed(idx, petgraph::Direction::Incoming)
+            .filter_map(|e| {
+                self.values.get(&e.source()).and_then(|v| {
+                    if let FirValue::Int(i) = v { Some(i.clone()) } else { None }
+                })
+            })
+            .next()
+            .unwrap_or(Int::from(0u32));
+        
+        match op {
+            rusty_firrtl::PrimOp1Expr::AsUInt => {
+                FirValue::Int(operand)
+            }
+            rusty_firrtl::PrimOp1Expr::AsSInt => {
+                FirValue::Int(operand)
+            }
+            rusty_firrtl::PrimOp1Expr::AsClock => {
+                FirValue::Int(operand)
+            }
+            rusty_firrtl::PrimOp1Expr::Cvt => {
+                // Convert unsigned to signed: if MSB is set, treat as negative
+                let val = operand.0.to_u64().unwrap_or(0);
+                if (val & 0x80000000) != 0 {
+                    // MSB is set, convert to negative signed value
+                    let signed_val = (0x100000000 - val) as i32;
+                    FirValue::Int(Int::from((-signed_val) as u32))
+                } else {
+                    // MSB is clear, value remains the same
+                    FirValue::Int(operand)
+                }
+            }
+            rusty_firrtl::PrimOp1Expr::Neg => {
+                // Negate the value (two's complement)
+                let val = operand.0.to_u64().unwrap_or(0);
+                let negated = if val == 0 {
+                    0u32
+                } else {
+                    (0x100000000 - val) as u32
+                };
+                FirValue::Int(Int::from(negated))
+            }
+            rusty_firrtl::PrimOp1Expr::Not => {
+                // Bitwise complement (NOT each bit)
+                let val = operand.0.to_u64().unwrap_or(0);
+                let complemented = (!val) & 0xFFFFFFFF; // Ensure 32-bit result
+                FirValue::Int(Int::from(complemented as u32))
+            }
+            rusty_firrtl::PrimOp1Expr::Andr => {
+                // AND reduction: true if all bits are 1, false otherwise
+                let val = operand.0.to_u64().unwrap_or(0);
+                let all_ones = (val & 0xFFFFFFFF) == 0xFFFFFFFF;
+                FirValue::Int(Int::from(if all_ones { 1u32 } else { 0u32 }))
+            }
+            rusty_firrtl::PrimOp1Expr::Orr => {
+                // OR reduction: true if any bit is 1, false otherwise
+                let val = operand.0.to_u64().unwrap_or(0);
+                let any_one = (val & 0xFFFFFFFF) != 0;
+                FirValue::Int(Int::from(if any_one { 1u32 } else { 0u32 }))
+            }
+            rusty_firrtl::PrimOp1Expr::Xorr => {
+                // XOR reduction: true if odd number of bits are 1, false otherwise
+                let val = operand.0.to_u64().unwrap_or(0);
+                let bit_count = (val & 0xFFFFFFFF).count_ones();
+                let odd_ones = (bit_count % 2) == 1;
+                FirValue::Int(Int::from(if odd_ones { 1u32 } else { 0u32 }))
             }
             _ => FirValue::X,
         }
