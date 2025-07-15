@@ -38,9 +38,37 @@ impl FirSimulator {
         sim
     }
 
+    /// Evaluate expression to FirValue
+    fn evaluate_expr_to_value(&self, expr: &rusty_firrtl::Expr) -> FirValue {
+        match expr {
+            rusty_firrtl::Expr::UIntInit(_, val) => FirValue::Int(val.clone()),
+            rusty_firrtl::Expr::SIntInit(_, val) => FirValue::Int(val.clone()),
+            rusty_firrtl::Expr::Reference(reference) => {
+                if let Some(idx) = self.find_node_by_reference(reference) {
+                    self.values.get(&idx).cloned().unwrap_or(FirValue::X)
+                } else {
+                    FirValue::X
+                }
+            }
+            _ => FirValue::X,
+        }
+    }
+
     /// Run one simulation cycle (level by level)
     pub fn run(&mut self) {
         self.next_values.clear();
+
+        // First, propagate current values to out_values for all registers
+        for idx in self.graph.graph.node_indices() {
+            if matches!(self.graph.graph[idx].nt, FirNodeType::Reg | FirNodeType::RegReset) {
+                let current_output = self.values.get(&idx).cloned().unwrap_or(FirValue::X);
+                self.out_values.insert(idx, current_output);
+            }
+        }
+        
+        // Process reset signals (may update next_values for registers)
+        self.process_reset_signals();
+        
         // Process nodes level by level
         for level in self.levels() {
             for &idx in &level {
@@ -48,31 +76,92 @@ impl FirSimulator {
                 let value = self.compute_node_value(idx, node);
                 
                 // Update values for non-register nodes immediately
-                if !matches!(node.nt, FirNodeType::Reg) {
+                if !matches!(node.nt, FirNodeType::Reg | FirNodeType::RegReset) {
                     self.values.insert(idx, value.clone());
                 }
                 
                 // Store values for register inputs (next cycle)
                 for e in self.graph.graph.edges_directed(idx, petgraph::Direction::Outgoing) {
                     let tgt = e.target();
-                    if let FirNodeType::Reg = self.graph.graph[tgt].nt {
+                    if matches!(self.graph.graph[tgt].nt, FirNodeType::Reg | FirNodeType::RegReset) {
                         self.next_values.insert(tgt, value.clone());
                     }
                 }
             }
         }
         
-        // Update registers: current output becomes previous, next value becomes current
+        // Update registers: next value becomes current
         for idx in self.graph.graph.node_indices() {
-            if let FirNodeType::Reg = self.graph.graph[idx].nt {
-                // Store current output for this cycle
-                let current_output = self.values.get(&idx).cloned().unwrap_or(FirValue::X);
-                self.out_values.insert(idx, current_output);
-                
-                // Load next cycle's value
+            if matches!(self.graph.graph[idx].nt, FirNodeType::Reg | FirNodeType::RegReset) {
                 if let Some(next_val) = self.next_values.get(&idx) {
                     self.values.insert(idx, next_val.clone());
                 }
+            }
+        }
+    }
+
+    /// Process reset signals and apply reset values
+    fn process_reset_signals(&mut self) {
+        for idx in self.graph.graph.node_indices() {
+            match self.graph.graph[idx].nt {
+                FirNodeType::RegReset => {
+                    // Check if reset is asserted
+                    let mut reset_asserted = false;
+                    // Find the reset signal edge
+                    for e in self.graph.graph.edges_directed(idx, petgraph::Direction::Incoming) {
+                        if let crate::ir::fir::FirEdgeType::Reset = e.weight().et {
+                            if let rusty_firrtl::Expr::Reference(reset_ref) = &e.weight().src {
+                                if let Some(reset_idx) = self.find_node_by_reference(reset_ref) {
+                                    if let Some(reset_val) = self.values.get(&reset_idx) {
+                                        if let FirValue::Int(int_val) = reset_val {
+                                            reset_asserted = int_val.0.to_u64().unwrap_or(0) != 0;
+                                        }
+                                    }
+                                }
+                            }
+                            break;
+                        }
+                    }
+                    // If reset is asserted, set reset value immediately
+                    if reset_asserted {
+                        // Find the InitValue edge and evaluate its expression
+                        let mut found = false;
+                        for e in self.graph.graph.edges_directed(idx, petgraph::Direction::Incoming) {
+                            if let crate::ir::fir::FirEdgeType::InitValue = e.weight().et {
+                                let reset_value = self.evaluate_expr_to_value(&e.weight().src);
+                                self.values.insert(idx, reset_value.clone());
+                                found = true;
+                                break;
+                            }
+                        }
+                        if !found {
+                            self.values.insert(idx, FirValue::X);
+                        }
+                    }
+                }
+                FirNodeType::Reg => {
+                    // Check if there is a reset signal edge
+                    let mut reset_asserted = false;
+                    for e in self.graph.graph.edges_directed(idx, petgraph::Direction::Incoming) {
+                        if let crate::ir::fir::FirEdgeType::Reset = e.weight().et {
+                            if let rusty_firrtl::Expr::Reference(reset_ref) = &e.weight().src {
+                                if let Some(reset_idx) = self.find_node_by_reference(reset_ref) {
+                                    if let Some(reset_val) = self.values.get(&reset_idx) {
+                                        if let FirValue::Int(int_val) = reset_val {
+                                            reset_asserted = int_val.0.to_u64().unwrap_or(0) != 0;
+                                        }
+                                    }
+                                }
+                            }
+                            break;
+                        }
+                    }
+                    // If reset is asserted, set X immediately
+                    if reset_asserted {
+                        self.values.insert(idx, FirValue::X);
+                    }
+                }
+                _ => {}
             }
         }
     }
@@ -109,7 +198,7 @@ impl FirSimulator {
     pub fn get_output(&self, name: &str) -> Option<FirValue> {
         self.find_node_by_name(name).and_then(|idx| {
             match self.graph.graph[idx].nt {
-                FirNodeType::Reg => self.out_values.get(&idx).cloned(),
+                FirNodeType::Reg | FirNodeType::RegReset => self.out_values.get(&idx).cloned(),
                 _ => self.values.get(&idx).cloned(),
             }
         })
@@ -160,7 +249,7 @@ impl FirSimulator {
             Some(matches[0])
         } else {
             // Prefer Reg node, then Phi node
-            matches.iter().find(|&&idx| matches!(self.graph.graph[idx].nt, crate::ir::fir::FirNodeType::Reg)).copied()
+            matches.iter().find(|&&idx| matches!(self.graph.graph[idx].nt, crate::ir::fir::FirNodeType::Reg | crate::ir::fir::FirNodeType::RegReset)).copied()
                 .or_else(|| matches.iter().find(|&&idx| matches!(self.graph.graph[idx].nt, crate::ir::fir::FirNodeType::Phi(_))).copied())
                 .or_else(|| Some(matches[0]))
         }
@@ -201,7 +290,7 @@ impl FirSimulator {
         // Initialize in-degrees
         for idx in self.graph.graph.node_indices() {
             let node = &self.graph.graph[idx];
-            if let FirNodeType::Reg = node.nt {
+            if matches!(node.nt, FirNodeType::Reg | FirNodeType::RegReset) {
                 in_deg.insert(idx, 0); // Registers always available
             } else {
                 // Count incoming edges, excluding clock and reset
@@ -257,7 +346,7 @@ impl FirSimulator {
         match &node.nt {
             UIntLiteral(_, val) => FirValue::Int(val.clone()),
             Input => self.values.get(&idx).cloned().unwrap_or(FirValue::X),
-            Reg => self.out_values.get(&idx).cloned().unwrap_or(FirValue::X),
+            Reg | RegReset => self.out_values.get(&idx).cloned().unwrap_or(FirValue::X),
             PrimOp2Expr(op) => self.compute_primop2_expr(idx, op),
             Output => self.get_input_value(idx),
             PrimOp1Expr1Int(op, param) => self.compute_primop1_expr1_int(idx, op, param),
@@ -629,7 +718,22 @@ impl FirSimulator {
                 let field_name = format!("{}.{}", parent.to_string(), field.to_string());
                 self.find_node_by_name(&field_name)
             }
-            rusty_firrtl::Reference::RefIdxInt(_, _) | rusty_firrtl::Reference::RefIdxExpr(_, _) => None,
+            rusty_firrtl::Reference::RefIdxInt(array_ref, index) => {
+                if let rusty_firrtl::Reference::RefDot(parent, field) = array_ref.as_ref() {
+                    let bracket_name = format!("{}.{}[{}]", parent.to_string(), field.to_string(), index);
+                    self.find_node_by_name(&bracket_name)
+                } else {
+                    None
+                }
+            }
+            rusty_firrtl::Reference::RefIdxExpr(array_ref, _index_expr) => {
+                if let rusty_firrtl::Reference::RefDot(parent, field) = array_ref.as_ref() {
+                    let bracket_name = format!("{}.{}[expr]", parent.to_string(), field.to_string());
+                    self.find_node_by_name(&bracket_name)
+                } else {
+                    None
+                }
+            }
         }
     }
 
@@ -681,19 +785,58 @@ impl FirSimulator {
                 let all_refs = view.all_possible_references(self.graph.graph[bundle_idx].name.as_ref().unwrap().clone());
                 
                 for reference in all_refs {
-                    if let rusty_firrtl::Reference::RefDot(parent, field_name) = &reference {
-                        if parent.to_string() == bundle_name {
-                            let field_node_name = format!("{}.{}", bundle_name, field_name.to_string());
-                            let node_type = if let Some(field_id) = view.subtree_root(&reference) {
-                                if let Some(field_node_info) = view.get_node(field_id) {
-                                    match field_node_info.dir {
-                                        crate::ir::typetree::tnode::TypeDirection::Outgoing => FirNodeType::Input,
-                                        crate::ir::typetree::tnode::TypeDirection::Incoming => FirNodeType::Output,
-                                    }
-                                } else { FirNodeType::Input }
-                            } else { FirNodeType::Input };
-                            
-                            field_nodes.insert(field_name.to_string(), (field_node_name, node_type));
+                    match &reference {
+                        rusty_firrtl::Reference::RefDot(parent, field_name) => {
+                            if parent.to_string() == bundle_name {
+                                let field_node_name = format!("{}.{}", bundle_name, field_name.to_string());
+                                let node_type = if let Some(field_id) = view.subtree_root(&reference) {
+                                    if let Some(field_node_info) = view.get_node(field_id) {
+                                        match field_node_info.dir {
+                                            crate::ir::typetree::tnode::TypeDirection::Outgoing => FirNodeType::Input,
+                                            crate::ir::typetree::tnode::TypeDirection::Incoming => FirNodeType::Output,
+                                        }
+                                    } else { FirNodeType::Input }
+                                } else { FirNodeType::Input };
+                                
+                                field_nodes.insert(field_name.to_string(), (field_node_name, node_type));
+                            }
+                        }
+                        rusty_firrtl::Reference::RefIdxInt(array_ref, index) => {
+                            if let rusty_firrtl::Reference::RefDot(parent, field) = array_ref.as_ref() {
+                                if parent.to_string() == bundle_name {
+                                    let bracket_name = format!("{}.{}[{}]", bundle_name, field, index);
+                                    let node_type = if let Some(field_id) = view.subtree_root(&reference) {
+                                        if let Some(field_node_info) = view.get_node(field_id) {
+                                            match field_node_info.dir {
+                                                crate::ir::typetree::tnode::TypeDirection::Outgoing => FirNodeType::Input,
+                                                crate::ir::typetree::tnode::TypeDirection::Incoming => FirNodeType::Output,
+                                            }
+                                        } else { FirNodeType::Input }
+                                    } else { FirNodeType::Input };
+                                    
+                                    field_nodes.insert(bracket_name.clone(), (bracket_name, node_type));
+                                }
+                            }
+                        }
+                        rusty_firrtl::Reference::RefIdxExpr(array_ref, _index_expr) => {
+                            if let rusty_firrtl::Reference::RefDot(parent, field) = array_ref.as_ref() {
+                                if parent.to_string() == bundle_name {
+                                    let bracket_name = format!("{}.{}[expr]", bundle_name, field);
+                                    let node_type = if let Some(field_id) = view.subtree_root(&reference) {
+                                        if let Some(field_node_info) = view.get_node(field_id) {
+                                            match field_node_info.dir {
+                                                crate::ir::typetree::tnode::TypeDirection::Outgoing => FirNodeType::Input,
+                                                crate::ir::typetree::tnode::TypeDirection::Incoming => FirNodeType::Output,
+                                            }
+                                        } else { FirNodeType::Input }
+                                    } else { FirNodeType::Input };
+                                    
+                                    field_nodes.insert(bracket_name.clone(), (bracket_name, node_type));
+                                }
+                            }
+                        }
+                        rusty_firrtl::Reference::Ref(_) => {
+                            // Simple references are handled separately
                         }
                     }
                 }
@@ -736,20 +879,76 @@ impl FirSimulator {
             
             // Check edge metadata for bundle field references
             if let rusty_firrtl::Expr::Reference(reference) = &edge_weight.src {
-                if let rusty_firrtl::Reference::RefDot(parent, field) = reference {
-                    if parent.to_string() == bundle_name {
-                        if let Some(field_idx) = field_indices.get(&field.to_string()) {
-                            new_src = *field_idx;
-                            should_rewire = true;
+                match reference {
+                    rusty_firrtl::Reference::RefDot(parent, field) => {
+                        if parent.to_string() == bundle_name {
+                            if let Some(field_idx) = field_indices.get(&field.to_string()) {
+                                new_src = *field_idx;
+                                should_rewire = true;
+                            }
                         }
+                    }
+                    rusty_firrtl::Reference::RefIdxInt(array_ref, index) => {
+                        if let rusty_firrtl::Reference::RefDot(parent, field) = array_ref.as_ref() {
+                            if parent.to_string() == bundle_name {
+                                let bracket_name = format!("{}.{}[{}]", bundle_name, field, index);
+                                if let Some(field_idx) = field_indices.get(&bracket_name) {
+                                    new_src = *field_idx;
+                                    should_rewire = true;
+                                }
+                            }
+                        }
+                    }
+                    rusty_firrtl::Reference::RefIdxExpr(array_ref, _index_expr) => {
+                        if let rusty_firrtl::Reference::RefDot(parent, field) = array_ref.as_ref() {
+                            if parent.to_string() == bundle_name {
+                                let bracket_name = format!("{}.{}[expr]", bundle_name, field);
+                                if let Some(field_idx) = field_indices.get(&bracket_name) {
+                                    new_src = *field_idx;
+                                    should_rewire = true;
+                                }
+                            }
+                        }
+                    }
+                    rusty_firrtl::Reference::Ref(_) => {
+                        // Simple references are handled separately
                     }
                 }
             }
-            if let Some(rusty_firrtl::Reference::RefDot(parent, field)) = &edge_weight.dst {
-                if parent.to_string() == bundle_name {
-                    if let Some(field_idx) = field_indices.get(&field.to_string()) {
-                        new_dst = *field_idx;
-                        should_rewire = true;
+            if let Some(reference) = &edge_weight.dst {
+                match reference {
+                    rusty_firrtl::Reference::RefDot(parent, field) => {
+                        if parent.to_string() == bundle_name {
+                            if let Some(field_idx) = field_indices.get(&field.to_string()) {
+                                new_dst = *field_idx;
+                                should_rewire = true;
+                            }
+                        }
+                    }
+                    rusty_firrtl::Reference::RefIdxInt(array_ref, index) => {
+                        if let rusty_firrtl::Reference::RefDot(parent, field) = array_ref.as_ref() {
+                            if parent.to_string() == bundle_name {
+                                let bracket_name = format!("{}.{}[{}]", bundle_name, field, index);
+                                if let Some(field_idx) = field_indices.get(&bracket_name) {
+                                    new_dst = *field_idx;
+                                    should_rewire = true;
+                                }
+                            }
+                        }
+                    }
+                    rusty_firrtl::Reference::RefIdxExpr(array_ref, _index_expr) => {
+                        if let rusty_firrtl::Reference::RefDot(parent, field) = array_ref.as_ref() {
+                            if parent.to_string() == bundle_name {
+                                let bracket_name = format!("{}.{}[expr]", bundle_name, field);
+                                if let Some(field_idx) = field_indices.get(&bracket_name) {
+                                    new_dst = *field_idx;
+                                    should_rewire = true;
+                                }
+                            }
+                        }
+                    }
+                    rusty_firrtl::Reference::Ref(_) => {
+                        // Simple references are handled separately
                     }
                 }
             }
