@@ -96,4 +96,80 @@ mod test {
         sim.display_levelization();
     }
 
+    #[test]
+    fn fir_simulator_fir() {
+        let firrtl = fs::read_to_string("test-inputs/Fir.fir").expect("read Fir.fir");
+        let circuit = parse_circuit(&firrtl).expect("parse FIRRTL");
+        
+        let mut fir = from_circuit(&circuit);
+        run_fir_passes(&mut fir).expect("run FIR passes");
+
+        let (_name, fg) = fir.graphs.iter().next().unwrap();
+        let fg = fg.clone();
+
+        // Print the FIR graph structure
+        println!("FIR Graph: {:#?}", fg);
+
+        let mut sim = FirSimulator::new(fg);
+
+        sim.set_bundle_input("io", "consts[0]", Int::from(1));
+        sim.set_bundle_input("io", "consts[1]", Int::from(1));
+        sim.set_bundle_input("io", "consts[2]", Int::from(1));
+        sim.set_bundle_input("io", "consts[3]", Int::from(1));
+
+        // Assert reset for the first cycle
+        sim.set_input("reset", Int::from(1));
+        sim.run();
+        println!("Cycle   1 (reset=1): input={:?} valid={:?} taps=[{:?},{:?},{:?}] output={:?}",
+            sim.get_output("io.in"),
+            sim.get_output("io.valid"),
+            sim.get_output("taps_1"),
+            sim.get_output("taps_2"),
+            sim.get_output("taps_3"),
+            sim.get_output("io.out"));
+
+        // Deassert reset for normal operation
+        sim.set_input("reset", Int::from(0));
+
+        let test_inputs = [2, 4, 6, 8, 10, 12];
+        
+        for (cycle, &input_val) in test_inputs.iter().enumerate() {
+            let cycle_num = cycle + 2;
+            
+            // Set input and valid
+            sim.set_bundle_input("io", "in", Int::from(input_val));
+            sim.set_bundle_input("io", "valid", Int::from(1));
+            // reset remains deasserted
+            sim.set_input("reset", Int::from(0));
+            sim.run();
+            println!("Cycle  {:2} (reset=0): input={:?} valid={:?} taps=[{:?},{:?},{:?}] output={:?}",
+                cycle_num,
+                sim.get_output("io.in"),
+                sim.get_output("io.valid"),
+                sim.get_output("taps_1"),
+                sim.get_output("taps_2"),
+                sim.get_output("taps_3"),
+                sim.get_output("io.out"));
+        }
+
+        // Stop sending data (valid=0) and let filter settle
+        sim.set_bundle_input("io", "valid", Int::from(0));
+        for cycle in 8..11 {
+            sim.set_input("reset", Int::from(0));
+            sim.run();
+            println!("Cycle  {:2} (reset=0): input={:?} valid={:?} taps=[{:?},{:?},{:?}] output={:?}",
+                cycle,
+                sim.get_output("io.in"),
+                sim.get_output("io.valid"),
+                sim.get_output("taps_1"),
+                sim.get_output("taps_2"),
+                sim.get_output("taps_3"),
+                sim.get_output("io.out"));
+        }
+
+        println!("Test completed");
+        sim.display();
+        sim.display_levelization();
+    }
+
 }
