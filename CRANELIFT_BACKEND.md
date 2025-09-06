@@ -10,12 +10,12 @@ In addition to decreasing the compilation time, we can further work on performan
 
 ## Steps
 
-1. Get familiar with Rust
+### 1. Get familiar with Rust
 
 Create a fresh repo and see if you can create a small graph using the [petgraph](https://docs.rs/petgraph/latest/petgraph/) library.
 Check if you can perform BFS using this library (don't use the existing BFS APIs).
 
-2. High level concepts of [this](https://github.com/joonho3020/ripple-ir) repo
+### 2. High level concepts of [this](https://github.com/joonho3020/ripple-ir) repo
 
 This repo is a compiler infrastructure for operating on the outputs of [Chisel](https://www.chisel-lang.org) based designs.
 Although there already exists such infrastructure called [CIRCT](https://circt.llvm.org), having to work with MLIR can be daunting.
@@ -28,7 +28,7 @@ The high level overview of what happens is this:
 - We convert the AST into our internal IR called FIR
 - We can now perform analysis and transformations on the FIR format
 
-3. Setup repo and run some code
+### 3. Setup repo and run some code
 
 Setup instructions for the repo is in [intalling dependencies](https://github.com/joonho3020/ripple-ir?tab=readme-ov-file#prerequisites).
 
@@ -50,7 +50,7 @@ cargo run -- --input test-inputs/Adder.fir --output test-outputs/HELLO.fir --fir
 ```
 
 
-4. Understand the FIR format by reading the code
+### 4. Understand the FIR format by reading the code
 
 FIR is simply a graph representation of a circuit.
 Nodes represents circuit elements such as registers, memory, wires, combinational operations (add, sub, etc) and muxes.
@@ -70,7 +70,7 @@ The directory is organized like the following:
 ```
 
 
-5. Convert the FIR schema to an IR more suitable for building RTL simulations
+### 5. Convert the FIR schema to an IR more suitable for building RTL simulations
 
 The FIR form has edges that represent aggregate wires.
 Aggregate wires contains multiple signals and signals can flow in different directions as well.
@@ -78,7 +78,7 @@ Also, the module hierarchy is currently preserved in FIR.
 In order to make the graph traversal easy, we would want to create separate edges for separate wires (i.e., flatten aggregate types) as well as flatten the module hierarchy.
 You can do this here [rusty-rtlsim](https://github.com/joonho3020/rusty-rtlsim).
 
-6. Understand how RTL simulators works by writing an interpreted version
+### 6. Understand how RTL simulators works by writing an interpreted version
 
 
 Take a look at the following links and implement the python code in your IR format
@@ -86,7 +86,7 @@ Take a look at the following links and implement the python code in your IR form
 - [How RTL simulation works](https://joonho3020.github.io/articles/rtl-simulation.html)
 - [Python RTL simulator interpretter](https://github.com/evanjyli/chisel-examples/blob/main/simulator_2.py)
 
-7. Hook this up to Cranelift
+### 7. Hook this up to Cranelift
 
 Some useful links:
 
