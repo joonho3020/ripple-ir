@@ -30,17 +30,17 @@ The high level overview of what happens is this:
 
 ### 3. Setup repo and run some code
 
-Setup instructions for the repo is in [intalling dependencies](https://github.com/joonho3020/ripple-ir?tab=readme-ov-file#prerequisites).
+Setup instructions for the repo is in [installing dependencies](https://github.com/joonho3020/ripple-ir?tab=readme-ov-file#prerequisites).
 
 Now let's get started by running some code.
 
-First uncompress some example input files (these are CHIRRTL file examples):
+First uncompress some example input files (the `test-inputs` directory contains example CHIRRTL files):
 
 ```bash
 just uncompress
 ```
 
-Next, lets convert the CHIRRTL file into our FIR format, and convert it back again to CHIRRTL.
+Next, let's convert the CHIRRTL file into our FIR format, and convert it back again to CHIRRTL by running [main.rs](https://github.com/joonho3020/ripple-ir/blob/main/src/main.rs).
 
 ```bash
 cargo run -- --input <path to input firrtl file> --output <path to output firrtl file> --firrtl-version chirrtl
@@ -53,27 +53,27 @@ cargo run -- --input test-inputs/Adder.fir --output test-outputs/HELLO.fir --fir
 ### 4. Understand the FIR format by reading the code
 
 FIR is simply a graph representation of a circuit.
-Nodes represents circuit elements such as registers, memory, wires, combinational operations (add, sub, etc) and muxes.
+Nodes represent circuit elements such as registers, memory, wires, combinational operators (add, sub, etc) and muxes.
 Edges represents connections between the elements.
 
 To visualize the FIR format, you can call the `.export` function on `FirIR` instance.
-This will produce a PDF of the FIR format so that you can look.
+This will produce a PDF containing the visualized version of the FIR format.
 
 The directory is organized like the following:
 
 ```
-/docs     : contains some documentation about this project
-/src
-  /common : contains some utility code
-  /ir     : contains the IR representations and additional datastructures for bookeeping
-  /passes : compiler passes on each representation. Can ignore the RIR format for now
+docs/     : contains some documentation about this project
+src/
+  common/ : contains some utility code
+  ir/     : contains the IR representations and additional datastructures for bookkeeping
+  passes/ : compiler passes on each representation. Can ignore the RIR format for now
 ```
 
 
 ### 5. Convert the FIR schema to an IR more suitable for building RTL simulations
 
 The FIR form has edges that represent aggregate wires.
-Aggregate wires contains multiple signals and signals can flow in different directions as well.
+Aggregate wires contain multiple signals and signals can flow in different directions as well.
 Also, the module hierarchy is currently preserved in FIR.
 In order to make the graph traversal easy, we would want to create separate edges for separate wires (i.e., flatten aggregate types) as well as flatten the module hierarchy.
 You can do this here [rusty-rtlsim](https://github.com/joonho3020/rusty-rtlsim).
@@ -81,7 +81,7 @@ You can do this here [rusty-rtlsim](https://github.com/joonho3020/rusty-rtlsim).
 ### 6. Understand how RTL simulators works by writing an interpreted version
 
 
-Take a look at the following links and implement the python code in your IR format
+Take a look at the following links and implement the interpretter using your IR format
 
 - [How RTL simulation works](https://joonho3020.github.io/articles/rtl-simulation.html)
 - [Python RTL simulator interpretter](https://github.com/evanjyli/chisel-examples/blob/main/simulator_2.py)
