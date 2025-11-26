@@ -33,16 +33,16 @@ pub fn duplicate_memory(
         for port in ports {
             match port.as_ref() {
                 MemoryPort::Read(port_name) => {
-                    let mport = MemPortInfo::new(mem_id, new_mem_id, &mem_name, port_name);
-                    rport_connections(fame5, &mport, thread_idx_id, nthreads);
+                    let mport = MemPortInfo::new(mem_id, new_mem_id, thread_idx_id, &mem_name, port_name, nthreads, *depth);
+                    rport_connections(fame5, &mport);
                 },
                 MemoryPort::Write(port_name) => {
-                    let mport = MemPortInfo::new(mem_id, new_mem_id, &mem_name, port_name);
-                    wport_connections(fame5, &mport, thread_idx_id);
+                    let mport = MemPortInfo::new(mem_id, new_mem_id, thread_idx_id, &mem_name, port_name, nthreads, *depth);
+                    wport_connections(fame5, &mport);
                 },
                 MemoryPort::ReadWrite(port_name) => {
-                    let mport = MemPortInfo::new(mem_id, new_mem_id, &mem_name, port_name);
-                    rwport_connections(fame5, &mport, thread_idx_id, nthreads);
+                    let mport = MemPortInfo::new(mem_id, new_mem_id, thread_idx_id, &mem_name, port_name, nthreads, *depth);
+                    rwport_connections(fame5, &mport);
                 },
             }
         }
@@ -56,16 +56,33 @@ struct MemPortInfo<'a> {
     /// New memory node index
     new_id: NodeIndex,
 
+    /// Thread index node index
+    thread_idx_id: NodeIndex,
+
     /// Name of the memory
     mem: &'a Identifier,
 
     /// Name of the port that we are currently handling
-    port: &'a Identifier
+    port: &'a Identifier,
+
+    /// Number of threads
+    nthreads: u32,
+
+    /// Memory depth
+    depth: u32,
 }
 
 impl <'a> MemPortInfo<'a> {
-    fn new(orig_id: NodeIndex, new_id: NodeIndex, mem: &'a Identifier, port: &'a Identifier) -> Self {
-        Self { orig_id, new_id, mem, port }
+    fn new(
+        orig_id: NodeIndex,
+        new_id: NodeIndex,
+        thread_idx_id: NodeIndex,
+        mem: &'a Identifier,
+        port: &'a Identifier,
+        nthreads: u32,
+        depth: u32
+    ) -> Self {
+        Self { orig_id, new_id, thread_idx_id, mem, port, nthreads, depth }
     }
 
     fn field_ref(&self, field: &Identifier) -> Reference {
@@ -125,13 +142,21 @@ fn add_input_mem_edge<'a>(
     }
 }
 
+/// Check if a number is a power of two
+fn is_power_of_two(n: u32) -> bool {
+    n > 0 && (n & (n - 1)) == 0
+}
+
 fn add_input_addr_edge<'a>(
     fg: &mut FirGraph,
-    thread_idx_id: NodeIndex,
-    memport: &'a MemPortInfo
+    addr: Identifier,
+    memport: &'a MemPortInfo,
 )
 {
-    let addr = Identifier::Name("addr".to_string());
+    let thread_idx_id = memport.thread_idx_id;
+    let nthreads = memport.nthreads;
+    let original_depth = memport.depth;
+
     let addr_driver = find_memport_incoming_edge(fg, memport, &addr);
     if let Some(addr_eid) = addr_driver {
         let ep = fg.graph.edge_endpoints(addr_eid).unwrap();
@@ -142,22 +167,48 @@ fn add_input_addr_edge<'a>(
         let thread_idx_name = fg.graph.node_weight(thread_idx_id).unwrap().name.as_ref().unwrap().clone();
         let thread_idx_expr = Expr::Reference(Reference::Ref(thread_idx_name));
 
-        // Create concatenation node (thread_idx concatenated with original address)
-        let (cat_id, cat_expr) = fg.add_primop2(
-            PrimOp2Expr::Cat,
-            addr_driver_id,
-            addr_driver_expr,
-            thread_idx_id,
-            thread_idx_expr,
-        );
+        if is_power_of_two(original_depth) {
+            // If memory depth is a power of two, use concatenation (Cat operator)
+            // This is more efficient as it just concatenates thread_idx with the original address
+            let (cat_id, cat_expr) = fg.add_primop2(
+                PrimOp2Expr::Cat,
+                thread_idx_id,
+                thread_idx_expr,
+                addr_driver_id,
+                addr_driver_expr);
 
-        // Connect concatenated address to the new memory port
-        fg.add_wire(
-            cat_id,
-            cat_expr,
-            memport.new_id,
-            Some(memport.field_ref(&addr)),
-        );
+            // Connect concatenated address to the new memory port
+            fg.add_wire(
+                cat_id,
+                cat_expr,
+                memport.new_id,
+                Some(memport.field_ref(&addr)));
+        } else {
+            // If memory depth is not a power of two, use: address + thread_idx * original_depth
+            // First, multiply thread_idx by original_depth
+            let (depth_const_id, depth_expr) = fg.add_uint_literal(original_depth, log2_ceil(original_depth * nthreads));
+            let (mul_id, mul_expr) = fg.add_primop2(
+                PrimOp2Expr::Mul,
+                thread_idx_id,
+                thread_idx_expr,
+                depth_const_id,
+                depth_expr);
+
+            // Then add the original address to the result
+            let (add_id, add_expr) = fg.add_primop2(
+                PrimOp2Expr::Add,
+                mul_id,
+                mul_expr,
+                addr_driver_id,
+                addr_driver_expr);
+
+            // Connect the computed address to the new memory port
+            fg.add_wire(
+                add_id,
+                add_expr,
+                memport.new_id,
+                Some(memport.field_ref(&addr)));
+        }
     }
 }
 
@@ -165,11 +216,12 @@ fn add_input_addr_edge<'a>(
 fn add_output_rdata_edge<'a>(
     fg: &mut FirGraph,
     rdata: Identifier,
-    memport: &'a MemPortInfo,
-    thread_idx_id: NodeIndex,
-    nthreads: u32,
+    memport: &'a MemPortInfo
 )
 {
+    let nthreads = memport.nthreads;
+    let thread_idx_id = memport.thread_idx_id;
+
     // Get the original memory node to check read latency
     let orig_mem_node = fg.graph.node_weight(memport.orig_id).unwrap();
     let read_latency = if let FirNodeType::Memory(_, rlat, ..) = &orig_mem_node.nt {
@@ -269,46 +321,148 @@ fn add_output_rdata_edge<'a>(
             fg.graph.add_edge(ep.0, comb_mem_id, new_clk_edge);
         }
 
-        // Connect write port address: thread_idx - 1 (if thread_idx == 0, then nthreads - 1)
+        // Create a register to store the previous cycle's thread_idx value
         let thread_idx_bits = log2_ceil(nthreads);
-
-        // Create comparison node to check if thread_idx == 0
-        let (zero_const_id, zero_expr) = fg.add_uint_literal(0, thread_idx_bits);
-        let (eq_id, eq_expr) = fg.add_primop2(
-            PrimOp2Expr::Eq,
-            thread_idx_id,
-            Expr::Reference(Reference::Ref(thread_idx_name.clone())),
-            zero_const_id,
-            zero_expr,
+        let prev_thread_idx_name = Identifier::Name(format!("{}_{}_prev_thread_idx", memport.mem, memport.port));
+        let prev_thread_idx_reg = FirNode::new(
+            Some(prev_thread_idx_name.clone()),
+            FirNodeType::Reg,
+            Some(TypeTree::build_from_ground_type(GroundType::UInt(Some(Width(thread_idx_bits)))))
         );
+        let prev_thread_idx_id = fg.graph.add_node(prev_thread_idx_reg);
 
-        // Create subtract node for thread_idx - 1
+        // Connect the register's clock (same as write port clock)
+        if let Some(clk_eid) = find_memport_incoming_edge(fg, memport, &Identifier::Name("clk".to_string())) {
+            let ep = fg.graph.edge_endpoints(clk_eid).unwrap();
+            let clk_edge = fg.graph.edge_weight(clk_eid).unwrap().clone();
+
+            // Connect clock to prev_thread_idx register
+            let mut new_clk_edge = clk_edge.clone();
+            new_clk_edge.et = FirEdgeType::Clock;
+            new_clk_edge.dst = None; // Clock edges don't have destination references
+            fg.graph.add_edge(ep.0, prev_thread_idx_id, new_clk_edge);
+        }
+
+        // Connect thread_idx to the register's input (next value)
+        let thread_idx_name = fg.graph.node_weight(thread_idx_id).unwrap().name.as_ref().unwrap().clone();
+        let thread_idx_expr = Expr::Reference(Reference::Ref(thread_idx_name.clone()));
+
+        // Create logic to determine when to update prev_thread_idx
+        // We want to update when prev_thread_idx == thread_idx - 1 (with wraparound)
+
+        // First, compute thread_idx - 1
         let (one_const_id, one_expr) = fg.add_uint_literal(1, thread_idx_bits);
         let (sub_id, sub_expr) = fg.add_primop2(
             PrimOp2Expr::Sub,
             thread_idx_id,
-            Expr::Reference(Reference::Ref(thread_idx_name.clone())),
+            thread_idx_expr.clone(),
             one_const_id,
             one_expr,
         );
 
-        // Create constant for nthreads - 1
+        // Create constant for nthreads - 1 (for wraparound case)
         let (nthreads_minus_one_id, nthreads_minus_one_expr) = fg.add_uint_literal(nthreads - 1, thread_idx_bits);
 
-        // Create mux to select between thread_idx - 1 and nthreads - 1
-        let (mux_id, mux_expr) = fg.add_mux(
-            eq_id,
-            eq_expr,
+        // Check if thread_idx == 0
+        let (zero_const_id, zero_expr) = fg.add_uint_literal(0, thread_idx_bits);
+        let (eq_zero_id, eq_zero_expr) = fg.add_primop2(
+            PrimOp2Expr::Eq,
+            thread_idx_id,
+            thread_idx_expr.clone(),
+            zero_const_id,
+            zero_expr,
+        );
+
+        // Select between thread_idx - 1 and nthreads - 1 based on whether thread_idx == 0
+        let (expected_prev_id, expected_prev_expr) = fg.add_mux(
+            eq_zero_id,
+            eq_zero_expr,
             nthreads_minus_one_id,
             nthreads_minus_one_expr,
             sub_id,
             sub_expr,
         );
 
-        // Connect mux output to write port address
+        // Compare prev_thread_idx with the expected value
+        let prev_thread_idx_expr = Expr::Reference(Reference::Ref(prev_thread_idx_name.clone()));
+        let (eq_expected_id, eq_expected_expr) = fg.add_primop2(
+            PrimOp2Expr::Eq,
+            prev_thread_idx_id,
+            prev_thread_idx_expr.clone(),
+            expected_prev_id,
+            expected_prev_expr,
+        );
+
+        // Mux to select between thread_idx (when equal) and prev_thread_idx (when not equal)
+        let (mux_id, mux_expr) = fg.add_mux(
+            eq_expected_id,
+            eq_expected_expr.clone(),
+            thread_idx_id,
+            thread_idx_expr,
+            prev_thread_idx_id,
+            prev_thread_idx_expr,
+        );
+
+        // Connect the mux output to the register input
+        let reg_input_edge = FirEdge::new(mux_expr, Some(Reference::Ref(prev_thread_idx_name.clone())), FirEdgeType::Wire);
+        fg.graph.add_edge(mux_id, prev_thread_idx_id, reg_input_edge);
+
+        // Update the skip_update register: set to false if we updated prev_thread_idx, true otherwise
+        let (false_const_id, false_expr) = fg.add_uint_literal(0, 1);
+        let (true_const_id, true_expr) = fg.add_uint_literal(1, 1);
+        let (skip_mux_id, skip_mux_expr) = fg.add_mux(
+            eq_expected_id,
+            eq_expected_expr.clone(),
+            false_const_id,
+            false_expr,
+            true_const_id,
+            true_expr,
+        );
+
+        // Connect the register's output (previous cycle's thread_idx) to write port address
+        let prev_thread_idx_expr = Expr::Reference(Reference::Ref(prev_thread_idx_name.clone()));
+
+        // Compute prev_thread_idx + 1
+        let (one_const_id, one_expr) = fg.add_uint_literal(1, thread_idx_bits);
+        let (add_id, add_expr) = fg.add_primop2(
+            PrimOp2Expr::Add,
+            prev_thread_idx_id,
+            prev_thread_idx_expr.clone(),
+            one_const_id,
+            one_expr);
+
+        // Check if prev_thread_idx + 1 equals nthreads (for wraparound)
+        let (nthreads_const_id, nthreads_expr) = fg.add_uint_literal(nthreads - 1, thread_idx_bits);
+        let (eq_nthreads_id, eq_nthreads_expr) = fg.add_primop2(
+            PrimOp2Expr::Eq,
+            prev_thread_idx_id,
+            prev_thread_idx_expr.clone(),
+            nthreads_const_id,
+            nthreads_expr);
+
+        // Select between prev_thread_idx + 1 and 0 based on wraparound
+        let (zero_const_id, zero_expr) = fg.add_uint_literal(0, thread_idx_bits);
+        let (wrapped_id, wrapped_expr) = fg.add_mux(
+            eq_nthreads_id,
+            eq_nthreads_expr,
+            zero_const_id,
+            zero_expr,
+            add_id,
+            add_expr);
+
+        // Final mux to select between wrapped value (when skip_update is true) and prev_thread_idx (when false)
+        let (final_mux_id, final_mux_expr) = fg.add_mux(
+            skip_mux_id,
+            skip_mux_expr,
+            wrapped_id,
+            wrapped_expr,
+            prev_thread_idx_id,
+            prev_thread_idx_expr);
+
+        // Connect the final mux output to write port address
         fg.add_wire(
-            mux_id,
-            mux_expr,
+            final_mux_id,
+            final_mux_expr,
             comb_mem_id,
             Some(Reference::RefDot(Box::new(wport_ref.clone()), Identifier::Name("addr".to_string()))),
         );
@@ -332,44 +486,27 @@ fn add_output_rdata_edge<'a>(
     }
 }
 
-fn wport_connections<'a>(
-    fg: &mut FirGraph,
-    memport: &'a MemPortInfo,
-    thread_idx_id: NodeIndex,
-)
-{
-    add_input_addr_edge(fg, thread_idx_id, memport);
+fn wport_connections<'a>(fg: &mut FirGraph, memport: &'a MemPortInfo) {
+    add_input_addr_edge(fg, Identifier::Name("addr".to_string()), memport);
     add_input_mem_edge(fg, Identifier::Name("en".to_string()), memport);
     add_input_mem_edge(fg, Identifier::Name("clk".to_string()), memport);
     add_input_mem_edge(fg, Identifier::Name("data".to_string()), memport);
     add_input_mem_edge(fg, Identifier::Name("mask".to_string()), memport);
 }
 
-fn rwport_connections<'a>(
-    fg: &mut FirGraph,
-    memport: &'a MemPortInfo,
-    thread_idx_id: NodeIndex,
-    nthreads: u32
-)
-{
-    add_input_addr_edge(fg, thread_idx_id, memport);
+fn rwport_connections<'a>(fg: &mut FirGraph, memport: &'a MemPortInfo) {
+    add_input_addr_edge(fg, Identifier::Name("addr".to_string()), memport);
     add_input_mem_edge(fg, Identifier::Name("en".to_string()), memport);
     add_input_mem_edge(fg, Identifier::Name("clk".to_string()), memport);
     add_input_mem_edge(fg, Identifier::Name("wmask".to_string()), memport);
     add_input_mem_edge(fg, Identifier::Name("wdata".to_string()), memport);
     add_input_mem_edge(fg, Identifier::Name("wmode".to_string()), memport);
-    add_output_rdata_edge(fg, Identifier::Name("rdata".to_string()), memport, thread_idx_id, nthreads);
+    add_output_rdata_edge(fg, Identifier::Name("rdata".to_string()), memport);
 }
 
-fn rport_connections<'a>(
-    fg: &mut FirGraph,
-    memport: &'a MemPortInfo,
-    thread_idx_id: NodeIndex,
-    nthreads: u32
-)
-{
-    add_input_addr_edge(fg, thread_idx_id, memport);
+fn rport_connections<'a>(fg: &mut FirGraph, memport: &'a MemPortInfo) {
+    add_input_addr_edge(fg, Identifier::Name("addr".to_string()), memport);
     add_input_mem_edge(fg, Identifier::Name("en".to_string()), memport);
     add_input_mem_edge(fg, Identifier::Name("clk".to_string()), memport);
-    add_output_rdata_edge(fg, Identifier::Name("data".to_string()), memport, thread_idx_id, nthreads);
+    add_output_rdata_edge(fg, Identifier::Name("data".to_string()), memport);
 }
