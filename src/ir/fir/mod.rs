@@ -213,8 +213,29 @@ impl NameSpace {
             let candidate = Identifier::Name(format!("{}_{}", self.pfx, self.cntr));
             self.cntr += 1;
             if !self.used.contains(&candidate) {
+                self.used.insert(candidate.clone());
                 return candidate;
             }
+        }
+    }
+
+    /// Try to use a specific name. If it's already taken, append a counter suffix.
+    /// The name is added to the namespace and returned.
+    pub fn new_name(&mut self, desired: &str) -> Identifier {
+        let base = Identifier::Name(desired.to_string());
+        if !self.used.contains(&base) {
+            self.used.insert(base.clone());
+            return base;
+        }
+        // Name exists, try with counter suffix
+        let mut counter = 0u32;
+        loop {
+            let candidate = Identifier::Name(format!("{}_{}", desired, counter));
+            if !self.used.contains(&candidate) {
+                self.used.insert(candidate.clone());
+                return candidate;
+            }
+            counter += 1;
         }
     }
 
@@ -359,6 +380,29 @@ impl FirGraph {
         rhs_expr: Expr,
     ) -> (NodeIndex, Expr) {
         let name = self.namespace.next();
+        let node = FirNode::new(Some(name.clone()), FirNodeType::PrimOp2Expr(op), None);
+        let node_id = self.graph.add_node(node);
+
+        let op0_edge = FirEdge::new(lhs_expr, None, FirEdgeType::Operand0);
+        self.graph.add_edge(lhs_id, node_id, op0_edge);
+
+        let op1_edge = FirEdge::new(rhs_expr, None, FirEdgeType::Operand1);
+        self.graph.add_edge(rhs_id, node_id, op1_edge);
+
+        let expr = Expr::Reference(Reference::Ref(name));
+        (node_id, expr)
+    }
+
+    /// Adds a new binary primitive operation node with a specific name.
+    pub fn add_primop2_with_name(
+        &mut self,
+        name: Identifier,
+        op: PrimOp2Expr,
+        lhs_id: NodeIndex,
+        lhs_expr: Expr,
+        rhs_id: NodeIndex,
+        rhs_expr: Expr,
+    ) -> (NodeIndex, Expr) {
         let node = FirNode::new(Some(name.clone()), FirNodeType::PrimOp2Expr(op), None);
         let node_id = self.graph.add_node(node);
 

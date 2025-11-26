@@ -36,6 +36,8 @@ pub fn multithread_module(
     let thread_idx_id = add_thread_idx_reg(&mut fame5, nthreads, host_clock, host_reset);
     add_thread_idx_update(&mut fame5, thread_idx_id, nthreads, log2_ceil(nthreads));
 
+    let host_clock_id = find_host_clock_or_reset_id(&fame5, host_clock);
+
     for &id in reg_or_mem_ids.iter().rev() {
         let node = fame5.graph.node_weight(id).unwrap().clone();
         match node.nt {
@@ -46,7 +48,7 @@ pub fn multithread_module(
             FirNodeType::Memory(_, rlat, wlat, _, _) => {
                 assert!(rlat <= 1);
                 assert!(wlat == 1);
-                duplicate_memory(&mut fame5, nthreads, thread_idx_id, id);
+                duplicate_memory(&mut fame5, nthreads, thread_idx_id, id, host_clock_id, host_clock);
             }
             _ => {
                 unreachable!()
