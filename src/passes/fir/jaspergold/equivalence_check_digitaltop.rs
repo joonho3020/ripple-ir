@@ -74,7 +74,7 @@ pub fn equivalence_check_customtop(input_fir: &str, top: &str, clock: &str, rese
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "jaspergold-tests"))]
 mod test {
     use test_case::test_case;
     use crate::common::RippleIRErr;

@@ -150,20 +150,8 @@ We implement a hybrid algorithm @maximum_common_subgraph_for_digital_circuits th
 
 = Case Study: Implementing FAME transformations
 
-As a case study, we implement the FAME-1 @goldengate transformation using our IR.
-
-#figure(
-  image("./assets/fame-1.png", width: 100%),
-  caption: [
-    FAME-1 decouples the target design's clock from the host FPGA clock, enabling simulations faithful to the taped-out ASIC on a FPGA.
-    The black bold lines represents the original circuit, while the colored lines and elements represents the additional logic added by the compiler to perform host-clock decoupling.
-  ],
-) <fig:fame1>
-
-The FAME-1 transformation decouples the target design's clock from the host FPGA clock by introducing clock-gating and stalling logic.
-In our IR, this is implemented by identifying all clock domains and inserting control logic.
-In our compiler, this pass is implemented in 421 lines of Rust compared to 474 lines of Scala.
-Considering that Scala is a much expressive language, we can infer that the compiler passes are simpler to write.
+As a case study, we implement the FAME-5 @goldengate transformation using our IR.
+This pass transforms the design to support efficient FPGA-based simulation by introducing additional host-side control logic and replicating target state for multithreading.
 
 = Evaluation
 
@@ -233,7 +221,7 @@ We also plan to explore more sophisticated circuit diffing techniques that could
 
 = Role
 
-Joonho worked on building the overall compiler infrastructure, the FAME-1 transformation, and the implementation of the GumTree algorithm.
+Joonho worked on building the overall compiler infrastructure, the FAME-5 transformation, and the implementation of the GumTree algorithm.
 Maor implemented the direct common subgraph identification algorithm.
 
 = How the project applied one or more of the course topics

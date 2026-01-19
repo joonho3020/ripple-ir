@@ -66,7 +66,7 @@ docs/     : contains some documentation about this project
 src/
   common/ : contains some utility code
   ir/     : contains the IR representations and additional datastructures for bookkeeping
-  passes/ : compiler passes on each representation. Can ignore the RIR format for now
+  passes/ : compiler passes over each IR representation
 ```
 
 

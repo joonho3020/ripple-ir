@@ -2,7 +2,6 @@ pub mod typetree;
 pub mod whentree;
 pub mod fir;
 pub mod hierarchy;
-pub mod rir;
 pub mod whentree_impl;
 
 #[macro_export]

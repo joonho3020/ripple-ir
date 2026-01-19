@@ -1,10 +1,8 @@
 use crate::ir::fir::FirIR;
-use crate::ir::rir::rir::RippleIR;
 use crate::passes::fir::from_ast::from_circuit;
 use crate::passes::fir::infer_typetree::*;
 use crate::passes::fir::remove_unnecessary_phi::remove_unnecessary_phi;
 use crate::passes::fir::check_phi_nodes::check_phi_node_connections;
-use crate::passes::rir::from_fir::from_fir;
 use crate::common::RippleIRErr;
 use crate::timeit;
 use rusty_firrtl::Circuit;
@@ -65,12 +63,4 @@ pub fn run_fir_passes(fir: &mut FirIR) -> Result<(), RippleIRErr> {
         check_phi_node_connections(&fir)?;
     });
     Ok(())
-}
-
-pub fn run_rir_passes(fir: &FirIR) -> Result<RippleIR, RippleIRErr> {
-    let rir = timeit!("from_fir", {
-        from_fir(fir)
-    });
-
-    Ok(rir)
 }

@@ -1,3 +1,9 @@
+//! Legacy FAME-1 transformation.
+//!
+//! This pass previously relied on the (now removed) RIR pipeline for combinational dependency
+//! analysis. The original implementation is kept below for reference, but is intentionally
+//! commented out so it does not compile.
+/*
 use crate::ir::fir::{FirEdge, FirEdgeType, FirGraph, FirIR, FirNode, FirNodeType};
 use crate::ir::typetree::tnode::{GroundType, TypeDirection, TypeTreeNodeType};
 use crate::ir::typetree::typetree::TypeTree;
@@ -501,3 +507,4 @@ mod test {
         Ok(())
     }
 }
+*/

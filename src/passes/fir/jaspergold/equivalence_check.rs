@@ -458,7 +458,7 @@ pub fn parse_jasper_summary(stdout: &str) -> EquivStatus {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "jaspergold-tests"))]
 mod test {
     use test_case::test_case;
     use crate::common::RippleIRErr;
